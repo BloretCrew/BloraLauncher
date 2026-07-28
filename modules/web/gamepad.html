@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>虚拟手柄 - Bloret Launcher</title>
+    <link rel="stylesheet" href="/gamepad.css">
+    <script src="/dialog.js"></script>
+</head>
+<body>
+    <div class="gamepad-container" id="gamepad-container">
+        <button class="back-btn" id="back-btn" onclick="location.href='/remoter'">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            </svg>
+        </button>
+        
+        <!-- 编辑模式按钮 -->
+        <button class="edit-btn" id="edit-btn" onclick="toggleEditMode()">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+            </svg>
+        </button>
+        
+        <!-- 编辑模式顶部栏 -->
+        <div class="edit-toolbar" id="edit-toolbar">
+            <button class="edit-toolbar-btn add" onclick="showAddKeyDialog()">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                </svg>
+                添加
+            </button>
+            <button class="edit-toolbar-btn cancel" onclick="cancelEdit()">放弃</button>
+            <button class="edit-toolbar-btn save" onclick="saveLayout()">保存</button>
+        </div>
+
+        <div class="touch-area" id="touch-area">
+            <div class="touch-hint" id="touch-hint">
+                点击 = 右键 &nbsp;|&nbsp; 长按 = 摧毁
+            </div>
+        </div>
+
+        <div class="joystick-area" id="joystick-left">
+            <canvas id="canvas-left" width="140" height="140"></canvas>
+            <div class="joystick-label">移动</div>
+        </div>
+
+        <div class="joystick-area" id="joystick-right">
+            <canvas id="canvas-right" width="140" height="140"></canvas>
+            <div class="joystick-label">视角</div>
+        </div>
+
+        <div class="action-buttons" id="action-buttons">
+            <button class="action-btn" data-key="space" data-label="空格">
+                <span>跳跃</span>
+            </button>
+            <button class="action-btn" data-key="shift" data-label="Shift">
+                <span>潜行</span>
+            </button>
+            <button class="action-btn" data-key="e" data-label="E">
+                <span>E</span>
+            </button>
+            <button class="action-btn" data-key="q" data-label="Q">
+                <span>Q</span>
+            </button>
+            <button class="action-btn" data-key="f" data-label="F">
+                <span>F</span>
+            </button>
+            <button class="action-btn" data-key="t" data-label="T">
+                <span>T</span>
+            </button>
+        </div>
+
+        <div class="hotbar-buttons">
+            <button class="hotbar-btn" data-key="1">1</button>
+            <button class="hotbar-btn" data-key="2">2</button>
+            <button class="hotbar-btn" data-key="3">3</button>
+            <button class="hotbar-btn" data-key="4">4</button>
+            <button class="hotbar-btn" data-key="5">5</button>
+            <button class="hotbar-btn" data-key="6">6</button>
+            <button class="hotbar-btn" data-key="7">7</button>
+            <button class="hotbar-btn" data-key="8">8</button>
+            <button class="hotbar-btn" data-key="9">9</button>
+        </div>
+    </div>
+
+    <!-- 添加按键对话框 -->
+    <div id="add-key-dialog" class="add-key-dialog hidden">
+        <div class="add-key-header">
+            <span>选择按键</span>
+            <button onclick="closeAddKeyDialog()">✕</button>
+        </div>
+        <div class="add-key-content" id="add-key-content"></div>
+    </div>
+
+    <!-- 系统键盘输入框 -->
+    <input type="text" id="system-keyboard" class="system-keyboard-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="输入文字...">
+
+    <script>
+        // ============ 状态变量 ============
+        const activeKeys = new Set();
+        let isEditMode = false;
+        let currentLayout = [];
+        let editingButton = null;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+        
+        // 游戏手柄配置
+        let gamepadConfig = {
+            move_sensitivity: 50,
+            view_sensitivity: 50,
+            layout_data: ''
+        };
+
+        // 可用按键列表
+        const availableKeys = [
+            { key: "space", label: "空格" },
+            { key: "shift", label: "Shift" },
+            { key: "ctrl", label: "Ctrl" },
+            { key: "alt", label: "Alt" },
+            { key: "enter", label: "回车" },
+            { key: "escape", label: "Esc" },
+            { key: "tab", label: "Tab" },
+            { key: "backspace", label: "退格" },
+            { key: "a", label: "A" }, { key: "b", label: "B" }, { key: "c", label: "C" },
+            { key: "d", label: "D" }, { key: "e", label: "E" }, { key: "f", label: "F" },
+            { key: "g", label: "G" }, { key: "h", label: "H" }, { key: "i", label: "I" },
+            { key: "j", label: "J" }, { key: "k", label: "K" }, { key: "l", label: "L" },
+            { key: "m", label: "M" }, { key: "n", label: "N" }, { key: "o", label: "O" },
+            { key: "p", label: "P" }, { key: "q", label: "Q" }, { key: "r", label: "R" },
+            { key: "s", label: "S" }, { key: "t", label: "T" }, { key: "u", label: "U" },
+            { key: "v", label: "V" }, { key: "w", label: "W" }, { key: "x", label: "X" },
+            { key: "y", label: "Y" }, { key: "z", label: "Z" },
+            { key: "0", label: "0" }, { key: "1", label: "1" }, { key: "2", label: "2" },
+            { key: "3", label: "3" }, { key: "4", label: "4" }, { key: "5", label: "5" },
+            { key: "6", label: "6" }, { key: "7", label: "7" }, { key: "8", label: "8" },
+            { key: "9", label: "9" },
+            { key: "up", label: "↑" }, { key: "down", label: "↓" },
+            { key: "left", label: "←" }, { key: "right", label: "→" },
+            { key: "f1", label: "F1" }, { key: "f2", label: "F2" }, { key: "f3", label: "F3" },
+            { key: "f4", label: "F4" }, { key: "f5", label: "F5" }, { key: "f6", label: "F6" },
+            { key: "f7", label: "F7" }, { key: "f8", label: "F8" }, { key: "f9", label: "F9" },
+            { key: "f10", label: "F10" }, { key: "f11", label: "F11" }, { key: "f12", label: "F12" }
+        ];
+
+        // ============ 系统键盘 ============
+        let lastInputValue = '';
+        let keyboardActive = false;
+
+        function openKeyboard() {
+            const input = document.getElementById('system-keyboard');
+            if (!input) return;
+            input.value = '';
+            lastInputValue = '';
+            input.classList.add('active');
+            input.focus();
+            keyboardActive = true;
+        }
+
+        function closeKeyboard() {
+            const input = document.getElementById('system-keyboard');
+            if (!input) return;
+            input.classList.remove('active');
+            input.blur();
+            input.value = '';
+            keyboardActive = false;
+        }
+
+        function handleSystemInput(e) {
+            if (!keyboardActive) return;
+            const input = e.target;
+            const currentValue = input.value;
+            
+            // 检测新增的字符
+            if (currentValue.length > lastInputValue.length) {
+                const newChars = currentValue.substring(lastInputValue.length);
+                for (const char of newChars) {
+                    sendCharToPC(char);
+                }
+            } else if (currentValue.length < lastInputValue.length) {
+                // 检测删除（退格）
+                const deletedCount = lastInputValue.length - currentValue.length;
+                for (let i = 0; i < deletedCount; i++) {
+                    sendKey('backspace', 'down');
+                    setTimeout(() => sendKey('backspace', 'up'), 20);
+                }
+            }
+            
+            lastInputValue = currentValue;
+            input.value = '';
+        }
+
+        function sendCharToPC(char) {
+            if (char === '\n' || char === '\r') {
+                sendKey('enter', 'down');
+                setTimeout(() => sendKey('enter', 'up'), 20);
+                return;
+            }
+            
+            // 对于普通字符，直接发送
+            const lowerChar = char.toLowerCase();
+            const isUpper = char !== lowerChar;
+            
+            if (isUpper) {
+                sendKey('shift', 'down');
+            }
+            sendKey(lowerChar, 'down');
+            setTimeout(() => {
+                sendKey(lowerChar, 'up');
+                if (isUpper) {
+                    sendKey('shift', 'up');
+                }
+            }, 20);
+        }
+
+        // ============ 配置加载 ============
+        async function loadGamepadConfig() {
+            try {
+                const res = await fetch('/api/v1/gamepad/config');
+                const data = await res.json();
+                if (data.status === 'success') {
+                    gamepadConfig = data.data;
+                    if (gamepadConfig.layout_data) {
+                        try {
+                            const raw = gamepadConfig.layout_data;
+                            currentLayout = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                            applyLayout();
+                        } catch (e) {
+                            console.error('Parse layout error:', e);
+                            currentLayout = getDefaultLayout();
+                        }
+                    } else {
+                        currentLayout = getDefaultLayout();
+                    }
+                }
+            } catch (e) {
+                console.error('Load config error:', e);
+                currentLayout = getDefaultLayout();
+            }
+        }
+
+        function getDefaultLayout() {
+            return [
+                { key: "space", label: "空格", x: 0.5, y: 0.45 },
+                { key: "shift", label: "Shift", x: 0.2, y: 0.55 },
+                { key: "e", label: "E", x: 0.8, y: 0.35 },
+                { key: "q", label: "Q", x: 0.2, y: 0.35 },
+                { key: "f", label: "F", x: 0.7, y: 0.55 },
+                { key: "t", label: "T", x: 0.85, y: 0.45 }
+            ];
+        }
+
+        // ============ 布局应用 ============
+        function applyLayout() {
+            const container = document.getElementById('gamepad-container');
+            const defaultButtons = document.getElementById('action-buttons');
+            
+            // 隐藏默认按键
+            if (defaultButtons) {
+                defaultButtons.style.display = 'none';
+            }
+            
+            // 移除旧的自定义按键
+            document.querySelectorAll('.custom-btn').forEach(el => el.remove());
+            
+            // 创建自定义按键
+            currentLayout.forEach((btn, index) => {
+                const el = document.createElement('button');
+                el.className = 'action-btn custom-btn';
+                el.dataset.index = index;
+                el.dataset.key = btn.key;
+                el.innerHTML = `<span>${btn.label}</span>`;
+                el.style.position = 'absolute';
+                el.style.left = `${btn.x * 100}%`;
+                el.style.top = `${btn.y * 100}%`;
+                el.style.transform = 'translate(-50%, -50%)';
+                el.style.zIndex = '10';
+                
+                container.appendChild(el);
+            });
+            
+            // 绑定事件
+            bindButtonEvents();
+        }
+
+        // ============ 按钮事件绑定 ============
+        function bindButtonEvents() {
+            document.querySelectorAll('.action-btn, .custom-btn').forEach(btn => {
+                // 移除旧事件
+                const newBtn = btn.cloneNode(true);
+                btn.parentNode.replaceChild(newBtn, btn);
+                
+                if (isEditMode) {
+                    // 编辑模式：拖拽
+                    newBtn.addEventListener('touchstart', onEditTouchStart, { passive: false });
+                    newBtn.addEventListener('mousedown', onEditMouseDown);
+                    newBtn.classList.add('editing');
+                } else {
+                    // 正常模式：按键
+                    const key = newBtn.dataset.key;
+                    if (key === 't') {
+                        newBtn.addEventListener('touchstart', (e) => {
+                            e.preventDefault();
+                            sendKey('t', 'down');
+                            newBtn.classList.add('active');
+                        }, { passive: false });
+                        newBtn.addEventListener('touchend', (e) => {
+                            e.preventDefault();
+                            sendKey('t', 'up');
+                            newBtn.classList.remove('active');
+                            openKeyboard();
+                        }, { passive: false });
+                        newBtn.addEventListener('mousedown', (e) => {
+                            sendKey('t', 'down');
+                            newBtn.classList.add('active');
+                        });
+                        newBtn.addEventListener('mouseup', () => {
+                            sendKey('t', 'up');
+                            newBtn.classList.remove('active');
+                            openKeyboard();
+                        });
+                        newBtn.addEventListener('mouseleave', () => {
+                            sendKey('t', 'up');
+                            newBtn.classList.remove('active');
+                        });
+                    } else {
+                        newBtn.addEventListener('touchstart', (e) => {
+                            e.preventDefault();
+                            activeKeys.add(key);
+                            sendKey(key, 'down');
+                            newBtn.classList.add('active');
+                        }, { passive: false });
+                        newBtn.addEventListener('touchend', (e) => {
+                            e.preventDefault();
+                            activeKeys.delete(key);
+                            sendKey(key, 'up');
+                            newBtn.classList.remove('active');
+                        }, { passive: false });
+                        newBtn.addEventListener('mousedown', (e) => {
+                            activeKeys.add(key);
+                            sendKey(key, 'down');
+                            newBtn.classList.add('active');
+                        });
+                        newBtn.addEventListener('mouseup', () => {
+                            activeKeys.delete(key);
+                            sendKey(key, 'up');
+                            newBtn.classList.remove('active');
+                        });
+                        newBtn.addEventListener('mouseleave', () => {
+                            activeKeys.delete(key);
+                            sendKey(key, 'up');
+                            newBtn.classList.remove('active');
+                        });
+                    }
+                }
+            });
+        }
+
+        // ============ 编辑模式 ============
+        function toggleEditMode() {
+            isEditMode = !isEditMode;
+            const toolbar = document.getElementById('edit-toolbar');
+            const editBtn = document.getElementById('edit-btn');
+            const backBtn = document.getElementById('back-btn');
+            const container = document.getElementById('gamepad-container');
+            
+            if (isEditMode) {
+                toolbar.classList.add('visible');
+                editBtn.style.display = 'none';
+                backBtn.style.display = 'none';
+                container.classList.add('edit-mode');
+            } else {
+                toolbar.classList.remove('visible');
+                editBtn.style.display = 'flex';
+                backBtn.style.display = 'flex';
+                container.classList.remove('edit-mode');
+            }
+            
+            bindButtonEvents();
+        }
+
+        function cancelEdit() {
+            // 重新加载布局
+            if (gamepadConfig.layout_data) {
+                try {
+                    const raw = gamepadConfig.layout_data;
+                    currentLayout = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                } catch (e) {
+                    currentLayout = getDefaultLayout();
+                }
+            } else {
+                currentLayout = getDefaultLayout();
+            }
+            applyLayout();
+            toggleEditMode();
+        }
+
+        async function saveLayout() {
+            try {
+                const layoutData = currentLayout;
+                await fetch('/api/v1/gamepad/config/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        gamepad_layout_data: layoutData,
+                        gamepad_button_layout: 'custom'
+                    })
+                });
+                gamepadConfig.layout_data = layoutData;
+                toggleEditMode();
+            } catch (e) {
+                console.error('Save error:', e);
+            }
+        }
+
+        // ============ 拖拽功能 ============
+        function onEditTouchStart(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const btn = e.currentTarget;
+            const index = parseInt(btn.dataset.index);
+            if (isNaN(index)) return;
+            
+            editingButton = btn;
+            const touch = e.changedTouches[0];
+            const rect = btn.parentElement.getBoundingClientRect();
+            dragOffsetX = touch.clientX - (rect.left + currentLayout[index].x * rect.width);
+            dragOffsetY = touch.clientY - (rect.top + currentLayout[index].y * rect.height);
+            
+            btn.classList.add('dragging');
+            
+            document.addEventListener('touchmove', onEditTouchMove, { passive: false });
+            document.addEventListener('touchend', onEditTouchEnd);
+        }
+
+        function onEditTouchMove(e) {
+            e.preventDefault();
+            if (!editingButton) return;
+            
+            const index = parseInt(editingButton.dataset.index);
+            if (isNaN(index)) return;
+            
+            const touch = e.changedTouches[0];
+            const rect = editingButton.parentElement.getBoundingClientRect();
+            let x = (touch.clientX - dragOffsetX - rect.left) / rect.width;
+            let y = (touch.clientY - dragOffsetY - rect.top) / rect.height;
+            
+            x = Math.max(0.05, Math.min(0.95, x));
+            y = Math.max(0.05, Math.min(0.95, y));
+            
+            currentLayout[index].x = x;
+            currentLayout[index].y = y;
+            
+            editingButton.style.left = `${x * 100}%`;
+            editingButton.style.top = `${y * 100}%`;
+        }
+
+        function onEditTouchEnd() {
+            if (editingButton) {
+                editingButton.classList.remove('dragging');
+                editingButton = null;
+            }
+            document.removeEventListener('touchmove', onEditTouchMove);
+            document.removeEventListener('touchend', onEditTouchEnd);
+        }
+
+        function onEditMouseDown(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const btn = e.currentTarget;
+            const index = parseInt(btn.dataset.index);
+            if (isNaN(index)) return;
+            
+            editingButton = btn;
+            const rect = btn.parentElement.getBoundingClientRect();
+            dragOffsetX = e.clientX - (rect.left + currentLayout[index].x * rect.width);
+            dragOffsetY = e.clientY - (rect.top + currentLayout[index].y * rect.height);
+            
+            btn.classList.add('dragging');
+            
+            document.addEventListener('mousemove', onEditMouseMove);
+            document.addEventListener('mouseup', onEditMouseUp);
+        }
+
+        function onEditMouseMove(e) {
+            if (!editingButton) return;
+            
+            const index = parseInt(editingButton.dataset.index);
+            if (isNaN(index)) return;
+            
+            const rect = editingButton.parentElement.getBoundingClientRect();
+            let x = (e.clientX - dragOffsetX - rect.left) / rect.width;
+            let y = (e.clientY - dragOffsetY - rect.top) / rect.height;
+            
+            x = Math.max(0.05, Math.min(0.95, x));
+            y = Math.max(0.05, Math.min(0.95, y));
+            
+            currentLayout[index].x = x;
+            currentLayout[index].y = y;
+            
+            editingButton.style.left = `${x * 100}%`;
+            editingButton.style.top = `${y * 100}%`;
+        }
+
+        function onEditMouseUp() {
+            if (editingButton) {
+                editingButton.classList.remove('dragging');
+                editingButton = null;
+            }
+            document.removeEventListener('mousemove', onEditMouseMove);
+            document.removeEventListener('mouseup', onEditMouseUp);
+        }
+
+        // ============ 添加按键 ============
+        function showAddKeyDialog() {
+            const dialog = document.getElementById('add-key-dialog');
+            const content = document.getElementById('add-key-content');
+            
+            let html = '';
+            availableKeys.forEach(k => {
+                html += `<button class="add-key-option" onclick="addKey('${k.key}', '${k.label}')">${k.label}</button>`;
+            });
+            
+            content.innerHTML = html;
+            dialog.classList.remove('hidden');
+        }
+
+        function closeAddKeyDialog() {
+            document.getElementById('add-key-dialog').classList.add('hidden');
+        }
+
+        function addKey(key, label) {
+            currentLayout.push({
+                key: key,
+                label: label,
+                x: 0.5,
+                y: 0.5
+            });
+            applyLayout();
+            closeAddKeyDialog();
+        }
+
+        // ============ 正常模式功能 ============
+        async function sendKey(key, action) {
+            try {
+                await fetch('/api/v1/remote/key', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key, action })
+                });
+            } catch (e) {
+                console.error('Send key error:', e);
+            }
+        }
+
+        async function sendMouse(action, dx = 0, dy = 0) {
+            try {
+                await fetch('/api/v1/remote/mouse', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action, dx, dy })
+                });
+            } catch (e) {
+                console.error('Send mouse error:', e);
+            }
+        }
+
+        // 摇杆实现
+        class VirtualJoystick {
+            constructor(canvasId, onMove) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.onMove = onMove;
+                this.active = false;
+                this.touchId = null;
+                this.centerX = this.canvas.width / 2;
+                this.centerY = this.canvas.height / 2;
+                this.maxRadius = this.canvas.width / 2 - 10;
+                this.knobX = this.centerX;
+                this.knobY = this.centerY;
+                this.knobRadius = 22;
+                this.draw();
+                this.bindEvents();
+            }
+
+            draw() {
+                const ctx = this.ctx;
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+                ctx.clearRect(0, 0, w, h);
+
+                ctx.beginPath();
+                ctx.arc(this.centerX, this.centerY, this.maxRadius, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(this.knobX, this.knobY, this.knobRadius, 0, Math.PI * 2);
+                ctx.fillStyle = this.active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)';
+                ctx.fill();
+            }
+
+            bindEvents() {
+                const canvas = this.canvas;
+
+                canvas.addEventListener('touchstart', (e) => {
+                    if (isEditMode) return;
+                    e.preventDefault();
+                    const touch = e.changedTouches[0];
+                    this.touchId = touch.identifier;
+                    this.active = true;
+                    this.handleMove(touch.clientX, touch.clientY);
+                }, { passive: false });
+
+                canvas.addEventListener('touchmove', (e) => {
+                    if (isEditMode) return;
+                    e.preventDefault();
+                    for (let t of e.changedTouches) {
+                        if (t.identifier === this.touchId) {
+                            this.handleMove(t.clientX, t.clientY);
+                        }
+                    }
+                }, { passive: false });
+
+                canvas.addEventListener('touchend', (e) => {
+                    if (isEditMode) return;
+                    e.preventDefault();
+                    for (let t of e.changedTouches) {
+                        if (t.identifier === this.touchId) {
+                            this.active = false;
+                            this.touchId = null;
+                            this.knobX = this.centerX;
+                            this.knobY = this.centerY;
+                            this.draw();
+                            this.onMove(0, 0);
+                        }
+                    }
+                }, { passive: false });
+
+                canvas.addEventListener('touchcancel', (e) => {
+                    this.active = false;
+                    this.touchId = null;
+                    this.knobX = this.centerX;
+                    this.knobY = this.centerY;
+                    this.draw();
+                    this.onMove(0, 0);
+                });
+            }
+
+            handleMove(clientX, clientY) {
+                const rect = this.canvas.getBoundingClientRect();
+                const scaleX = this.canvas.width / rect.width;
+                const scaleY = this.canvas.height / rect.height;
+                const x = (clientX - rect.left) * scaleX;
+                const y = (clientY - rect.top) * scaleY;
+
+                let dx = x - this.centerX;
+                let dy = y - this.centerY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist > this.maxRadius) {
+                    dx = (dx / dist) * this.maxRadius;
+                    dy = (dy / dist) * this.maxRadius;
+                }
+
+                this.knobX = this.centerX + dx;
+                this.knobY = this.centerY + dy;
+                this.draw();
+
+                const nx = dx / this.maxRadius;
+                const ny = dy / this.maxRadius;
+                this.onMove(nx, ny);
+            }
+        }
+
+        let isSprinting = false;
+
+        const leftJoystick = new VirtualJoystick('canvas-left', (nx, ny) => {
+            if (isEditMode) return;
+            const moveSensitivity = gamepadConfig.move_sensitivity / 100;
+            const threshold = 0.4 - (moveSensitivity * 0.25);
+            const sprintThreshold = 0.7;
+            const newKeys = new Set();
+            if (ny < -threshold) newKeys.add('w');
+            if (ny > threshold) newKeys.add('s');
+            if (nx < -threshold) newKeys.add('a');
+            if (nx > threshold) newKeys.add('d');
+
+            const magnitude = Math.sqrt(nx * nx + ny * ny);
+            const shouldSprint = magnitude > sprintThreshold && ny < -threshold;
+            
+            if (shouldSprint && !isSprinting) {
+                sendKey('ctrl', 'down');
+                isSprinting = true;
+            } else if (!shouldSprint && isSprinting) {
+                sendKey('ctrl', 'up');
+                isSprinting = false;
+            }
+
+            for (const k of newKeys) {
+                if (!activeKeys.has(k)) {
+                    activeKeys.add(k);
+                    sendKey(k, 'down');
+                }
+            }
+            for (const k of activeKeys) {
+                if (['w','a','s','d'].includes(k) && !newKeys.has(k)) {
+                    activeKeys.delete(k);
+                    sendKey(k, 'up');
+                }
+            }
+        });
+
+        const rightJoystick = new VirtualJoystick('canvas-right', (nx, ny) => {
+            if (isEditMode) return;
+            rightJoystickState.nx = nx;
+            rightJoystickState.ny = ny;
+        });
+
+        const rightJoystickState = { nx: 0, ny: 0 };
+        let accumulatedDx = 0;
+        let accumulatedDy = 0;
+        let lastSendTime = 0;
+        const SEND_INTERVAL = 16;
+        
+        function updateViewRotation(currentTime) {
+            requestAnimationFrame(updateViewRotation);
+            if (isEditMode) return;
+            
+            const { nx, ny } = rightJoystickState;
+            const magnitude = Math.sqrt(nx * nx + ny * ny);
+            
+            if (magnitude < 0.08) {
+                accumulatedDx = 0;
+                accumulatedDy = 0;
+                return;
+            }
+            
+            const curvedMagnitude = magnitude * magnitude;
+            const viewSensitivity = gamepadConfig.view_sensitivity / 100;
+            const baseSensitivity = 4 + (viewSensitivity * 8);
+            const maxSensitivity = 12 + (viewSensitivity * 16);
+            const sensitivity = baseSensitivity + (maxSensitivity - baseSensitivity) * curvedMagnitude;
+            
+            accumulatedDx += nx * sensitivity;
+            accumulatedDy += ny * sensitivity;
+            
+            if (currentTime - lastSendTime >= SEND_INTERVAL) {
+                const dx = Math.round(accumulatedDx);
+                const dy = Math.round(accumulatedDy);
+                
+                if (dx !== 0 || dy !== 0) {
+                    sendMouse('move', dx, dy);
+                    accumulatedDx = 0;
+                    accumulatedDy = 0;
+                }
+                
+                lastSendTime = currentTime;
+            }
+        }
+        
+        requestAnimationFrame(updateViewRotation);
+
+        // 快捷栏
+        document.querySelectorAll('.hotbar-btn').forEach(btn => {
+            const key = btn.dataset.key;
+            const handler = (e) => {
+                if (isEditMode) return;
+                e.preventDefault();
+                sendKey(key, 'down');
+                setTimeout(() => sendKey(key, 'up'), 100);
+                btn.classList.add('active');
+                setTimeout(() => btn.classList.remove('active'), 150);
+            };
+            btn.addEventListener('touchstart', handler, { passive: false });
+            btn.addEventListener('click', handler);
+        });
+
+        // 触摸区域
+        const touchArea = document.getElementById('touch-area');
+        let touchStartTime = 0;
+        let touchStartId = null;
+        let touchHandled = false;
+        let longPressTimer = null;
+        let isLeftButtonDown = false;
+
+        touchArea.addEventListener('touchstart', (e) => {
+            if (isEditMode) return;
+            e.preventDefault();
+            const touch = e.changedTouches[0];
+            touchStartTime = Date.now();
+            touchStartId = touch.identifier;
+            touchHandled = false;
+            
+            longPressTimer = setTimeout(() => {
+                if (!touchHandled) {
+                    sendMouse('left_down');
+                    isLeftButtonDown = true;
+                    touchHandled = true;
+                }
+            }, 300);
+        }, { passive: false });
+
+        touchArea.addEventListener('touchend', (e) => {
+            if (isEditMode) return;
+            e.preventDefault();
+            for (let t of e.changedTouches) {
+                if (t.identifier === touchStartId) {
+                    if (longPressTimer) {
+                        clearTimeout(longPressTimer);
+                        longPressTimer = null;
+                    }
+                    
+                    if (isLeftButtonDown) {
+                        sendMouse('left_up');
+                        isLeftButtonDown = false;
+                    }
+                    
+                    const elapsed = Date.now() - touchStartTime;
+                    if (elapsed < 300 && !touchHandled) {
+                        sendMouse('right_click');
+                    }
+                    touchHandled = true;
+                }
+            }
+        }, { passive: false });
+
+        touchArea.addEventListener('touchmove', (e) => {
+            if (isEditMode) return;
+            e.preventDefault();
+            for (let t of e.changedTouches) {
+                if (t.identifier === touchStartId) {
+                    if (longPressTimer) {
+                        clearTimeout(longPressTimer);
+                        longPressTimer = null;
+                    }
+                    
+                    if (isLeftButtonDown) {
+                        sendMouse('left_up');
+                        isLeftButtonDown = false;
+                    }
+                    touchHandled = true;
+                }
+            }
+        }, { passive: false });
+
+        document.addEventListener('contextmenu', e => e.preventDefault());
+
+        // 系统键盘事件监听
+        document.addEventListener('DOMContentLoaded', () => {
+            const sysKeyboard = document.getElementById('system-keyboard');
+            if (sysKeyboard) {
+                sysKeyboard.addEventListener('input', handleSystemInput);
+            }
+        });
+
+        // 初始化
+        loadGamepadConfig().then(() => {
+            bindButtonEvents();
+            // 检查是否需要自动进入编辑模式
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('edit') === '1') {
+                setTimeout(() => toggleEditMode(), 300);
+            }
+        });
+    </script>
+</body>
+</html>
