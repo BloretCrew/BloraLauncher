@@ -4,15 +4,43 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+extern "C" __declspec(dllexport) void SetTaskbarProgress(uint64_t completed, uint64_t total);
+extern "C" __declspec(dllexport) void SetTaskbarState(int state);
 
-FlutterWindow::~FlutterWindow() {}
+static FlutterWindow* g_flutter_window = nullptr;
+
+extern "C" __declspec(dllexport) void SetTaskbarProgress(uint64_t completed, uint64_t total) {
+  if (g_flutter_window) {
+    g_flutter_window->SetTaskbarProgress(completed, total);
+  }
+}
+
+extern "C" __declspec(dllexport) void SetTaskbarState(int state) {
+  if (g_flutter_window) {
+    g_flutter_window->SetTaskbarState(static_cast<TBPFLAG>(state));
+  }
+}
+
+FlutterWindow::FlutterWindow(const flutter::DartProject& project)
+    : project_(project) {
+  g_flutter_window = this;
+}
+
+FlutterWindow::~FlutterWindow() {
+  g_flutter_window = nullptr;
+  if (taskbar_list_) {
+    taskbar_list_->Release();
+    taskbar_list_ = nullptr;
+  }
+}
 
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
   }
+
+  CoCreateInstance(CLSID_TaskbarList, NULL, CLSCTX_INPROC_SERVER,
+                   IID_PPV_ARGS(&taskbar_list_));
 
   RECT frame = GetClientArea();
 
@@ -37,6 +65,18 @@ bool FlutterWindow::OnCreate() {
   flutter_controller_->ForceRedraw();
 
   return true;
+}
+
+void FlutterWindow::SetTaskbarProgress(uint64_t completed, uint64_t total) {
+  if (taskbar_list_) {
+    taskbar_list_->SetProgressValue(GetHandle(), completed, total);
+  }
+}
+
+void FlutterWindow::SetTaskbarState(TBPFLAG state) {
+  if (taskbar_list_) {
+    taskbar_list_->SetProgressState(GetHandle(), state);
+  }
 }
 
 void FlutterWindow::OnDestroy() {

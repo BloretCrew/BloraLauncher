@@ -4,6 +4,8 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 
+#include <shobjidl.h>
+
 #include <memory>
 
 #include "win32_window.h"
@@ -14,6 +16,9 @@ class FlutterWindow : public Win32Window {
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
+
+  void SetTaskbarProgress(uint64_t completed, uint64_t total);
+  void SetTaskbarState(TBPFLAG state);
 
  protected:
   // Win32Window:
@@ -28,6 +33,8 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  ITaskbarList3* taskbar_list_ = nullptr;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

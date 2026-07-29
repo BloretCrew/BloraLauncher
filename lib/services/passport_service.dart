@@ -111,12 +111,14 @@ class PassportService {
 
         int newChosen = (oldChosen >= 0 && oldChosen < accounts.length) ? oldChosen : (accounts.isNotEmpty ? 0 : -1);
 
+        await ConfigService.set('MinecraftAccountList', accounts.map((e) => jsonEncode(e)).toList());
+        await ConfigService.set('MinecraftAccount_Chosen', newChosen);
+
         final newAccountData = {
           "logined": accounts.isNotEmpty,
           "chosen": newChosen,
           "accounts": accounts
         };
-
         await ConfigService.set('MinecraftAccount', jsonEncode(newAccountData));
         
         if (apiResult.containsKey('avatar')) {
