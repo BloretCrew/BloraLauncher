@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 
 class BloretApiService {
   static final Dio _dio = Dio(
@@ -28,7 +29,7 @@ class BloretApiService {
           return BloretServer.fromJson(data);
         }
       } catch (_) {
-        if (attempt == 5) rethrow;
+        if (attempt == 5) debugPrint('Failed to fetch server info');
         await Future.delayed(Duration(milliseconds: 500 * attempt));
       }
     }

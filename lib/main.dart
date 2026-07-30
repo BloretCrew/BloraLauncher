@@ -1,11 +1,16 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
+import 'package:ai_flutter_agent/ai_flutter_agent.dart';
 import 'package:bloret_launcher/pages/about_page.dart';
+import 'package:bloret_launcher/pages/bbbs_page.dart';
 import 'package:bloret_launcher/pages/blora_chat_page.dart';
+import 'package:bloret_launcher/services/bloriko.dart';
+import 'package:bloret_launcher/services/memory.dart';
 import 'package:bloret_launcher/tools/server_info.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/sliding_text.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:url_launcher/url_launcher_string.dart';
@@ -28,6 +33,8 @@ void main() async {
   ErrorWidget.builder = (FlutterErrorDetails details) {
     return const SizedBox.shrink();
   };
+  Bloriko.getInstance();
+  await MemoryStore.instance.loadOnInit();
   runApp(const BloretLauncherApp());
 }
 
@@ -72,7 +79,12 @@ class BloretLauncherApp extends StatelessWidget {
         textTheme: const TextTheme().apply(fontFamily: "Microsoft"),
       ),
       themeMode: ThemeMode.system,
-      home: ConfigService.isFirstRun() ? const WelcomeSetupScreen() : const MainShell(),
+      home: Semantics(
+        container: true,
+        child: ConfigService.isFirstRun()
+            ? const WelcomeSetupScreen()
+            : const AgentOverlayWidget(child: MainShell()),
+      )
     );
   }
 }
@@ -139,7 +151,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     (const _NavDestination("小工具", Icons.handyman_outlined, Icons.handyman), const PlaceholderPage(title: "小工具")),
     (const _NavDestination("统计", Icons.bar_chart_outlined, Icons.bar_chart), const PlaceholderPage(title: "统计")),
     (const _NavDestination("Mods", Icons.extension_outlined, Icons.extension), const PlaceholderPage(title: "Mods")),
-    (const _NavDestination("BBBS", Icons.forum_outlined, Icons.forum), const PlaceholderPage(title: "BBBS")),
+    (const _NavDestination("BBBS", Icons.forum_outlined, Icons.forum), const BbbsPage()),
     (const _NavDestination("Live", Icons.live_tv_outlined, Icons.live_tv), const PlaceholderPage(title: "Live")),
 
     "divider",
@@ -436,7 +448,7 @@ class _AccountTile extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: avatar.isNotEmpty && ConfigService.get('Bloret_PassPort_Login') == true
-                        ? Image.network(avatar, fit: BoxFit.cover, errorBuilder: (_,__,___) => const Icon(Icons.account_circle, size: 28), loadingBuilder: (_, child, loadingProgress) => loadingProgress == null ? child : const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 4),), frameBuilder: (_, child, frame, wasSynchronouslyLoaded) => frame == null && !wasSynchronouslyLoaded ? const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 4),) : child)
+                        ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover, errorWidget: (_,__,___) => const Icon(Icons.account_circle, size: 28), progressIndicatorBuilder: (_, _, loadingProgress) => const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 4),))
                         : Container(
                             color: theme.colorScheme.surfaceVariant,
                             child: const Icon(Icons.person, size: 18),
@@ -500,8 +512,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
     _listController.forward();
     timer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      setState(() {});
       if (sentences.isNotEmpty) {
-        timer.cancel();
         return;
       }
       setState(() {
@@ -630,7 +642,30 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         const Divider(height: 24),
                         const Text("Blora Agent 推荐时间段", style: TextStyle(fontWeight: FontWeight.bold)),
                         const SizedBox(height: 12),
-                        server != null ? buildSimpleMarkdownText(server?.bestTime ?? "", style: theme.textTheme.bodySmall) : const Text("嘿嘿~ Blora Agent 来啦！现在的在线人数非常适合游玩哦~"),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          transitionBuilder: (child, animation) {
+                            final sizeAnimation = CurvedAnimation(
+                              parent: animation,
+                              curve: const Interval(0.0, 1.0, curve: Curves.easeOutBack),
+                            );
+
+                            final fadeAnimation = CurvedAnimation(
+                              parent: animation,
+                              curve: const Interval(0.3, 1.0, curve: Curves.easeIn),
+                            );
+
+                            return FadeTransition(
+                              opacity: fadeAnimation,
+                              child: SizeTransition(
+                                sizeFactor: sizeAnimation,
+                                axisAlignment: -1.0,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: server != null ? KeyedSubtree(key: ValueKey(server != null), child: buildSimpleMarkdownText(server?.bestTime ?? "", style: theme.textTheme.bodySmall)) : Row(key: ValueKey(server != null), mainAxisSize: .min, children: [Text("嘿嘿~ Blora Agent 来啦！现在的在线人数非常适合游玩哦~"), const SizedBox(width: 8), const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),],),
+                        ),
                       ],
                     ),
                   ),
@@ -1006,6 +1041,7 @@ class _PassPortPageState extends State<PassPortPage> {
     final userName = ConfigService.get('Bloret_PassPort_UserName') ?? "访客";
     final avatar = ConfigService.get('Bloret_PassPort_Avatar') ?? "";
     final accountData = _getAccountData();
+    // fuck
     final List accounts = accountData['accounts'] ?? [];
 
     return Scaffold(
@@ -1023,7 +1059,7 @@ class _PassPortPageState extends State<PassPortPage> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: avatar.isNotEmpty && isLoggedIn
-                      ? Image.network(avatar, width: 48, height: 48, fit: BoxFit.cover, )
+                      ? CachedNetworkImage(imageUrl: avatar, width: 48, height: 48, fit: BoxFit.cover, )
                       : SizedBox(width: 48, height: 48, child: Image.asset(Theme.of(context).brightness == Brightness.dark ? "assets/bloret_dark.png" : "assets/bloret_light.png")),
                 ),
                 const SizedBox(width: 16),
@@ -1084,7 +1120,7 @@ class _PassPortPageState extends State<PassPortPage> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(4),
-                        child: Image.network(account['avatarUrl'] ?? "https://mc-heads.net/avatar/${account['uuid']}/32", width: 32, height: 32, errorBuilder: (_, __, ___) => const Icon(Icons.account_circle, size: 32)),
+                        child: CachedNetworkImage(imageUrl: account['avatarUrl'] ?? "https://mc-heads.net/avatar/${account['uuid']}/32", width: 32, height: 32, errorWidget: (_, __, ___) => const Icon(Icons.account_circle, size: 32)),
                       ),
                       const SizedBox(width: 12),
                       Expanded(

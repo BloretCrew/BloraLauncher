@@ -82,128 +82,187 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
   }
 
   OverlayEntry _createOverlayEntry() {
-    RenderBox renderBox = context.findRenderObject() as RenderBox;
-    Size size = renderBox.size;
+    final renderBox = context.findRenderObject() as RenderBox;
+    final size = renderBox.size;
+
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final themeColor = _getThemeColor(context);
 
-    return OverlayEntry(
-      builder: (context) => Stack(
-        children: [
-          ModalBarrier(
-            color: Colors.transparent,
-            dismissible: true,
-            onDismiss: _closeMenu,
-          ),
-          CompositedTransformFollower(
-            link: _layerLink,
-            showWhenUnlinked: false,
-            offset: Offset(0, size.height + 4),
-            child: Material(
-              color: Colors.transparent,
-              child: SizeTransition(
-                sizeFactor: _expandAnimation,
-                axisAlignment: -1.0,
-                child: Container(
-                  width: size.width,
-                  constraints: const BoxConstraints(maxHeight: 220),
-                  decoration: BoxDecoration(
-                    color: isDarkMode ? const Color(0xFF2C2C2C) : Colors.white.withOpacity(0.95),
-                    border: Border.all(
-                      color: isDarkMode ? const Color(0xFF444444) : const Color(0xFFCCCCCC),
-                      width: 1,
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(isDarkMode ? 0.3 : 0.1),
-                        blurRadius: 15,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Scrollbar(
-                    controller: _scrollController,
-                    thumbVisibility: true,
-                    radius: const Radius.circular(4),
-                    child: ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      shrinkWrap: true,
-                      itemCount: widget.items.length,
-                      itemBuilder: (context, index) {
-                        final item = widget.items[index];
-                        final isSelected = item.value == _selectedValue;
+    final renderBoxOverlay =
+    Overlay.of(context).context.findRenderObject() as RenderBox;
 
-                        return MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: StatefulBuilder(
+    final globalPosition = renderBox.localToGlobal(Offset.zero);
+
+    final double spaceBelow =
+        renderBoxOverlay.size.height -
+            (globalPosition.dy + size.height);
+
+    final double spaceAbove = globalPosition.dy;
+
+    final bool showAbove = spaceBelow < 230 && spaceAbove > spaceBelow;
+
+    return OverlayEntry(
+      builder: (context) {
+        return Stack(
+          children: [
+            ModalBarrier(
+              color: Colors.transparent,
+              dismissible: true,
+              onDismiss: _closeMenu,
+            ),
+
+            CompositedTransformFollower(
+              link: _layerLink,
+              showWhenUnlinked: false,
+
+              targetAnchor: showAbove
+                  ? Alignment.topLeft
+                  : Alignment.bottomLeft,
+
+              followerAnchor: showAbove
+                  ? Alignment.bottomLeft
+                  : Alignment.topLeft,
+
+              offset: const Offset(0, 4),
+
+              child: Material(
+                color: Colors.transparent,
+                child: SizeTransition(
+                  sizeFactor: _expandAnimation,
+
+                  axisAlignment: 0,
+
+                  child: Container(
+                    width: size.width,
+
+                    constraints: const BoxConstraints(
+                      maxHeight: 220,
+                    ),
+
+                    decoration: BoxDecoration(
+                      color: isDarkMode
+                          ? const Color(0xFF2C2C2C)
+                          : Colors.white.withValues(alpha: 0.95),
+
+                      border: Border.all(
+                        color: isDarkMode
+                            ? const Color(0xFF444444)
+                            : const Color(0xFFBBBBBB),
+                      ),
+
+                      borderRadius: BorderRadius.circular(8),
+
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(
+                            alpha: isDarkMode ? 0.3 : 0.1,
+                          ),
+                          blurRadius: 15,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+
+                    child: Scrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: true,
+
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        shrinkWrap: true,
+
+                        itemCount: widget.items.length,
+
+                        itemBuilder: (context, index) {
+                          final item = widget.items[index];
+                          final isSelected =
+                              item.value == _selectedValue;
+
+                          bool isHovered = false;
+
+                          return StatefulBuilder(
                             builder: (context, setState) {
-                              bool isHovered = false;
                               return MouseRegion(
-                                onEnter: (_) => setState(() => isHovered = true),
-                                onExit: (_) => setState(() => isHovered = false),
+                                onEnter: (_) =>
+                                    setState(() => isHovered = true),
+                                onExit: (_) =>
+                                    setState(() => isHovered = false),
+
                                 child: GestureDetector(
                                   onTap: () {
-                                    setState(() => _selectedValue = item.value);
-                                    widget.onChanged?.call(item.value);
+                                    setState(() =>
+                                    _selectedValue = item.value);
+
+                                    widget.onChanged
+                                        ?.call(item.value);
+
                                     _closeMenu();
                                   },
+
                                   child: Container(
-                                    height: 36,
-                                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    height: 32,
+                                    margin:
+                                    const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 1,
+                                    ),
+
                                     decoration: BoxDecoration(
                                       color: isSelected
-                                          ? themeColor.withOpacity(0.2)
-                                          : (isHovered
-                                          ? (isDarkMode ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04))
-                                          : Colors.transparent),
-                                      borderRadius: BorderRadius.circular(4),
+                                          ? themeColor.withValues(
+                                          alpha: 0.2)
+                                          : isHovered
+                                          ? Colors.black12
+                                          : Colors.transparent,
+
+                                      borderRadius:
+                                      BorderRadius.circular(4),
                                     ),
-                                    child: Stack(
-                                      alignment: Alignment.centerLeft,
-                                      children: [
-                                        if (isSelected)
-                                          Positioned(
-                                            left: 0,
-                                            child: Container(
-                                              width: 3,
-                                              height: 16,
-                                              decoration: BoxDecoration(
-                                                color: themeColor,
-                                                borderRadius: BorderRadius.circular(1.5),
-                                              ),
-                                            ),
-                                          ),
-                                        Padding(
-                                          padding: const EdgeInsets.only(left: 16, right: 12),
-                                          child: Text(
-                                            item.label,
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              color: isDarkMode ? const Color(0xFFF3F3F3) : const Color(0xFF1A1A1A),
-                                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ],
+
+                                    alignment:
+                                    Alignment.centerLeft,
+
+                                    padding:
+                                    const EdgeInsets.only(
+                                      left: 16,
+                                      right: 12,
+                                    ),
+
+                                    child: Text(
+                                      item.label,
+
+                                      overflow:
+                                      TextOverflow.ellipsis,
+
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: isDarkMode
+                                            ? const Color(
+                                            0xFFF3F3F3)
+                                            : const Color(
+                                            0xFF1A1A1A),
+
+                                        fontWeight: isSelected
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
                                     ),
                                   ),
                                 ),
                               );
                             },
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 
@@ -216,6 +275,7 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
       orElse: () => Win11DropdownItem(label: '请选择', value: ''),
     );
 
+    // ccb----, ccb---- cccb cc ccb
     return CompositedTransformTarget(
       link: _layerLink,
       child: MouseRegion(
@@ -223,17 +283,17 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
         child: GestureDetector(
           onTap: _toggleMenu,
           child: Container(
-            height: 36,
+            height: 32,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              color: isDarkMode ? const Color(0xFF202020) : Colors.white,
+              color: isDarkMode ? const Color(0xFF202020) : Colors.white.withOpacity(0.8),
               border: Border.all(
                 color: _isOpen
                     ? themeColor
                     : (isDarkMode ? const Color(0xFF666666) : const Color(0xFF8B8B8B)),
                 width: _isOpen ? 2 : 1,
               ),
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(6),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -242,7 +302,7 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
                   child: Text(
                     selectedItem.value.isEmpty ? '请选择' : selectedItem.label,
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: 13,
                       color: isDarkMode ? const Color(0xFFF3F3F3) : const Color(0xFF1A1A1A),
                     ),
                     overflow: TextOverflow.ellipsis,

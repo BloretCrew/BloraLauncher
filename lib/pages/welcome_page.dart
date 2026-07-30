@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:io';
@@ -40,7 +41,6 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   final ValueNotifier<bool> _isTokenValidNotifier = ValueNotifier<bool>(false);
   bool _isVerifyingCode = true;
 
-  // Java Setup State
   bool _isCheckingJava = false;
   bool _javaInstalled = false;
   String _javaPath = "";
@@ -59,10 +59,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
     "8": {"Windows": {"x64": "https://cdn.azul.com/zulu/bin/zulu8.88.0.19-ca-jdk8.0.462-win_x64.msi"}},
   };
 
-  // Sync State
   bool _isSyncingAccounts = false;
 
-  // Remote State
   String _localIp = "127.0.0.1";
 
   @override
@@ -362,8 +360,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
     if (data is List<String>) {
       return data.map((e) => jsonDecode(e) as Map<String, dynamic>).toList();
     }
-    
-    // 兼容逻辑：如果不是列表，尝试从旧的格式中提取
+
     final oldData = ConfigService.get('MinecraftAccount');
     if (oldData is String) {
       try {
@@ -454,6 +451,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
           request.response
             ..statusCode = HttpStatus.ok
             ..headers.contentType = ContentType.html
+            // 史，用Copilot生成
             ..write('''
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -970,21 +968,20 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                                   child: Stack(
                                     children: [
                                       const Center(child: Icon(Icons.account_circle, size: 24, color: Colors.grey)),
-                                      Image.network(
-                                        account['avatarUrl'] ?? "https://mc-heads.net/avatar/${account['uuid']}/32",
+                                      CachedNetworkImage(
+                                        imageUrl: account['avatarUrl'] ?? "https://mc-heads.net/avatar/${account['uuid']}/32",
                                         width: 32,
                                         height: 32,
                                         fit: BoxFit.cover,
-                                        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                                          if (wasSynchronouslyLoaded) return child;
+                                        placeholder: (context, _) {
                                           return AnimatedOpacity(
-                                            opacity: frame == null ? 0 : 1,
+                                            opacity: 1,
                                             duration: const Duration(milliseconds: 500),
                                             curve: Curves.easeOut,
-                                            child: child,
+                                            child: const CircularProgressIndicator(),
                                           );
                                         },
-                                        errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                                        errorWidget: (context, error, stackTrace) => const SizedBox.shrink(),
                                       ),
                                     ],
                                   ),
@@ -996,7 +993,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(account['username'] ?? "Unknown", 
+                                  Text(account['username'] ?? "Unknown",
                                     style: TextStyle(
                                       fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
                                       color: isSelected ? theme.colorScheme.primary : null,
@@ -1157,7 +1154,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                         child: GoogleSquigglySlider(
                           value: _installProgress * 100, 
                           max: 100,
-                          isPlaying: _installStatus.contains("安装"), // 安装阶段开启波浪
+                          isPlaying: _installStatus.contains("安装"), // 安装阶段开启精子
                           activeColor: Theme.of(context).colorScheme.primary, 
                           inactiveColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                         ),
@@ -1330,7 +1327,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
         case 1: return true;
         case 2: return isLoggedIn && _isTokenValidNotifier.value;
         case 3: return _getAccounts().isNotEmpty;
-        case 4: return _javaInstalled;
+        case 4: return _javaInstalled || Platform.isAndroid;
         case 5: return _minecraftDirs.isNotEmpty;
         case 6: return true;
         default: return false;
