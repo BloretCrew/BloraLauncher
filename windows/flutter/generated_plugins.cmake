@@ -3,6 +3,8 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  pasteboard
+  screen_capturer_windows
   url_launcher_windows
 )
 

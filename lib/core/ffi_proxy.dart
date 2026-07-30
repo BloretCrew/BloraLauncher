@@ -9,6 +9,22 @@ typedef _SetProgress_Dart = void Function(int completed, int total);
 typedef _SetState_Native = Void Function(Int32 state);
 typedef _SetState_Dart = void Function(int state);
 
+final setClipboardImage =
+_executable.lookupFunction<
+    Bool Function(
+        Pointer<Uint8>,
+        Int32,
+        Int32,
+        ),
+    bool Function(
+        Pointer<Uint8>,
+        int,
+        int,
+        )
+>(
+  "SetClipboardImage",
+);
+
 class WinTaskbar {
   static final _setProgress = Platform.isWindows 
       ? _executable.lookupFunction<_SetProgress_Native, _SetProgress_Dart>('SetTaskbarProgress') 

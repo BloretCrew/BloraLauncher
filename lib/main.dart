@@ -5,6 +5,10 @@ import 'package:ai_flutter_agent/ai_flutter_agent.dart';
 import 'package:bloret_launcher/pages/about_page.dart';
 import 'package:bloret_launcher/pages/bbbs_page.dart';
 import 'package:bloret_launcher/pages/blora_chat_page.dart';
+import 'package:bloret_launcher/pages/cores_page.dart';
+import 'package:bloret_launcher/pages/download_page.dart';
+import 'package:bloret_launcher/pages/stat_page.dart';
+import 'package:bloret_launcher/pages/tools_page.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/memory.dart';
 import 'package:bloret_launcher/tools/server_info.dart';
@@ -54,10 +58,10 @@ class BloretLauncherApp extends StatelessWidget {
         ),
         cardTheme: CardTheme(
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.withOpacity(0.2))),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.withValues(alpha: 0.2))),
         ).data,
         buttonTheme: ButtonThemeData(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withOpacity(0.1))),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
         ),
         fontFamily: "Microsoft",
         textTheme: const TextTheme().apply(fontFamily: "Microsoft"),
@@ -70,10 +74,10 @@ class BloretLauncherApp extends StatelessWidget {
         ),
         cardTheme: CardTheme(
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withOpacity(0.1))),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
         ).data,
         buttonTheme: ButtonThemeData(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withOpacity(0.1))),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
         ),
         fontFamily: "Microsoft",
         textTheme: const TextTheme().apply(fontFamily: "Microsoft"),
@@ -86,6 +90,19 @@ class BloretLauncherApp extends StatelessWidget {
             : const AgentOverlayWidget(child: MainShell()),
       )
     );
+  }
+}
+
+IconData _getEmotionIcon(String emotion) {
+  switch (emotion) {
+    case 'neutral': return Icons.sentiment_satisfied;
+    case 'happy': return Icons.sentiment_very_satisfied;
+    case 'shy': return Icons.face_retouching_natural;
+    case 'angry': return Icons.sentiment_very_dissatisfied;
+    case 'sad': return Icons.sentiment_dissatisfied;
+    case 'excited': return Icons.celebration;
+    case 'curious': return Icons.help_outline;
+    default: return Icons.sentiment_satisfied;
   }
 }
 
@@ -146,10 +163,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     (const _NavDestination("主页", Icons.home_outlined, Icons.home), const HomePage()),
     (const _NavDestination("Bloriko", Icons.smart_toy_outlined, Icons.smart_toy), const BloraChatPage()),
     "divider",
-    (const _NavDestination("下载", Icons.file_download_outlined, Icons.file_download), const PlaceholderPage(title: "下载")),
-    (const _NavDestination("核心", Icons.view_in_ar_outlined, Icons.view_in_ar), const PlaceholderPage(title: "核心")),
-    (const _NavDestination("小工具", Icons.handyman_outlined, Icons.handyman), const PlaceholderPage(title: "小工具")),
-    (const _NavDestination("统计", Icons.bar_chart_outlined, Icons.bar_chart), const PlaceholderPage(title: "统计")),
+    (const _NavDestination("下载", Icons.file_download_outlined, Icons.file_download), const DownloadPage()),
+    (const _NavDestination("核心", Icons.view_in_ar_outlined, Icons.view_in_ar), const CoresPage()),
+    (const _NavDestination("小工具", Icons.handyman_outlined, Icons.handyman), const ToolsPage()),
+    (const _NavDestination("统计", Icons.bar_chart_outlined, Icons.bar_chart), const StatsPage()),
     (const _NavDestination("Mods", Icons.extension_outlined, Icons.extension), const PlaceholderPage(title: "Mods")),
     (const _NavDestination("BBBS", Icons.forum_outlined, Icons.forum), const BbbsPage()),
     (const _NavDestination("Live", Icons.live_tv_outlined, Icons.live_tv), const PlaceholderPage(title: "Live")),
@@ -168,113 +185,176 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final avatar = ConfigService.get('Bloret_PassPort_Avatar') ?? "";
 
     return Scaffold(
-      body: Row(
+      body: Stack(
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 400),
-            width: !isPortrait ? (_isExtended ? 240 : 48) : 0,
-            curve: Curves.linearToEaseOut,
-            child: ClipRect(
-              child: OverflowBox(
-                alignment: Alignment.topLeft,
-                minWidth: _isExtended ? 240 : 48,
-                maxWidth: _isExtended ? 240 : 48,
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: _isExtended ? 239 : 47,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+          Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 400),
+                width: !isPortrait ? (_isExtended ? 240 : 48) : 0,
+                curve: Curves.linearToEaseOut,
+                child: ClipRect(
+                  child: OverflowBox(
+                    alignment: Alignment.topLeft,
+                    minWidth: _isExtended ? 240 : 48,
+                    maxWidth: _isExtended ? 240 : 48,
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: _isExtended ? 239 : 47,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 8),
+                                _NavTile(
+                                  icon: Icons.menu,
+                                  title: "菜单",
+                                  isExtended: false,
+                                  isSelected: false,
+                                  compact: true,
+                                  onTap: () => setState(() => _isExtended = !_isExtended),
+                                ),
+                                const SizedBox(height: 12),
+                                Expanded(
+                                  child: ListView.builder(
+                                    padding: EdgeInsets.zero,
+                                    itemCount: 10,
+                                    itemBuilder: (context, index) {
+                                      final item = _pages[index];
+                                      if (item is String) {
+                                        return const Divider(height: 16, indent: 8, endIndent: 8);
+                                      }
+                                      final dest = item.$1;
+                                      return _NavTile(
+                                        icon: dest.icon,
+                                        selectedIcon: dest.selectedIcon,
+                                        title: dest.title,
+                                        isExtended: _isExtended,
+                                        isSelected: _selectedIndex == index,
+                                        onTap: () => setState(() => _selectedIndex = index),
+                                      );
+                                    },
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Column(
+                                    children: [
+                                      const Divider(height: 16, indent: 8, endIndent: 8),
+                                      _AccountTile(
+                                        isExtended: _isExtended,
+                                        isSelected: _selectedIndex == 11,
+                                        userName: userName,
+                                        avatar: avatar,
+                                        onTap: () => setState(() => _selectedIndex = 11),
+                                      ),
+                                      _NavTile(
+                                        icon: _pages[12].$1.icon,
+                                        title: _pages[12].$1.title,
+                                        isExtended: _isExtended,
+                                        isSelected: _selectedIndex == 12,
+                                        onTap: () => setState(() => _selectedIndex = 12),
+                                      ),
+                                      _NavTile(
+                                        icon: _pages[13].$1.icon,
+                                        title: _pages[13].$1.title,
+                                        isExtended: _isExtended,
+                                        isSelected: _selectedIndex == 13,
+                                        onTap: () => setState(() => _selectedIndex = 13),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const VerticalDivider(thickness: 1, width: 1),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 400),
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: isPortrait ? const Offset(0, 0.05) : const Offset(0.02, 0),
+                          end: Offset.zero,
+                        ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _pages[_selectedIndex] is String ? const SizedBox.shrink() : _pages[_selectedIndex].$2,
+                ),
+              ),
+            ],
+          ),
+
+          ListenableBuilder(
+            listenable: Bloriko.instance,
+            builder: (context, child) {
+              if (!Bloriko.instance.busy || _selectedIndex == 1) return const SizedBox.shrink();
+              
+              return Positioned(
+                bottom: isPortrait ? 100 : 100,
+                right: 24,
+                child: TweenAnimationBuilder<double>(
+                  duration: const Duration(milliseconds: 400),
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  curve: Curves.easeOutBack,
+                  builder: (context, value, child) => Transform.scale(scale: value, child: child),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedIndex = 1),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.9),
+                          borderRadius: BorderRadius.circular(25),
+                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))],
+                          border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const SizedBox(height: 8),
-                            _NavTile(
-                              icon: Icons.menu,
-                              title: "菜单",
-                              isExtended: false,
-                              isSelected: false,
-                              compact: true,
-                              onTap: () => setState(() => _isExtended = !_isExtended),
+                            Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2)),
+                                Icon(_getEmotionIcon(Bloriko.instance.emotion), size: 16),
+                              ],
                             ),
-                            const SizedBox(height: 12),
-                            Expanded(
-                              child: ListView.builder(
-                                padding: EdgeInsets.zero,
-                                itemCount: 10,
-                                itemBuilder: (context, index) {
-                                  final item = _pages[index];
-                                  if (item is String) {
-                                    return const Divider(height: 16, indent: 8, endIndent: 8);
-                                  }
-                                  final dest = item.$1;
-                                  return _NavTile(
-                                    icon: dest.icon,
-                                    selectedIcon: dest.selectedIcon,
-                                    title: dest.title,
-                                    isExtended: _isExtended,
-                                    isSelected: _selectedIndex == index,
-                                    onTap: () => setState(() => _selectedIndex = index),
-                                  );
-                                },
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: Column(
-                                children: [
-                                  const Divider(height: 16, indent: 8, endIndent: 8),
-                                  _AccountTile(
-                                    isExtended: _isExtended,
-                                    isSelected: _selectedIndex == 11,
-                                    userName: userName,
-                                    avatar: avatar,
-                                    onTap: () => setState(() => _selectedIndex = 11),
-                                  ),
-                                  _NavTile(
-                                    icon: _pages[12].$1.icon,
-                                    title: _pages[12].$1.title,
-                                    isExtended: _isExtended,
-                                    isSelected: _selectedIndex == 12,
-                                    onTap: () => setState(() => _selectedIndex = 12),
-                                  ),
-                                  _NavTile(
-                                    icon: _pages[13].$1.icon,
-                                    title: _pages[13].$1.title,
-                                    isExtended: _isExtended,
-                                    isSelected: _selectedIndex == 13,
-                                    onTap: () => setState(() => _selectedIndex = 13),
-                                  ),
-                                ],
-                              ),
+                            const SizedBox(width: 12),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(Bloriko.instance.currentTool != null 
+                                  ? "${Bloriko.type == "bloriko" ? "络可" : "BloraAgent"}正在: ${Bloriko.instance.currentTool}"
+                                  : "${Bloriko.type == "bloriko" ? "Bloriko" : "BloraAgent"} 正在运行...",
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onPrimaryContainer)
+                                ),
+                                if (Bloriko.instance.currentTool == null)
+                                  Text("请稍候...", style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.7))),
+                              ],
                             ),
                           ],
                         ),
                       ),
                     ),
-                    const VerticalDivider(thickness: 1, width: 1),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 400),
-              transitionBuilder: (child, animation) {
-                return FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: isPortrait ? const Offset(0, 0.05) : const Offset(0.02, 0),
-                      end: Offset.zero,
-                    ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-                    child: child,
                   ),
-                );
-              },
-              child: _pages[_selectedIndex] is String ? const SizedBox.shrink() : _pages[_selectedIndex].$2,
-            ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -291,35 +371,21 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               selectedIndex: switch (_selectedIndex) {
                 0 => 0,
                 1 => 1,
-                3 => 2,
-                4 => 3,
-                5 => 4,
-                6 => 5,
-                7 => 6,
-                8 => 7,
-                9 => 8,
-                11 => 9,
-                12 => 10,
-                13 => 11,
+                8 => 2,
+                11 => 3,
+                12 => 4,
                 _ => 0,
               },
               onDestinationSelected: (index) {
-                final map = {0: 0, 1: 1, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 11, 10: 12, 11: 13};
+                final map = {0: 0, 1: 1, 2: 8, 3: 11, 4: 12};
                 setState(() => _selectedIndex = map[index] ?? 0);
               },
               destinations: [
                 NavigationDestination(icon: Icon(_pages[0].$1.icon), selectedIcon: Icon(_pages[0].$1.selectedIcon), label: _pages[0].$1.title),
                 NavigationDestination(icon: Icon(_pages[1].$1.icon), selectedIcon: Icon(_pages[1].$1.selectedIcon), label: _pages[1].$1.title),
-                NavigationDestination(icon: Icon(_pages[3].$1.icon), selectedIcon: Icon(_pages[3].$1.selectedIcon), label: _pages[3].$1.title),
-                NavigationDestination(icon: Icon(_pages[4].$1.icon), selectedIcon: Icon(_pages[4].$1.selectedIcon), label: _pages[4].$1.title),
-                NavigationDestination(icon: Icon(_pages[5].$1.icon), selectedIcon: Icon(_pages[5].$1.selectedIcon), label: _pages[5].$1.title),
-                NavigationDestination(icon: Icon(_pages[6].$1.icon), selectedIcon: Icon(_pages[6].$1.selectedIcon), label: _pages[6].$1.title),
-                NavigationDestination(icon: Icon(_pages[7].$1.icon), selectedIcon: Icon(_pages[7].$1.selectedIcon), label: _pages[7].$1.title),
                 NavigationDestination(icon: Icon(_pages[8].$1.icon), selectedIcon: Icon(_pages[8].$1.selectedIcon), label: _pages[8].$1.title),
-                NavigationDestination(icon: Icon(_pages[9].$1.icon), selectedIcon: Icon(_pages[9].$1.selectedIcon), label: _pages[9].$1.title),
                 NavigationDestination(icon: Icon(_pages[11].$1.icon), selectedIcon: Icon(_pages[11].$1.selectedIcon), label: _pages[11].$1.title),
                 NavigationDestination(icon: Icon(_pages[12].$1.icon), selectedIcon: Icon(_pages[12].$1.selectedIcon), label: _pages[12].$1.title),
-                NavigationDestination(icon: Icon(_pages[13].$1.icon), selectedIcon: Icon(_pages[13].$1.selectedIcon), label: _pages[13].$1.title),
               ],
             )
           ),
@@ -366,7 +432,7 @@ class _NavTile extends StatelessWidget {
             width: compact ? 40 : null,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
-              color: isSelected ? theme.colorScheme.secondaryContainer.withOpacity(0.5) : Colors.transparent,
+              color: isSelected ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.5) : Colors.transparent,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
@@ -436,7 +502,7 @@ class _AccountTile extends StatelessWidget {
             height: 44,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
-              color: isSelected ? theme.colorScheme.secondaryContainer.withOpacity(0.5) : Colors.transparent,
+              color: isSelected ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.5) : Colors.transparent,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
@@ -450,7 +516,7 @@ class _AccountTile extends StatelessWidget {
                     child: avatar.isNotEmpty && ConfigService.get('Bloret_PassPort_Login') == true
                         ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover, errorWidget: (_,__,___) => const Icon(Icons.account_circle, size: 28), progressIndicatorBuilder: (_, _, loadingProgress) => const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 4),))
                         : Container(
-                            color: theme.colorScheme.surfaceVariant,
+                            color: theme.colorScheme.surfaceContainerHighest,
                             child: const Icon(Icons.person, size: 18),
                           ),
                   ),
@@ -501,6 +567,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _listController;
   final List<String> sentences = config?.blTips ?? [];
+  final TextEditingController homeInputController = TextEditingController();
   Timer? timer;
 
   @override
@@ -573,6 +640,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       const SizedBox(width: 12),
                       Expanded(
                         child: TextField(
+                          controller: homeInputController,
+                          onSubmitted: (value) {
+                            if (value.trim().isNotEmpty) {
+                              Bloriko.instance.startNewSession(value.trim());
+                              context.findAncestorStateOfType<_MainShellState>()?.setState(() {
+                                context.findAncestorStateOfType<_MainShellState>()?._selectedIndex = 1;
+                              });
+                            }
+                          },
                           decoration: InputDecoration(
                             hintText: "关于 Minecraft 的任何问题，可以问 Blora Agent 哦 ~",
                             isDense: true,
@@ -582,7 +658,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      IconButton.filled(onPressed: () {}, icon: const Icon(Icons.send)),
+                      IconButton.filled(
+                        onPressed: () {
+                          final value = homeInputController.text.trim();
+                          if (value.isNotEmpty) {
+                            Bloriko.instance.startNewSession(value);
+                            context.findAncestorStateOfType<_MainShellState>()?.setState(() {
+                              context.findAncestorStateOfType<_MainShellState>()?._selectedIndex = 1;
+                            });
+                          }
+                        }, 
+                        icon: const Icon(Icons.send)
+                      ),
                     ],
                   ),
                 ),
@@ -659,7 +746,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               opacity: fadeAnimation,
                               child: SizeTransition(
                                 sizeFactor: sizeAnimation,
-                                axisAlignment: -1.0,
+                                alignment: Alignment.topCenter,
                                 child: child,
                               ),
                             );

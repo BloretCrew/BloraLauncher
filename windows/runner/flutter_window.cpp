@@ -4,6 +4,9 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
+#include <windows.h>
+#include <stdint.h>
+
 extern "C" __declspec(dllexport) void SetTaskbarProgress(uint64_t completed, uint64_t total);
 extern "C" __declspec(dllexport) void SetTaskbarState(int state);
 
@@ -19,6 +22,92 @@ extern "C" __declspec(dllexport) void SetTaskbarState(int state) {
   if (g_flutter_window) {
     g_flutter_window->SetTaskbarState(static_cast<TBPFLAG>(state));
   }
+}
+
+extern "C" __declspec(dllexport)
+bool SetClipboardImage(
+        const uint8_t* rgba,
+        int width,
+        int height
+) {
+  int stride = width * 4;
+
+  BITMAPINFOHEADER bih{};
+  bih.biSize = sizeof(BITMAPINFOHEADER);
+  bih.biWidth = width;
+  bih.biHeight = -height;
+  bih.biPlanes = 1;
+  bih.biBitCount = 32;
+  bih.biCompression = BI_RGB;
+
+  SIZE_T dataSize = stride * height;
+
+  HGLOBAL hMem = GlobalAlloc(
+          GMEM_MOVEABLE,
+          sizeof(BITMAPINFOHEADER) + dataSize
+  );
+
+  if (!hMem)
+    return false;
+
+
+  auto* ptr = static_cast<uint8_t*>(
+          GlobalLock(hMem)
+  );
+
+
+  memcpy(
+          ptr,
+          &bih,
+          sizeof(BITMAPINFOHEADER)
+  );
+
+
+  uint8_t* dst =
+          ptr + sizeof(BITMAPINFOHEADER);
+
+
+  for (int i = 0; i < width * height; i++) {
+
+    dst[i * 4 + 0] =
+            rgba[i * 4 + 2];
+
+    dst[i * 4 + 1] =
+            rgba[i * 4 + 1];
+
+    dst[i * 4 + 2] =
+            rgba[i * 4 + 0];
+
+    dst[i * 4 + 3] =
+            rgba[i * 4 + 3];
+  }
+
+
+  GlobalUnlock(hMem);
+
+
+  if (!OpenClipboard(nullptr)) {
+    GlobalFree(hMem);
+    return false;
+  }
+
+
+  EmptyClipboard();
+
+
+  if (!SetClipboardData(
+          CF_DIB,
+          hMem
+  )) {
+    GlobalFree(hMem);
+    CloseClipboard();
+    return false;
+  }
+
+
+  CloseClipboard();
+
+  return true;
 }
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
