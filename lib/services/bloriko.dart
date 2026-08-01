@@ -8,12 +8,15 @@ import 'package:bloret_launcher/services/passport_service.dart';
 import 'package:bloret_launcher/services/system_prompt.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
+import 'package:http/http.dart';
+import 'package:http/io_client.dart';
 import 'package:openai_dart/openai_dart.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'memory.dart';
+import 'shizuku_service.dart';
 
 /// Adapter for [LLMClient] using our [Bloriko] OpenAI client.
 class BlorikoLLMClient implements LLMClient {
@@ -23,57 +26,135 @@ class BlorikoLLMClient implements LLMClient {
     required List<Map<String, dynamic>> toolSchemas,
     List<Map<String, dynamic>>? messages,
   }) async {
+    final l = await AppLogger.getInstance();
+    l.log("LLM requestActions Start", level: LogLevel.info, source: LogSource.network);
+    Bloriko.instance._updateConnectionStatus(BlorikoConnectionStatus.connecting);
+    
     final List<ChatMessage> chatMessages = [
       ChatMessage.system('You are a UI automation agent. Analyze the UI tree and task, then call the appropriate tools. If the task is done, return plain text.'),
     ];
 
     if (messages != null) {
       for (var m in messages) {
-        if (m['role'] == 'user') chatMessages.add(ChatMessage.user(m['content']));
-        if (m['role'] == 'assistant') {
-           chatMessages.add(ChatMessage.assistant(content: m['content']));
+        if (m['role'] == 'user') {
+          chatMessages.add(ChatMessage.user(m['content']));
+        } else if (m['role'] == 'assistant') {
+          chatMessages.add(ChatMessage.raw({
+            'role': 'assistant',
+            'content': m['content'],
+            if (m['tool_calls'] != null) 'tool_calls': m['tool_calls'],
+            if (m['reasoning_content'] != null) 'reasoning_content': m['reasoning_content'],
+          }));
+        } else if (m['role'] == 'tool') {
+          chatMessages.add(ChatMessage.tool(
+            toolCallId: m['tool_call_id'] ?? '',
+            content: m['content']?.toString() ?? '',
+          ));
         }
       }
     }
 
     chatMessages.add(ChatMessage.user(prompt));
+    Bloriko.instance._updateConnectionStatus(BlorikoConnectionStatus.handshake);
 
-    final response = await Bloriko.client.chat.completions.create(
-      ChatCompletionCreateRequest(
-        model: ConfigService.get("ai_model") ?? 'default',
-        messages: chatMessages,
-        tools: toolSchemas.map((s) => Tool.fromJson(s)).toList(),
-        toolChoice: ToolChoice.auto(),
-      ),
-    );
+    l.log("Calling OpenAI chat.completions.create", level: LogLevel.info, source: LogSource.network, detail: "Model: ${ConfigService.get("ai_model") ?? 'default'}");
+    final startTime = DateTime.now();
 
-    final choice = response.choices.first;
-    if (choice.message.toolCalls == null || choice.message.toolCalls!.isEmpty) {
-      return [];
-    }
-
-    return choice.message.toolCalls!.map((tc) {
-      return ActionDescriptor(
-        actionName: tc.function.name,
-        args: jsonDecode(tc.function.arguments),
+    try {
+      final response = await Bloriko.client.chat.completions.create(
+        ChatCompletionCreateRequest(
+          model: ConfigService.get("ai_model") ?? 'default',
+          messages: chatMessages,
+          tools: toolSchemas.map((s) => Tool.fromJson(s)).toList(),
+          toolChoice: ToolChoice.auto(),
+        ),
       );
-    }).toList();
+
+      final duration = DateTime.now().difference(startTime).inMilliseconds;
+      l.log("LLM requestActions Response Received", level: LogLevel.info, source: LogSource.network, detail: "Duration: ${duration}ms");
+      Bloriko.instance._updateConnectionStatus(BlorikoConnectionStatus.finished);
+
+      final choice = response.choices.first;
+      if (choice.message.toolCalls == null || choice.message.toolCalls!.isEmpty) {
+        return [];
+      }
+
+      return choice.message.toolCalls!.map((tc) {
+        return ActionDescriptor(
+          actionName: tc.function.name,
+          args: jsonDecode(tc.function.arguments),
+        );
+      }).toList();
+    } catch (e) {
+      l.log("LLM requestActions Error", level: LogLevel.error, source: LogSource.network, detail: e.toString());
+      Bloriko.instance._updateConnectionStatus(BlorikoConnectionStatus.error);
+      rethrow;
+    }
   }
 }
+
+enum BlorikoConnectionStatus { idle, connecting, handshake, streaming, finished, error }
 
 class Bloriko extends ChangeNotifier {
   static Bloriko? _instance;
   static Bloriko get instance => _instance ??= Bloriko._();
-  static String type = "default";
-  static String mode = "auto";
+  
+  BlorikoConnectionStatus _connectionStatus = BlorikoConnectionStatus.idle;
+  BlorikoConnectionStatus get connectionStatus => _connectionStatus;
+
+  void _updateConnectionStatus(BlorikoConnectionStatus status) {
+    _connectionStatus = status;
+    notifyListeners();
+  }
+
+  static String type = ConfigService.get("bloriko_type") ?? "default";
+  static String mode = ConfigService.get("bloriko_mode") ?? "auto";
+
+  static Future<void> setType(String newType) async {
+    type = newType;
+    await ConfigService.set("bloriko_type", newType);
+    instance.notifyListeners();
+  }
+
+  static Future<void> setMode(String newMode) async {
+    mode = newMode;
+    await ConfigService.set("bloriko_mode", newMode);
+    instance.notifyListeners();
+  }
 
   static String key = "";
-  static OpenAIClient client = OpenAIClient(
-    config: OpenAIConfig(
-      authProvider: ApiKeyProvider(key),
-      baseUrl: 'https://passport.bloret.net/v1',
-    ),
-  );
+  String? _currentRequestId;
+
+  static OpenAIClient get client {
+    final provider = ConfigService.get("ai_provider") ?? "bloret_passport";
+    String baseUrl = 'https://passport.bloret.net/v1';
+    String apiKey = key;
+
+    if (provider == 'google_ai_studio') {
+      baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/';
+      apiKey = ConfigService.get("google_ai_key") ?? "";
+    } else if (provider == 'custom_api') {
+      baseUrl = ConfigService.get("custom_ai_base_url") ?? "https://api.openai.com/v1";
+      apiKey = ConfigService.get("custom_ai_key") ?? "";
+    } else if (provider == 'opencode_zen') {
+      baseUrl = 'https://passport.bloret.net/v1';
+      apiKey = key;
+    }
+
+    final httpClient = HttpClient()
+      ..idleTimeout = const Duration(minutes: 2)
+      ..connectionTimeout = const Duration(seconds: 25);;
+
+    return OpenAIClient(
+      config: OpenAIConfig(
+        authProvider: ApiKeyProvider(apiKey),
+        baseUrl: baseUrl,
+      ),
+      httpClient: IOClient(
+        httpClient
+      ),
+    );
+  }
 
   final List<Map<String, dynamic>> messages = [];
   String conversationTitle = "";
@@ -91,15 +172,46 @@ class Bloriko extends ChangeNotifier {
   bool _isCancelled = false;
 
   Completer<String>? _questionCompleter;
+  Completer<String>? _questionDetailCompleter;
   Completer<String>? _securityCompleter;
 
   FlutterAgentBridge? _uiAgent;
   ActionRegistry? _actionRegistry;
 
+  AgentWorker? _worker;
+
   Bloriko._() {
     _initUiAgent();
+    _initWorker();
     _loadWhitelist();
   }
+
+  Future<void> _initWorker() async {
+    final workspace = await _getWorkspaceDir();
+
+    final subActionRegistry = ActionRegistry();
+    BuiltInActions.registerDefaults(
+      subActionRegistry,
+      performAction: (nodeId, action, {actionArgs}) async {
+        RendererBinding.instance.pipelineOwner.semanticsOwner?.performAction(nodeId, action, actionArgs);
+      },
+    );
+
+    _worker = await AgentWorker.create(
+      workingDir: workspace.path,
+      actionRegistry: subActionRegistry,
+    );
+  }
+
+  Future<Directory> _getWorkspaceDir() async {
+    final appDir = await getSupportData();
+    final workspaceDir = Directory(p.join(appDir.path, 'blora_agent', 'workspace'));
+    if (!await workspaceDir.exists()) {
+      await workspaceDir.create(recursive: true);
+    }
+    return workspaceDir;
+  }
+
 
   void _initUiAgent() {
     final treeWalker = SemanticTreeWalker();
@@ -108,7 +220,7 @@ class Bloriko extends ChangeNotifier {
     BuiltInActions.registerDefaults(
       _actionRegistry!, 
       performAction: (nodeId, action, {actionArgs}) async {
-        RendererBinding.instance.rootPipelineOwner.semanticsOwner?.performAction(nodeId, action, actionArgs);
+        RendererBinding.instance.pipelineOwner.semanticsOwner?.performAction(nodeId, action, actionArgs);
       }
     );
     
@@ -133,7 +245,7 @@ class Bloriko extends ChangeNotifier {
   Set<String> _whitelist = {};
   Future<void> _loadWhitelist() async {
     try {
-      final appDir = await getApplicationSupportDirectory();
+      final appDir = await getSupportData();
       final file = File(p.join(appDir.path, 'blora_agent', 'security', 'command_whitelist.json'));
       if (await file.exists()) {
         final List data = jsonDecode(await file.readAsString());
@@ -144,7 +256,7 @@ class Bloriko extends ChangeNotifier {
 
   Future<void> _saveWhitelist() async {
     try {
-      final appDir = await getApplicationSupportDirectory();
+      final appDir = await getSupportData();
       final file = File(p.join(appDir.path, 'blora_agent', 'security', 'command_whitelist.json'));
       await file.parent.create(recursive: true);
       await file.writeAsString(jsonEncode(_whitelist.toList()));
@@ -153,6 +265,14 @@ class Bloriko extends ChangeNotifier {
 
   void handleSecurityAction(String action, {String? command}) {
     if (_securityCompleter != null && !_securityCompleter!.isCompleted) {
+      for (int i = messages.length - 1; i >= 0; i--) {
+        if (messages[i]['role'] == 'security' && messages[i]['status'] == 'waiting') {
+          messages[i]['status'] = 'handled';
+          messages[i]['result'] = action;
+          break;
+        }
+      }
+
       if (action == 'always' && command != null) {
         _whitelist.add(command);
         _saveWhitelist();
@@ -160,18 +280,16 @@ class Bloriko extends ChangeNotifier {
       } else {
         _securityCompleter!.complete(action);
       }
+      notifyListeners();
     }
   }
 
   static Bloriko getInstance([String key = ""]) {
+    type = ConfigService.get("bloriko_type") ?? "default";
+    mode = ConfigService.get("bloriko_mode") ?? "auto";
+
     if (key.isNotEmpty) {
       Bloriko.key = key;
-      Bloriko.client = OpenAIClient(
-        config: OpenAIConfig(
-          authProvider: ApiKeyProvider(key),
-          baseUrl: 'https://passport.bloret.net/v1',
-        ),
-      );
     } else {
       final String customKey = ConfigService.get("Custom_AI_Key") ?? "";
       if (customKey.isNotEmpty) {
@@ -179,13 +297,6 @@ class Bloriko extends ChangeNotifier {
       } else {
         Bloriko.key = "${PassportService.appId};${PassportService.appSecret};${ConfigService.get("Bloret_PassPort_Token")}";
       }
-      
-      Bloriko.client = OpenAIClient(
-        config: OpenAIConfig(
-          authProvider: ApiKeyProvider(Bloriko.key),
-          baseUrl: 'https://passport.bloret.net/v1',
-        ),
-      );
     }
     return instance;
   }
@@ -216,16 +327,26 @@ class Bloriko extends ChangeNotifier {
     if (_questionCompleter != null && !_questionCompleter!.isCompleted) {
       _questionCompleter!.completeError("cancelled");
     }
+    if (_questionDetailCompleter != null && !_questionDetailCompleter!.isCompleted) {
+      _questionDetailCompleter!.completeError("cancelled");
+    }
     if (_securityCompleter != null && !_securityCompleter!.isCompleted) {
       _securityCompleter!.completeError("cancelled");
     }
     _busy = false;
+    _updateConnectionStatus(BlorikoConnectionStatus.idle);
     notifyListeners();
   }
 
   void answerQuestion(String answer) {
     if (_questionCompleter != null && !_questionCompleter!.isCompleted) {
       _questionCompleter!.complete(answer);
+    }
+  }
+
+  void answerDetailQuestion(String answer) {
+    if (_questionDetailCompleter != null && !_questionDetailCompleter!.isCompleted) {
+      _questionDetailCompleter!.complete(answer);
     }
   }
 
@@ -266,7 +387,7 @@ class Bloriko extends ChangeNotifier {
     ),
     Tool.function(
       name: 'memory',
-      description: '管理络可的记忆。支持添加、替换、删除记忆条目。',
+      description: '管理你的记忆。支持添加、替换、删除记忆条目。',
       parameters: {
         'type': 'object',
         'properties': {
@@ -277,7 +398,7 @@ class Bloriko extends ChangeNotifier {
           },
           'target': {
             'type': 'string',
-            'description': '目标：memory（络可的记忆）或 user（用户画像）',
+            'description': '目标：memory（记忆）或 user（用户画像）',
             'enum': ["memory", "user"]
           },
           'content': {
@@ -326,6 +447,39 @@ class Bloriko extends ChangeNotifier {
       },
     ),
     Tool.function(
+      name: 'set_user_identity',
+      description: '静默记录用户身份（哥哥、姐姐、妹妹）。仅在完全确定时调用。',
+      parameters: {
+        'type': 'object',
+        'properties': {
+          'identity': {'type': 'string', 'enum': ['brother', 'sister', 'little_sister']}
+        },
+        'required': ['identity']
+      },
+    ),
+    // Tool.function(
+    //   name: 'delegate_task',
+    //   description: '将复杂任务委派给全能型子 Agent 处理。子 Agent 会利用所有工具完成任务，执行完后直接返回最终结果，期间保持静默。',
+    //   parameters: {
+    //     'type': 'object',
+    //     'properties': {
+    //       'task': {'type': 'string', 'description': '需要完成的任务描述'}
+    //     },
+    //     'required': ['task']
+    //   },
+    // ),
+    Tool.function(
+      name: 'delegate_ui_task',
+      description: '将复杂 UI 任务委派给子 Agent 处理。子 Agent 会执行所有必要动作，执行完后直接返回最终结果，期间保持静默，不进行对话。',
+      parameters: {
+        'type': 'object',
+        'properties': {
+          'task': {'type': 'string', 'description': '需要完成的 UI 操作目标'}
+        },
+        'required': ['task']
+      },
+    ),
+    Tool.function(
       name: 'interact_with_ui',
       description:
       '执行单个具体的 Flutter UI 交互任务（如“点击设置”）。请不要一次性要求执行复杂的连串操作，以免产生多次误点击。',
@@ -363,7 +517,7 @@ class Bloriko extends ChangeNotifier {
     ),
     Tool.function(
       name: 'web_search',
-      description: '使用 Bing 搜索引擎在互联网上搜索信息。请严格遵守当地法律法规和 Prompt 规范。支持翻页查看更多结果。',
+      description: '使用 Tavily 搜索引擎在互联网上搜索信息。请严格遵守当地法律法规和 Prompt 规范。支持翻页查看更多结果。',
       parameters: {
         'type': 'object',
         'properties': {
@@ -405,6 +559,24 @@ class Bloriko extends ChangeNotifier {
       },
     ),
     Tool.function(
+      name: 'ask_question_details',
+      description: '向用户提问并提供输入框供其输入。适用于需要用户确定极为个性化的场景。',
+      parameters: {
+        'type': 'object',
+        'properties': {
+          'question': {
+            'type': 'string',
+            'description': '要问用户的问题内容'
+          },
+          'description': {
+            'type': 'string',
+            'description': '输入框中的描述'
+          }
+        },
+        'required': ['question', 'description']
+      },
+    ),
+    Tool.function(
       name: 'fetch_page',
       description: '读取指定网页内容，用于获取网页正文信息。',
       parameters: {
@@ -420,10 +592,37 @@ class Bloriko extends ChangeNotifier {
         ]
       },
     ),
+    Tool.function(
+      name: 'shizuku_init',
+      description: '【仅 Android】初始化 Shizuku 服务并请求权限。如果用户想要执行高权限命令，必须先调用此工具。',
+      parameters: {
+        'type': 'object',
+        'properties': {},
+      },
+    ),
+    Tool.function(
+      name: 'shizuku_check_permission',
+      description: '【仅 Android】检查当前是否已获得 Shizuku 权限。',
+      parameters: {
+        'type': 'object',
+        'properties': {},
+      },
+    ),
+    Tool.function(
+      name: 'shizuku_run_shell',
+      description: '【仅 Android】使用 Shizuku 以更高权限（通常是 Shell/ADB权限）执行命令。仅在普通 execute_command 无法完成任务（如修改系统设置、安装应用、管理其他进程）且用户明确要求提权时使用。',
+      parameters: {
+        'type': 'object',
+        'properties': {
+          'command': {'type': 'string', 'description': '要执行的高权限命令'}
+        },
+        'required': ['command']
+      },
+    ),
   ];
 
   Future<void> chatWithTools(
-    String userPrompt, {
+    dynamic userContent, {
     required Function(String text) onTextChunk,
     required Function(String toolName, Map<String, dynamic> args) onToolStart,
     required Function(String toolName, String result) onToolEnd,
@@ -434,7 +633,12 @@ class Bloriko extends ChangeNotifier {
     if (_busy) return;
     _busy = true;
     _isCancelled = false;
+    final String currentRequestId = DateTime.now().toIso8601String();
+    this._currentRequestId = currentRequestId;
     notifyListeners();
+
+    final l = await AppLogger.getInstance();
+    l.log("LLM Request Start", level: LogLevel.info, source: LogSource.network);
 
     try {
       final List<ChatMessage> chatMsgs = [
@@ -445,25 +649,73 @@ class Bloriko extends ChangeNotifier {
           uiEnabled: enableUiInteraction,
         )),
       ];
+      l.log("System Prompt Built", level: LogLevel.debug, source: LogSource.network, detail: "Length: ${chatMsgs.first.toString().length}");
 
-      for (var msg in messages) {
-        if (msg['role'] == 'user') {
-          chatMsgs.add(ChatMessage.user(msg['content'] ?? ''));
-        } else if (msg['role'] == 'assistant') {
-          chatMsgs.add(ChatMessage.assistant(content: msg['content'] ?? ''));
+      final historicalMsgs = messages.length > 10 ? messages.sublist(messages.length - 10) : messages;
+
+      for (var msg in historicalMsgs) {
+        final role = msg['role'];
+        final content = msg['content'];
+        if (role == 'user') {
+          if (content is String) {
+            chatMsgs.add(ChatMessage.user(content));
+          } else if (content is List) {
+            chatMsgs.add(ChatMessage.user(content.map((p) {
+              if (p['type'] == 'text' || p['type'] == 'input_text') {
+                return ContentPart.text(p['text'] ?? '');
+              } else if (p['type'] == 'image_url' || p['type'] == 'input_image') {
+                return ContentPart.imageUrl(p['image_url'] ?? '');
+              } else if (p['type'] == 'input_file') {
+                final data = p['file_data'] as String? ?? '';
+                final filename = p['filename'] as String? ?? 'file.txt';
+                final mediaType = filename.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'text/plain';
+                return ContentPart.fileData(data: data, mediaType: mediaType, filename: filename);
+              }
+              return ContentPart.text('');
+            }).toList()));
+          }
+        } else if (role == 'assistant') {
+          // 修复：必须回传完整的 assistant 消息，包含之前的 tool_calls 和 reasoning_content
+          chatMsgs.add(ChatMessage.raw({
+            'role': 'assistant',
+            'content': msg['content'],
+            if (msg['tool_calls'] != null) 'tool_calls': msg['tool_calls'],
+            if (msg['reasoning_content'] != null) 'reasoning_content': msg['reasoning_content'],
+          }));
+        } else if (role == 'tool') {
+          chatMsgs.add(ChatMessage.tool(
+            toolCallId: msg['tool_call_id'] ?? '',
+            content: msg['content']?.toString() ?? '',
+          ));
         }
       }
+      l.log("History Prepared", level: LogLevel.debug, source: LogSource.network, detail: "Messages: ${chatMsgs.length}");
 
-      if (messages.isEmpty || messages.last['content'] != userPrompt) {
-         chatMsgs.add(ChatMessage.user(userPrompt));
+      if (userContent is String) {
+        chatMsgs.add(ChatMessage.user(userContent));
+      } else if (userContent is List) {
+        chatMsgs.add(ChatMessage.user(userContent.map((p) {
+          if (p['type'] == 'text' || p['type'] == 'input_text') {
+            return ContentPart.text(p['text'] ?? '');
+          } else if (p['type'] == 'image_url' || p['type'] == 'input_image') {
+            return ContentPart.imageUrl(p['image_url'] ?? '');
+          } else if (p['type'] == 'input_file') {
+            final data = p['file_data'] as String? ?? '';
+            final filename = p['filename'] as String? ?? 'file.txt';
+            final mediaType = filename.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'text/plain';
+            return ContentPart.fileData(data: data, mediaType: mediaType, filename: filename);
+          }
+          return ContentPart.text('');
+        }).toList()));
       }
 
       int iterations = 0;
       int searchCount = 0;
       const maxIterations = 15;
 
-      while (iterations < maxIterations && !_isCancelled) {
+      while (iterations < maxIterations && !_isCancelled && _currentRequestId == currentRequestId) {
         iterations++;
+        l.log("Iteration $iterations Start", level: LogLevel.debug, source: LogSource.network);
         final accumulator = ChatStreamAccumulator();
 
         final List<Tool> availableTools = List.from(tools);
@@ -473,12 +725,33 @@ class Bloriko extends ChangeNotifier {
            availableTools.removeWhere((t) => t.function.name == 'perform_ui_actions');
         }
 
+        if (Bloriko.mode == "plan") {
+          availableTools.removeWhere((t) => t.function.name == 'interact_with_ui');
+          availableTools.removeWhere((t) => t.function.name == 'get_semantics_tree');
+          availableTools.removeWhere((t) => t.function.name == 'perform_ui_actions');
+          availableTools.removeWhere((t) => t.function.name == 'shizuku_init');
+          availableTools.removeWhere((t) => t.function.name == 'shizuku_check_permission');
+          availableTools.removeWhere((t) => t.function.name == 'shizuku_run_shell');
+          availableTools.removeWhere((t) => t.function.name == 'execute_command');
+        }
+
+        if (!Platform.isAndroid) {
+          availableTools.removeWhere((t) => t.function.name == 'shizuku_init');
+          availableTools.removeWhere((t) => t.function.name == 'shizuku_check_permission');
+          availableTools.removeWhere((t) => t.function.name == 'shizuku_run_shell');
+        }
+
         if (searchCount >= 6) {
           availableTools.removeWhere((t) => t.function.name == 'web_search');
           chatMsgs.add(ChatMessage.system("你已经尝试搜索了 6 次。如果仍未找到，请如实告知用户搜不到。"));
         }
 
+        l.log("OpenAI Stream API Call Initiated", level: LogLevel.info, source: LogSource.network, detail: "Iteration: $iterations");
+        final apiStartTime = DateTime.now();
+        _updateConnectionStatus(BlorikoConnectionStatus.connecting);
+
         try {
+          if (_isCancelled || _currentRequestId != currentRequestId) break;
           final stream = client.chat.completions.createStream(
             ChatCompletionCreateRequest(
               model: ConfigService.get("ai_model") ?? 'default',
@@ -488,8 +761,18 @@ class Bloriko extends ChangeNotifier {
             ),
           );
 
+          l.log("Stream Connection Established", level: LogLevel.debug, source: LogSource.network);
+          _updateConnectionStatus(BlorikoConnectionStatus.handshake);
+
+          bool firstChunk = true;
           await for (final chunk in stream) {
-            if (_isCancelled) break;
+            if (_isCancelled || _currentRequestId != currentRequestId) break;
+            if (firstChunk) {
+              final duration = DateTime.now().difference(apiStartTime).inMilliseconds;
+              l.log("First Stream Chunk Received (TTFB)", level: LogLevel.info, source: LogSource.network, detail: "Wait time: ${duration}ms");
+              firstChunk = false;
+              _updateConnectionStatus(BlorikoConnectionStatus.streaming);
+            }
             accumulator.add(chunk);
             final text = chunk.textDelta;
             if (text != null && text.isNotEmpty) {
@@ -498,20 +781,30 @@ class Bloriko extends ChangeNotifier {
               onTextChunk(fullContent);
             }
           }
+          if (_isCancelled || _currentRequestId != currentRequestId) {
+            l.log("Stream Interrupted by Cancellation", level: LogLevel.info, source: LogSource.network);
+            _updateConnectionStatus(BlorikoConnectionStatus.idle);
+            break;
+          }
+          l.log("Stream Consumed Completely", level: LogLevel.info, source: LogSource.network, detail: "Total duration: ${DateTime.now().difference(apiStartTime).inMilliseconds}ms");
+          _updateConnectionStatus(BlorikoConnectionStatus.finished);
         } catch (e) {
+          if (_isCancelled || _currentRequestId != currentRequestId) return;
           final l = await AppLogger.getInstance();
           l.log("网络连接异常或模型响应出错", level: LogLevel.error, source: LogSource.network, detail: e.toString());
-          _internalAddMessage({'role': 'error', 'content': "网络连接异常: $e"});
+          _internalAddMessage({'role': 'error', 'title': "网络异常", 'content': "网络连接异常或模型响应出错: $e"});
           onError("网络连接异常或模型响应出错: $e");
+          _updateConnectionStatus(BlorikoConnectionStatus.error);
           return;
         }
 
-        if (_isCancelled) break;
+        if (_isCancelled || _currentRequestId != currentRequestId) break;
 
         final accumulatedContent = accumulator.content.replaceAll("[DONE]", "").trim();
         final toolCalls = accumulator.toolCalls;
         
         if (accumulatedContent.isEmpty && toolCalls.isEmpty) {
+          _internalAddMessage({'role': 'error', 'title': "空回复", 'content': "AI 返回内容为空，请检查 API 状态。"});
           onError("AI 返回内容持续为空，请检查 API 状态。");
           break;
         }
@@ -523,7 +816,7 @@ class Bloriko extends ChangeNotifier {
           ));
 
           for (final tc in toolCalls) {
-            if (_isCancelled) break;
+            if (_isCancelled || _currentRequestId != currentRequestId) break;
             final name = tc.function.name;
             if (name == 'web_search') searchCount++;
             final Map<String, dynamic> args = jsonDecode(tc.function.arguments);
@@ -540,10 +833,27 @@ class Bloriko extends ChangeNotifier {
             _internalUpdateSystemMessage(name, result);
             onToolEnd(name, result);
             
+            // 记录到本地消息列表，包含 tool_calls 信息
+            if (messages.isNotEmpty && messages.last['role'] == 'assistant') {
+              messages.last['tool_calls'] = toolCalls.map((t) => t.toJson()).toList();
+              // 如果有推理内容也一并记录
+              if (accumulator.reasoning.isNotEmpty) {
+                messages.last['reasoning_content'] = accumulator.reasoning;
+              }
+            }
+
             chatMsgs.add(ChatMessage.tool(toolCallId: tc.id, content: result));
+            
+            // 记录工具返回结果到本地历史
+            _internalAddMessage({
+              'role': 'tool',
+              'tool_call_id': tc.id,
+              'content': result,
+            });
           }
           continue; 
-        } else {
+        }
+else {
           final xmlTool = _parseXmlToolCall(accumulatedContent);
           if (xmlTool != null) {
             final name = xmlTool['name'];
@@ -575,11 +885,13 @@ class Bloriko extends ChangeNotifier {
     } catch (e) {
       final l = await AppLogger.getInstance();
       l.log("Agent Loop 核心异常", level: LogLevel.error, source: LogSource.system, detail: e.toString());
-      _internalAddMessage({'role': 'error', 'content': "Agent Loop Error: $e"});
+      _internalAddMessage({'role': 'error', 'title': "Agent Loop Error", 'content': "Agent Loop Error: $e"});
       onError("Agent Loop Error: $e");
     } finally {
-      _busy = false;
-      notifyListeners();
+      if (_currentRequestId == currentRequestId) {
+        _busy = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -614,7 +926,7 @@ class Bloriko extends ChangeNotifier {
       last['count'] = newCount;
       last['status'] = 'running';
       last['content'] = "正在执行工具: $friendlyName x$newCount";
-      last['isExpanded'] = toolName == 'ask_question';
+      last['isExpanded'] = toolName == 'ask_question' || toolName == 'ask_question_details';
       last['_detailIdx'] = newCount - 1;
       
       List calls = last['calls'] ?? [];
@@ -633,7 +945,7 @@ class Bloriko extends ChangeNotifier {
       'content': "正在执行工具: $friendlyName",
       'tool': toolName,
       'args': jsonEncode(args),
-      'isExpanded': toolName == 'ask_question',
+      'isExpanded': toolName == 'ask_question' || toolName == 'ask_question_details',
       'status': 'running',
       'count': 1,
       'calls': [{'args': jsonEncode(args), 'status': 'running'}],
@@ -667,7 +979,6 @@ class Bloriko extends ChangeNotifier {
             }
           }
         }
-
         break;
       }
     }
@@ -690,8 +1001,14 @@ class Bloriko extends ChangeNotifier {
       case 'recall_history': return "回忆对话";
       case 'web_search': return "网页搜索";
       case 'ask_question': return "向你提问";
+      case 'ask_question_details': return "详细提问";
       case 'fetch_page': return "抓取网页";
-      default: return name;
+      case 'set_user_identity': return "记录身份";
+      case 'delegate_task': return "委派子任务";
+      case 'shizuku_init': return "初始化 Shizuku";
+      case 'shizuku_check_permission': return "检查 Shizuku 权限";
+      case 'shizuku_run_shell': return "Shizuku 权限命令";
+      default: return "未知工具";
     }
   }
 
@@ -711,24 +1028,33 @@ class Bloriko extends ChangeNotifier {
   }
 
   Future<String> _executeTool(String name, String argsJson, String workingDir) async {
+    final l = await AppLogger.getInstance();
+    l.log("Tool Execution Start: $name", level: LogLevel.info, source: LogSource.tool);
+    final startTime = DateTime.now();
+
     try {
       final Map<String, dynamic> args = jsonDecode(argsJson);
+      String resultText = "";
       switch (name) {
         case 'read_file':
           final file = File(p.join(workingDir, args['path']));
-          return await file.exists() ? await file.readAsString() : "错误：文件不存在";
+          resultText = await file.exists() ? await file.readAsString() : "错误：文件不存在";
+          break;
         case 'write_file':
           final file = File(p.join(workingDir, args['path']));
           await file.parent.create(recursive: true);
           await file.writeAsString(args['content']);
-          return "成功：文件已写入";
+          resultText = "成功：文件已写入";
+          break;
         case 'get_directory_tree':
-          return _generateDirTree(workingDir, args['path'] ?? "", args['max_depth'] ?? 3);
+          resultText = _generateDirTree(workingDir, args['path'] ?? "", args['max_depth'] ?? 3);
+          break;
         case 'set_emotion':
         case 'set_emutation':
           _currentEmotion = args['emotion'] ?? "neutral";
           notifyListeners();
-          return "情感已更新为: $_currentEmotion";
+          resultText = "情感已更新为: $_currentEmotion";
+          break;
         case 'memory':
           final action = args['action'] as String;
           final target = args['target'] as String;
@@ -743,30 +1069,44 @@ class Bloriko extends ChangeNotifier {
           } else if (action == 'remove') {
             result = await MemoryStore.instance.remove(target, oldText);
           } else if (action == 'list') {
-            return MemoryStore.instance.getAllEntries(target);
+            resultText = MemoryStore.instance.getAllEntries(target);
+            break;
           } else {
-            return "错误：未知的记忆操作 $action";
+            resultText = "错误：未知的记忆操作 $action";
+            break;
           }
-          return jsonEncode(result);
+          resultText = jsonEncode(result);
+          break;
         case 'execute_command':
           final command = args['command'] as String;
 
-          if (Bloriko.mode != "plan" && !_whitelist.contains(command)) {
-            _securityCompleter = Completer<String>();
-            _internalAddMessage({
-              'role': 'security', 
-              'command': command,
-              'status': 'waiting'
-            });
-            notifyListeners();
-            
-            final decision = await _securityCompleter!.future;
-            _securityCompleter = null;
-            
-            if (decision == 'deny') {
-              return "拒绝执行：用户未授权此命令。";
+          final commands = splitShellCommands(command);
+
+          for (final cmd in commands) {
+            final main = getMainCommand(cmd);
+
+            if (!_whitelist.contains(main)) {
+              _securityCompleter = Completer<String>();
+
+              _internalAddMessage({
+                'role': 'security',
+                'command': cmd,
+                'status': 'waiting'
+              });
+
+              notifyListeners();
+
+              final decision = await _securityCompleter!.future;
+              _securityCompleter = null;
+
+              if (decision == 'deny') {
+                resultText = "拒绝执行：用户未授权此命令。";
+                break;
+              }
             }
           }
+
+          if (resultText.isNotEmpty) break;
 
           try {
             final result = await Process.run('cmd', ['/c', command], workingDirectory: workingDir);
@@ -776,34 +1116,44 @@ class Bloriko extends ChangeNotifier {
               if (output.isNotEmpty) output += "\n--- ERR ---\n";
               output += result.stderr.toString();
             }
-            return output.isEmpty ? "命令已执行（无输出）" : output;
+            resultText = output.isEmpty ? "命令已执行（无输出）" : output;
           } catch (e) { 
             final l = await AppLogger.getInstance();
             l.log("执行命令失败", level: LogLevel.error, source: LogSource.tool, detail: "Command: $command\nError: $e");
-            return "命令执行失败: $e"; 
+            resultText = "命令执行失败: $e"; 
           }
+          break;
         case 'get_semantics_tree':
           if (_uiAgent == null) {
-            return "错误：UI Agent 未初始化";
+            resultText = "错误：UI Agent 未初始化";
+            break;
           }
 
           try {
             final tree = _uiAgent!.getSemanticsTree();
             if (tree == null) {
-              return "错误：无法获取语义树，请确保 Semantics 已启用";
+              resultText = "错误：无法获取语义树，请确保 Semantics 已启用";
+              break;
             }
+            debugPrint(tree.toString());
             final simplifiedTree = simplifySemanticsTree(tree);
             if (simplifiedTree == null) {
-              return "错误：无法简化语义树";
+              resultText = "错误：无法简化语义树";
+              break;
             }
-            return jsonEncode(simplifiedTree);
+            debugPrint(simplifiedTree.toString());
+            resultText = jsonEncode(simplifiedTree);
           } catch (e) {
             final l = await AppLogger.getInstance();
             l.log("获取语义树失败", level: LogLevel.error, source: LogSource.ui, detail: e.toString());
-            return "获取语义树失败: $e";
+            resultText = "获取语义树失败: $e";
           }
+          break;
         case 'perform_ui_actions':
-          if (_actionRegistry == null) return "错误：ActionRegistry 未就绪";
+          if (_actionRegistry == null) {
+            resultText = "错误：ActionRegistry 未就绪";
+            break;
+          }
           final List actionsList = args['actions'] ?? [];
           final List<Map<String, dynamic>> results = [];
           for (var item in actionsList) {
@@ -820,23 +1170,26 @@ class Bloriko extends ChangeNotifier {
             }
           }
           await Future.delayed(const Duration(milliseconds: 800));
-          return jsonEncode(results);
+          resultText = jsonEncode(results);
+          break;
 
         case 'interact_with_ui':
           if (_uiAgent == null) {
-            return jsonEncode({
+            resultText = jsonEncode({
               "success": false,
               "error": "UI Agent 未初始化",
             });
+            break;
           }
 
           final task = args['task'] as String?;
 
           if (task == null || task.isEmpty) {
-            return jsonEncode({
+            resultText = jsonEncode({
               "success": false,
               "error": "缺少 task",
             });
+            break;
           }
 
           try {
@@ -846,7 +1199,7 @@ class Bloriko extends ChangeNotifier {
 
             final state = _uiAgent!.core.state;
 
-            return jsonEncode({
+            resultText = jsonEncode({
               "success": state.status.name == "completed",
               "task": task,
               "status": state.status.name,
@@ -857,16 +1210,19 @@ class Bloriko extends ChangeNotifier {
           } catch (e) {
             final l = await AppLogger.getInstance();
             l.log("UI 交互出错", level: LogLevel.error, source: LogSource.ui, detail: "Task: $task\nError: $e");
-            return jsonEncode({
+            resultText = jsonEncode({
               "success": false,
               "task": task,
               "error": e.toString(),
             });
           }
+          break;
         case 'recall_history':
-          return await _executeRecallHistory(args['count'] ?? 5);
+          resultText = await _executeRecallHistory(args['count'] ?? 5);
+          break;
         case 'web_search':
-          return await _executeWebSearch(args['query'], count: args['count'] ?? 5,);
+          resultText = await _executeWebSearch(args['query'], count: args['count'] ?? 5,);
+          break;
         case 'ask_question':
           _questionCompleter = Completer<String>();
           final DateTime startTime = DateTime.now();
@@ -875,23 +1231,122 @@ class Bloriko extends ChangeNotifier {
           _questionCompleter = null;
 
           final double duration = DateTime.now().difference(startTime).inMilliseconds / 1000.0;
-          return "$answer (用户选择时长: ${duration.toStringAsFixed(1)}s)";
+          resultText = "$answer (用户选择时长: ${duration.toStringAsFixed(1)}s)";
+          break;
+        case 'set_user_identity':
+          final identity = args['identity'] as String;
+          await ConfigService.set("user_identity", identity);
+          resultText = "成功：身份已记录为 $identity";
+          break;
+        case 'ask_question_details':
+          _questionDetailCompleter = Completer<String>();
+          final DateTime startTime = DateTime.now();
+          notifyListeners();
+          final answer = await _questionDetailCompleter!.future;
+          _questionDetailCompleter = null;
+
+          final double duration = DateTime.now().difference(startTime).inMilliseconds / 1000.0;
+          resultText = "$answer (用户输入时长: ${duration.toStringAsFixed(1)}s)";
+          break;
         case 'fetch_page':
           final url = args['url'] as String?;
-
           if (url == null || url.isEmpty) {
-            return "错误：缺少 url";
+            resultText = "错误：缺少 url";
+            break;
           }
-
-          return await _executeFetchPage(url);
+          resultText = await _executeFetchPage(url);
+          break;
+        case 'shizuku_init':
+          if (!Platform.isAndroid) {
+            resultText = "错误：Shizuku 仅支持 Android 平台";
+            break;
+          }
+          final status = await ShizukuService.init();
+          final statusMap = {0: "成功(已获权)", 1: "失败", 2: "不支持", 3: "正在授权/运行", -1: "未知"};
+          resultText = "Shizuku 初始化状态: ${statusMap[status] ?? status}";
+          break;
+        case 'shizuku_check_permission':
+          if (!Platform.isAndroid) {
+            resultText = "错误：Shizuku 仅支持 Android 平台";
+            break;
+          }
+          final hasPerm = await ShizukuService.checkPermission();
+          resultText = "Shizuku 权限状态: ${hasPerm ? "已获得" : "未获得"}";
+          break;
+        case 'shizuku_run_shell':
+          if (!Platform.isAndroid) {
+            resultText = "错误：Shizuku 仅支持 Android 平台";
+            break;
+          }
+          final shCommand = args['command'] as String;
+          
+          final shCommands = splitShellCommands(shCommand);
+          for (final cmd in shCommands) {
+            final main = getMainCommand(cmd);
+            if (!_whitelist.contains(main)) {
+              _securityCompleter = Completer<String>();
+              _internalAddMessage({
+                'role': 'security',
+                'command': "[Shizuku] $cmd",
+                'status': 'waiting'
+              });
+              notifyListeners();
+              final decision = await _securityCompleter!.future;
+              _securityCompleter = null;
+              if (decision == 'deny') {
+                resultText = "拒绝执行：用户未授权此 Shizuku 命令。";
+                break;
+              }
+            }
+          }
+          if (resultText.isEmpty) {
+            resultText = await ShizukuService.runShell(shCommand);
+          }
+          break;
         default:
-          return "错误：未实现的工具 $name";
+          resultText = "错误：未实现的工具 $name";
       }
+      
+      final duration = DateTime.now().difference(startTime).inMilliseconds;
+      l.log("Tool Execution Finished: $name", level: LogLevel.info, source: LogSource.tool, detail: "Duration: ${duration}ms");
+      return resultText;
     } catch (e) {
       final l = await AppLogger.getInstance();
       l.log("执行工具出错: $name", level: LogLevel.error, source: LogSource.tool, detail: e.toString());
       return "执行工具出错: $e";
     }
+  }
+
+  List<String> splitShellCommands(String command) {
+    final result = <String>[];
+
+    final separator = RegExp(r'\s*(?:&&|\|\||[|&;])\s*');
+
+    for (final part in command.split(separator)) {
+      final value = part.trim();
+      if (value.isNotEmpty) {
+        result.add(value);
+      }
+    }
+
+    return result;
+  }
+
+  String getMainCommand(String command) {
+    command = command.trim();
+
+    if (command.isEmpty) {
+      return "";
+    }
+
+    if (command.startsWith('"')) {
+      final end = command.indexOf('"', 1);
+      if (end > 0) {
+        return command.substring(1, end);
+      }
+    }
+
+    return command.split(RegExp(r'\s+')).first;
   }
 
   Future<String> _executeFetchPage(String url) async {
@@ -1214,11 +1669,12 @@ class SearchResult {
     required this.snippet,
   });
 
-  Map<String, dynamic> toJson() => {
-    "title": title,
-    "url": url,
-    "snippet": snippet,
-  };
+  Map<String, dynamic> toJson() =>
+      {
+        "title": title,
+        "url": url,
+        "snippet": snippet,
+      };
 }
 
 List<SearchResult> parseBingHtml(String body) {
@@ -1250,4 +1706,46 @@ List<SearchResult> parseBingHtml(String body) {
   }
 
   return results;
+}
+
+class AgentWorker {
+  final AgentCore core;
+
+  AgentWorker._(this.core);
+
+  static Future<AgentWorker> create({
+    required String workingDir,
+    required ActionRegistry actionRegistry,
+  }) async {
+    final treeWalker = SemanticTreeWalker();
+
+    final planner = Planner(
+      llmClient: BlorikoLLMClient(),
+      actionRegistry: actionRegistry,
+    );
+    final executor = Executor(
+      actionRegistry: actionRegistry,
+      auditLog: AuditLog(),
+    );
+    final verifier = Verifier(treeWalker: treeWalker);
+    return AgentWorker._(
+      AgentCore(
+        config: const AgentConfig(debugMode: true, maxSteps: 10),
+        treeWalker: treeWalker,
+        planner: planner,
+        executor: executor,
+        verifier: verifier,
+      ),
+    );
+  }
+
+  Future<String> runTask(String task, dynamic compressedTree) async {
+    try {
+      final contextualTask = "当前 UI 结构: ${jsonEncode(compressedTree)}\n\n任务: $task";
+      await core.run(contextualTask);
+      return "任务执行完毕。";
+    } catch (e) {
+      return "任务执行出错: $e";
+    }
+  }
 }

@@ -12,7 +12,7 @@ class BloretApiService {
   );
 
   static const String _serverBaseUrl = 'http://123.129.241.101:20901/api/getserver';
-  static const String _launcherInfoUrl = 'https://launcher.bloret.net/api/info';
+  static const String _launcherInfoUrl = 'http://123.129.241.101:3001/api/info';
 
   static Future<BloretServer?> fetchServerInfo(String name) async {
     for (int attempt = 1; attempt <= 5; attempt++) {
@@ -48,7 +48,7 @@ class BloretApiService {
           return BloretLauncherConfig.fromJson(data);
         }
       } catch (_) {
-        if (attempt == 5) rethrow;
+        if (attempt == 5) debugPrint('Failed to fetch launcher config');
         await Future.delayed(Duration(milliseconds: 500 * attempt));
       }
     }

@@ -207,8 +207,14 @@ class StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isPortrait = MediaQuery.of(context).size.height > screenWidth;
+
+    double width = isPortrait ? (screenWidth - 48) : 240.0;
+    if (width > 600) width = 600;
+
     return SizedBox(
-      width: 240,
+      width: width,
       child: Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -219,10 +225,14 @@ class StatCard extends StatelessWidget {
                 children: [
                   Icon(icon, size: 18),
                   const SizedBox(width: 8),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 13,
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 13,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -242,7 +252,9 @@ class StatCard extends StatelessWidget {
                     subtitle!,
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey[100],
+                      color: Theme.of(context).brightness == Brightness.dark 
+                          ? Colors.grey[400] 
+                          : Colors.grey[600],
                     ),
                   ),
                 ),

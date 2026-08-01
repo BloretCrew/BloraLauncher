@@ -7,6 +7,7 @@ import 'package:bloret_launcher/pages/bbbs_page.dart';
 import 'package:bloret_launcher/pages/blora_chat_page.dart';
 import 'package:bloret_launcher/pages/cores_page.dart';
 import 'package:bloret_launcher/pages/download_page.dart';
+import 'package:bloret_launcher/pages/mods_page.dart';
 import 'package:bloret_launcher/pages/stat_page.dart';
 import 'package:bloret_launcher/pages/tools_page.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
@@ -16,6 +17,7 @@ import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/sliding_text.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'services/config_service.dart';
@@ -87,7 +89,7 @@ class BloretLauncherApp extends StatelessWidget {
         container: true,
         child: ConfigService.isFirstRun()
             ? const WelcomeSetupScreen()
-            : const AgentOverlayWidget(child: MainShell()),
+            : AgentOverlayWidget(child: const MainShell()),
       )
     );
   }
@@ -122,7 +124,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (ConfigService.isFirstRun()) {
+        Bloriko.getInstance();
+      }
       _updateAppIcon();
       final futures = Future.wait([
         BloretApiService.fetchLauncherConfig(),
@@ -161,13 +166,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   final List<dynamic> _pages = [
     (const _NavDestination("主页", Icons.home_outlined, Icons.home), const HomePage()),
-    (const _NavDestination("Bloriko", Icons.smart_toy_outlined, Icons.smart_toy), const BloraChatPage()),
+    (const _NavDestination("助手", Icons.smart_toy_outlined, Icons.smart_toy), const BloraChatPage()),
     "divider",
     (const _NavDestination("下载", Icons.file_download_outlined, Icons.file_download), const DownloadPage()),
     (const _NavDestination("核心", Icons.view_in_ar_outlined, Icons.view_in_ar), const CoresPage()),
     (const _NavDestination("小工具", Icons.handyman_outlined, Icons.handyman), const ToolsPage()),
     (const _NavDestination("统计", Icons.bar_chart_outlined, Icons.bar_chart), const StatsPage()),
-    (const _NavDestination("Mods", Icons.extension_outlined, Icons.extension), const PlaceholderPage(title: "Mods")),
+    (const _NavDestination("Mods", Icons.extension_outlined, Icons.extension), const ModsPage()),
     (const _NavDestination("BBBS", Icons.forum_outlined, Icons.forum), const BbbsPage()),
     (const _NavDestination("Live", Icons.live_tv_outlined, Icons.live_tv), const PlaceholderPage(title: "Live")),
 
@@ -185,210 +190,261 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final avatar = ConfigService.get('Bloret_PassPort_Avatar') ?? "";
 
     return Scaffold(
-      body: Stack(
-        children: [
-          Row(
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 400),
-                width: !isPortrait ? (_isExtended ? 240 : 48) : 0,
-                curve: Curves.linearToEaseOut,
-                child: ClipRect(
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: _isExtended ? 240 : 48,
-                    maxWidth: _isExtended ? 240 : 48,
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: _isExtended ? 239 : 47,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const SizedBox(height: 8),
-                                _NavTile(
-                                  icon: Icons.menu,
-                                  title: "菜单",
-                                  isExtended: false,
-                                  isSelected: false,
-                                  compact: true,
-                                  onTap: () => setState(() => _isExtended = !_isExtended),
-                                ),
-                                const SizedBox(height: 12),
-                                Expanded(
-                                  child: ListView.builder(
-                                    padding: EdgeInsets.zero,
-                                    itemCount: 10,
-                                    itemBuilder: (context, index) {
-                                      final item = _pages[index];
-                                      if (item is String) {
-                                        return const Divider(height: 16, indent: 8, endIndent: 8);
-                                      }
-                                      final dest = item.$1;
-                                      return _NavTile(
-                                        icon: dest.icon,
-                                        selectedIcon: dest.selectedIcon,
-                                        title: dest.title,
-                                        isExtended: _isExtended,
-                                        isSelected: _selectedIndex == index,
-                                        onTap: () => setState(() => _selectedIndex = index),
-                                      );
-                                    },
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 400),
+                  width: !isPortrait ? (_isExtended ? 240 : 48) : 0,
+                  curve: Curves.linearToEaseOut,
+                  child: ClipRect(
+                    child: OverflowBox(
+                      alignment: Alignment.topLeft,
+                      minWidth: _isExtended ? 240 : 48,
+                      maxWidth: _isExtended ? 240 : 48,
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: _isExtended ? 239 : 47,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 8),
+                                  _NavTile(
+                                    icon: Icons.menu,
+                                    title: "菜单",
+                                    isExtended: false,
+                                    isSelected: false,
+                                    compact: true,
+                                    onTap: () => setState(() => _isExtended = !_isExtended),
                                   ),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Column(
-                                    children: [
-                                      const Divider(height: 16, indent: 8, endIndent: 8),
-                                      _AccountTile(
-                                        isExtended: _isExtended,
-                                        isSelected: _selectedIndex == 11,
-                                        userName: userName,
-                                        avatar: avatar,
-                                        onTap: () => setState(() => _selectedIndex = 11),
-                                      ),
-                                      _NavTile(
-                                        icon: _pages[12].$1.icon,
-                                        title: _pages[12].$1.title,
-                                        isExtended: _isExtended,
-                                        isSelected: _selectedIndex == 12,
-                                        onTap: () => setState(() => _selectedIndex = 12),
-                                      ),
-                                      _NavTile(
-                                        icon: _pages[13].$1.icon,
-                                        title: _pages[13].$1.title,
-                                        isExtended: _isExtended,
-                                        isSelected: _selectedIndex == 13,
-                                        onTap: () => setState(() => _selectedIndex = 13),
-                                      ),
-                                    ],
+                                  const SizedBox(height: 12),
+                                  Expanded(
+                                    child: ListView.builder(
+                                      padding: EdgeInsets.zero,
+                                      itemCount: 10,
+                                      itemBuilder: (context, index) {
+                                        final item = _pages[index];
+                                        if (item is String) {
+                                          return const Divider(height: 16, indent: 8, endIndent: 8);
+                                        }
+                                        final dest = item.$1;
+                                        return _NavTile(
+                                          icon: dest.icon,
+                                          selectedIcon: dest.selectedIcon,
+                                          title: dest.title,
+                                          isExtended: _isExtended,
+                                          isSelected: _selectedIndex == index,
+                                          onTap: () => setState(() => _selectedIndex = index),
+                                        );
+                                      },
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Column(
+                                      children: [
+                                        const Divider(height: 16, indent: 8, endIndent: 8),
+                                        _AccountTile(
+                                          isExtended: _isExtended,
+                                          isSelected: _selectedIndex == 11,
+                                          userName: userName,
+                                          avatar: avatar,
+                                          onTap: () => setState(() => _selectedIndex = 11),
+                                        ),
+                                        _NavTile(
+                                          icon: _pages[12].$1.icon,
+                                          title: _pages[12].$1.title,
+                                          isExtended: _isExtended,
+                                          isSelected: _selectedIndex == 12,
+                                          onTap: () => setState(() => _selectedIndex = 12),
+                                        ),
+                                        _NavTile(
+                                          icon: _pages[13].$1.icon,
+                                          title: _pages[13].$1.title,
+                                          isExtended: _isExtended,
+                                          isSelected: _selectedIndex == 13,
+                                          onTap: () => setState(() => _selectedIndex = 13),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        const VerticalDivider(thickness: 1, width: 1),
-                      ],
+                          const VerticalDivider(thickness: 1, width: 1),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 400),
-                  transitionBuilder: (child, animation) {
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: Tween<Offset>(
-                          begin: isPortrait ? const Offset(0, 0.05) : const Offset(0.02, 0),
-                          end: Offset.zero,
-                        ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: _pages[_selectedIndex] is String ? const SizedBox.shrink() : _pages[_selectedIndex].$2,
-                ),
-              ),
-            ],
-          ),
-
-          ListenableBuilder(
-            listenable: Bloriko.instance,
-            builder: (context, child) {
-              if (!Bloriko.instance.busy || _selectedIndex == 1) return const SizedBox.shrink();
-              
-              return Positioned(
-                bottom: isPortrait ? 100 : 100,
-                right: 24,
-                child: TweenAnimationBuilder<double>(
-                  duration: const Duration(milliseconds: 400),
-                  tween: Tween(begin: 0.0, end: 1.0),
-                  curve: Curves.easeOutBack,
-                  builder: (context, value, child) => Transform.scale(scale: value, child: child),
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedIndex = 1),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.9),
-                          borderRadius: BorderRadius.circular(25),
-                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))],
-                          border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 400),
+                    transitionBuilder: (child, animation) {
+                      return FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: isPortrait ? const Offset(0, 0.05) : const Offset(0.02, 0),
+                            end: Offset.zero,
+                          ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+                          child: child,
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                      );
+                    },
+                    child: _pages[_selectedIndex] is String ? const SizedBox.shrink() : _pages[_selectedIndex].$2,
+                  ),
+                ),
+              ],
+            ),
+
+            ListenableBuilder(
+              listenable: Bloriko.instance,
+              builder: (context, child) {
+                if (!Bloriko.instance.busy || _selectedIndex == 1) return const SizedBox.shrink();
+                
+                return Positioned(
+                  bottom: isPortrait ? 100 : 100,
+                  right: 24,
+                  child: TweenAnimationBuilder<double>(
+                    duration: const Duration(milliseconds: 400),
+                    tween: Tween(begin: 0.0, end: 1.0),
+                    curve: Curves.easeOutBack,
+                    builder: (context, value, child) => Transform.scale(scale: value, child: child),
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedIndex = 1),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.9),
+                            borderRadius: BorderRadius.circular(25),
+                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))],
+                            border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2)),
+                                  Icon(_getEmotionIcon(Bloriko.instance.emotion), size: 16),
+                                ],
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(Bloriko.instance.currentTool != null && Bloriko.instance.currentTool! != "set_user_identity"
+                                    ? "${Bloriko.type == "bloriko" ? "络可" : "BloraAgent"}正在: ${Bloriko.instance.currentTool}"
+                                    : "${Bloriko.type == "bloriko" ? "Bloriko" : "BloraAgent"} 正在运行...",
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onPrimaryContainer)
+                                  ),
+                                  if (Bloriko.instance.currentTool == null)
+                                    Row(
+                                      children: [
+                                        Text(
+                                          switch (Bloriko.instance.connectionStatus) {
+                                            BlorikoConnectionStatus.connecting => "正在连接服务器...",
+                                            BlorikoConnectionStatus.handshake => "正在验证...",
+                                            BlorikoConnectionStatus.streaming => "正在接收响应流...",
+                                            BlorikoConnectionStatus.error => "连接异常",
+                                            _ => "请稍候...",
+                                          },
+                                          style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.7))
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        height: isPortrait ? 84 : 0,
+        child: ClipRect(
+          child: isPortrait ? Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border(top: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.1))),
+            ),
+            child: SafeArea(
+              top: false,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: _pages.length,
+                itemBuilder: (context, index) {
+                  final item = _pages[index];
+                  if (item is String) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8),
+                      child: Center(child: SizedBox(height: 24, child: VerticalDivider(width: 1))),
+                    );
+                  }
+                  
+                  final dest = item.$1;
+                  final isSelected = _selectedIndex == index;
+                  final theme = Theme.of(context);
+                  
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                    child: InkWell(
+                      onTap: () => setState(() => _selectedIndex = index),
+                      borderRadius: BorderRadius.circular(12),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: isSelected ? theme.colorScheme.primaryContainer.withValues(alpha: 0.4) : Colors.transparent,
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2)),
-                                Icon(_getEmotionIcon(Bloriko.instance.emotion), size: 16),
-                              ],
+                            Icon(
+                              isSelected ? dest.selectedIcon : dest.icon, 
+                              color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+                              size: 24
                             ),
-                            const SizedBox(width: 12),
-                            Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(Bloriko.instance.currentTool != null 
-                                  ? "${Bloriko.type == "bloriko" ? "络可" : "BloraAgent"}正在: ${Bloriko.instance.currentTool}"
-                                  : "${Bloriko.type == "bloriko" ? "Bloriko" : "BloraAgent"} 正在运行...",
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onPrimaryContainer)
-                                ),
-                                if (Bloriko.instance.currentTool == null)
-                                  Text("请稍候...", style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.7))),
-                              ],
+                            const SizedBox(height: 4),
+                            Text(
+                              dest.title,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      bottomNavigationBar: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        height: isPortrait ? 80 : 0,
-        child: ClipRect(
-          child: OverflowBox(
-            alignment: Alignment.topCenter,
-            minHeight: 80,
-            maxHeight: 80,
-            child: NavigationBar(
-              selectedIndex: switch (_selectedIndex) {
-                0 => 0,
-                1 => 1,
-                8 => 2,
-                11 => 3,
-                12 => 4,
-                _ => 0,
-              },
-              onDestinationSelected: (index) {
-                final map = {0: 0, 1: 1, 2: 8, 3: 11, 4: 12};
-                setState(() => _selectedIndex = map[index] ?? 0);
-              },
-              destinations: [
-                NavigationDestination(icon: Icon(_pages[0].$1.icon), selectedIcon: Icon(_pages[0].$1.selectedIcon), label: _pages[0].$1.title),
-                NavigationDestination(icon: Icon(_pages[1].$1.icon), selectedIcon: Icon(_pages[1].$1.selectedIcon), label: _pages[1].$1.title),
-                NavigationDestination(icon: Icon(_pages[8].$1.icon), selectedIcon: Icon(_pages[8].$1.selectedIcon), label: _pages[8].$1.title),
-                NavigationDestination(icon: Icon(_pages[11].$1.icon), selectedIcon: Icon(_pages[11].$1.selectedIcon), label: _pages[11].$1.title),
-                NavigationDestination(icon: Icon(_pages[12].$1.icon), selectedIcon: Icon(_pages[12].$1.selectedIcon), label: _pages[12].$1.title),
-              ],
-            )
-          ),
+                  );
+                },
+              ),
+            ),
+          ) : const SizedBox.shrink(),
         ),
       )
     );
@@ -599,6 +655,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -611,73 +668,118 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 SlideFadeIn(
                   controller: _listController,
                   delay: 0,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text("$name Launcher",
-                          style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: SlidingTextCycle(
-                          sentences: sentences.map((e) => e.replaceAll("Windows 11", "Android")).map((e) => e.replaceAll("RinUI", "Flutter")).toList()..add("络可好き好き"),
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.outline,
-                            fontWeight: FontWeight.w500,
-                          ) ?? const TextStyle(),
-                        ),
+                  child: isPortrait 
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("$name Launcher",
+                              style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          SlidingTextCycle(
+                            sentences: sentences.map((e) => e.replaceAll("Windows 11", "Android")).map((e) => e.replaceAll("RinUI", "Flutter")).toList()..add("络可好き好き"),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.outline,
+                              fontWeight: FontWeight.w500,
+                            ) ?? const TextStyle(),
+                          ),
+                        ],
+                      )
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text("$name Launcher",
+                              style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: SlidingTextCycle(
+                              sentences: sentences.map((e) => e.replaceAll("Windows 11", "Android")).map((e) => e.replaceAll("RinUI", "Flutter")).toList()..add("络可好き好き"),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.outline,
+                                fontWeight: FontWeight.w500,
+                              ) ?? const TextStyle(),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
                 ),
                 const SizedBox(height: 24),
 
                 SlideFadeIn(
                   controller: _listController,
                   delay: 0.4,
-                  child: Row(
-                    children: [
-                      const CircleAvatar(radius: 20, backgroundColor: Colors.blueGrey),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextField(
-                          controller: homeInputController,
-                          onSubmitted: (value) {
-                            if (value.trim().isNotEmpty) {
-                              Bloriko.instance.startNewSession(value.trim());
-                              context.findAncestorStateOfType<_MainShellState>()?.setState(() {
-                                context.findAncestorStateOfType<_MainShellState>()?._selectedIndex = 1;
-                              });
-                            }
-                          },
-                          decoration: InputDecoration(
-                            hintText: "关于 Minecraft 的任何问题，可以问 Blora Agent 哦 ~",
-                            isDense: true,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  child: ListenableBuilder(
+                    listenable: Bloriko.instance,
+                    builder: (context, child) {
+                      final isBusy = Bloriko.instance.busy;
+                      return Row(
+                        children: [
+                          const CircleAvatar(radius: 20, backgroundColor: Colors.blueGrey),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final isShort = constraints.maxWidth < 300;
+                                  final agentName = Bloriko.type == "bloriko" ? "络可" : "Blora Agent";
+                                  final identityId = ConfigService.get("user_identity");
+                                  final identity = identityId == "sister" ? "姐姐" : identityId == "little_sister" ? "妹妹" : "哥哥";
+                                  
+                                  String hintText;
+                                  if (isBusy) {
+                                    hintText = isShort ? "正在思考..." : "$agentName 正在思考中...";
+                                  } else {
+                                    if (isShort) {
+                                      hintText = "向 $agentName 提问...";
+                                    } else {
+                                      hintText = "关于 Minecraft 的任何问题，可以问 $agentName 哦${Bloriko.type == "bloriko" ? "，$identity ~" : ""}";
+                                    }
+                                  }
+
+                                  return TextField(
+                                    controller: homeInputController,
+                                    onSubmitted: isBusy ? null : (value) {
+                                      if (Platform.isAndroid) return;
+                                      if (value.trim().isNotEmpty) {
+                                        Bloriko.instance.startNewSession(value.trim());
+                                        context.findAncestorStateOfType<_MainShellState>()?.setState(() {
+                                          context.findAncestorStateOfType<_MainShellState>()?._selectedIndex = 1;
+                                        });
+                                      }
+                                    },
+                                    decoration: InputDecoration(
+                                      hintText: hintText,
+                                      isDense: true,
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                                    ),
+                                  );
+                                }
+                            ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      IconButton.filled(
-                        onPressed: () {
-                          final value = homeInputController.text.trim();
-                          if (value.isNotEmpty) {
-                            Bloriko.instance.startNewSession(value);
-                            context.findAncestorStateOfType<_MainShellState>()?.setState(() {
-                              context.findAncestorStateOfType<_MainShellState>()?._selectedIndex = 1;
-                            });
-                          }
-                        }, 
-                        icon: const Icon(Icons.send)
-                      ),
-                    ],
+                          const SizedBox(width: 12),
+                          IconButton.filled(
+                            onPressed: isBusy ? null : () {
+                              final value = homeInputController.text.trim();
+                              if (value.isNotEmpty) {
+                                Bloriko.instance.startNewSession(value);
+                                context.findAncestorStateOfType<_MainShellState>()?.setState(() {
+                                  context.findAncestorStateOfType<_MainShellState>()?._selectedIndex = 1;
+                                });
+                              }
+                            }, 
+                            icon: isBusy 
+                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70))
+                              : const Icon(Icons.send)
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(height: 12),
                 SlideFadeIn(
                   controller: _listController,
                   delay: 0.5,
-                  child: Text("Blora Agent 依靠 AI。可能犯错，请核实重要信息。",
+                  child: Text("${Bloriko.type == "bloriko" ? "络可" : "Blora Agent"} 依靠 AI。可能犯错，请核实重要信息。",
                       style: theme.textTheme.bodySmall?.copyWith(fontSize: 14)),
                 ),
 
@@ -727,7 +829,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ],
                         ),
                         const Divider(height: 24),
-                        const Text("Blora Agent 推荐时间段", style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text("${Bloriko.type == "bloriko" ? "络可" : "Blora Agent"} 推荐时间段", style: const TextStyle(fontWeight: FontWeight.bold)),
                         const SizedBox(height: 12),
                         AnimatedSwitcher(
                           duration: const Duration(milliseconds: 300),
@@ -746,12 +848,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               opacity: fadeAnimation,
                               child: SizeTransition(
                                 sizeFactor: sizeAnimation,
-                                alignment: Alignment.topCenter,
+                                alignment: Alignment.centerLeft,
                                 child: child,
                               ),
                             );
                           },
-                          child: server != null ? KeyedSubtree(key: ValueKey(server != null), child: buildSimpleMarkdownText(server?.bestTime ?? "", style: theme.textTheme.bodySmall)) : Row(key: ValueKey(server != null), mainAxisSize: .min, children: [Text("嘿嘿~ Blora Agent 来啦！现在的在线人数非常适合游玩哦~"), const SizedBox(width: 8), const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),],),
+                          child: server != null 
+                            ? KeyedSubtree(key: ValueKey(server != null), child: GptMarkdown(server?.bestTime ?? "...", style: theme.textTheme.bodySmall)) 
+                            : Row(
+                                key: ValueKey(server != null), 
+                                mainAxisSize: MainAxisSize.min, 
+                                children: [
+                                  Expanded(child: Text("嘿嘿~ ${Bloriko.type == "bloriko" ? "络可" : "Blora Agent"} 来啦！现在的在线人数非常适合游玩哦~", style: theme.textTheme.bodySmall)), 
+                                  const SizedBox(width: 8), 
+                                  const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                                  const SizedBox(width: 4,)
+                                ],
+                              ),
                         ),
                       ],
                     ),
@@ -859,8 +972,11 @@ class _BottomActionRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      height: 90,
+    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      height: isPortrait ? 140 : 90,
       padding: const EdgeInsets.symmetric(horizontal: 24),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface.withValues(alpha: 0.8),
@@ -869,37 +985,98 @@ class _BottomActionRail extends StatelessWidget {
       child: ClipRRect(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Row(
-            children: [
-              Container(
-                width: 48, height: 48,
-                decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
-                child: const Icon(Icons.inventory_2),
-              ),
-              const SizedBox(width: 16),
-              Column(
+          child: isPortrait 
+            ? Column(
                 mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("1.20.1-Forge-47.2.0", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  Text("以身份 Bloret 启动 Minecraft", style: theme.textTheme.bodySmall),
+                  Row(
+                    children: [
+                      Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+                        child: const Icon(Icons.inventory_2, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text("1.20.1-Forge-47.2.0", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            Text("以身份 Bloret 启动 Minecraft", style: theme.textTheme.bodySmall?.copyWith(fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      BloretIconButton(
+                        icon: Icons.settings,
+                        tooltip: "核心设置",
+                        onPressed: () {},
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: BloretButton(
+                          onPressed: () {}, 
+                          icon: Icons.swap_horiz, 
+                          text: "切换核心",
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: BloretButton(
+                          onPressed: () {},
+                          icon: Icons.play_arrow,
+                          text: "启动游戏",
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              )
+            : Row(
+                children: [
+                  Container(
+                    width: 48, height: 48,
+                    decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.inventory_2),
+                  ),
+                  const SizedBox(width: 16),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text("1.20.1-Forge-47.2.0", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text("以身份 Bloret 启动 Minecraft", style: theme.textTheme.bodySmall),
+                    ],
+                  ),
+                  const Spacer(),
+                  BloretIconButton(
+                    icon: Icons.folder_open,
+                    tooltip: "游戏目录",
+                    onPressed: () {},
+                  ),
+                  const SizedBox(width: 12),
+                  BloretButton(
+                    onPressed: () {}, 
+                    icon: Icons.swap_horiz, 
+                    text: "切换核心"
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    height: 44,
+                    width: 140,
+                    child: BloretButton(
+                      onPressed: () {},
+                      icon: Icons.play_arrow,
+                      text: "启动游戏",
+                    ),
+                  ),
                 ],
               ),
-              const Spacer(),
-              TextButton.icon(onPressed: () {}, icon: const Icon(Icons.swap_horiz), label: const Text("切换核心")),
-              const SizedBox(width: 12),
-              SizedBox(
-                height: 44,
-                width: 140,
-                child: FilledButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text("启动游戏"),
-                  style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -1214,7 +1391,30 @@ class _PassPortPageState extends State<PassPortPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text((account['username'] ?? "Unknown") + (_displayUuid ? (account['uuid'] != null ? " (${account['uuid']})" : "") : ""), style: const TextStyle(fontWeight: FontWeight.w700)),
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    account['username'] ?? "Unknown",
+                                    style: const TextStyle(fontWeight: FontWeight.w700),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (_displayUuid && account['uuid'] != null)
+                                  Flexible(
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(left: 6),
+                                      child: Text(
+                                        "(${account['uuid']})",
+                                        style: theme.textTheme.bodySmall?.copyWith(fontSize: 10, color: theme.colorScheme.outline),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                             Text(account['type'] ?? "Offline", style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
                           ],
                         ),

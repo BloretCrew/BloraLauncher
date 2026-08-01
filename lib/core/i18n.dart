@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 class I18n extends ChangeNotifier {
@@ -23,12 +22,7 @@ class I18n extends ChangeNotifier {
   }
 
   static Future<Directory> getCustomLangDir() async {
-    Directory? baseDir;
-    if (Platform.isWindows) {
-      baseDir = Directory(p.dirname(Platform.resolvedExecutable));
-    } else {
-      baseDir = await getApplicationSupportDirectory();
-    }
+    Directory? baseDir = await getSupportData();
     final dir = Directory(p.join(baseDir.path, 'lang'));
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;

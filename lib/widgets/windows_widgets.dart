@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class Win11DropdownItem {
   final String label;
   final String value;
-  Win11DropdownItem({required this.label, required this.value});
+  const Win11DropdownItem({required this.label, required this.value});
 }
 
 class Win11Dropdown extends StatefulWidget {
@@ -11,6 +11,7 @@ class Win11Dropdown extends StatefulWidget {
   final String? initialValue;
   final ValueChanged<String?>? onChanged;
   final Color? themeColor;
+  final double height;
 
   const Win11Dropdown({
     super.key,
@@ -18,6 +19,7 @@ class Win11Dropdown extends StatefulWidget {
     this.initialValue,
     required this.onChanged,
     this.themeColor,
+    this.height = 32,
   });
 
   @override
@@ -141,21 +143,28 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
 
                     decoration: BoxDecoration(
                       color: isDarkMode
-                          ? const Color(0xFF2C2C2C)
-                          : Colors.white.withValues(alpha: 0.95),
+                          ? Color.alphaBlend(
+                        themeColor.withValues(alpha: 0.03),
+                        const Color(0xFF2C2C2C),
+                      )
+                          : Color.alphaBlend(
+                        themeColor.withValues(alpha: 0.05),
+                        Colors.white.withValues(alpha: 0.95),
+                      ),
 
                       border: Border.all(
-                        color: isDarkMode
-                            ? const Color(0xFF444444)
-                            : const Color(0xFFBBBBBB),
+                        color: themeColor.withValues(
+                          alpha: 0.35,
+                        ),
+                        width: 1,
                       ),
 
                       borderRadius: BorderRadius.circular(8),
 
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(
-                            alpha: isDarkMode ? 0.3 : 0.1,
+                          color: themeColor.withValues(
+                            alpha: isDarkMode ? 0.25 : 0.15,
                           ),
                           blurRadius: 15,
                           offset: const Offset(0, 6),
@@ -283,37 +292,60 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
         child: GestureDetector(
           onTap: _toggleMenu,
           child: Container(
-            height: 32,
+            height: widget.height,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              color: isDarkMode ? const Color(0xFF202020) : Colors.white.withOpacity(0.8),
+              color: isDarkMode
+                  ? Color.alphaBlend(
+                themeColor.withValues(alpha: 0.04),
+                const Color(0xFF202020),
+              )
+                  : Colors.white.withValues(alpha: 0.8),
+
               border: Border.all(
                 color: _isOpen
                     ? themeColor
-                    : (isDarkMode ? const Color(0xFF666666) : const Color(0xFF8B8B8B)),
+                    : themeColor.withValues(
+                  alpha: isDarkMode ? 0.45 : 0.35,
+                ),
                 width: _isOpen ? 2 : 1,
               ),
+
               borderRadius: BorderRadius.circular(6),
             ),
+
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
                   child: Text(
-                    selectedItem.value.isEmpty ? '请选择' : selectedItem.label,
+                    selectedItem.value.isEmpty
+                        ? '请选择'
+                        : selectedItem.label,
+
                     style: TextStyle(
                       fontSize: 13,
-                      color: isDarkMode ? const Color(0xFFF3F3F3) : const Color(0xFF1A1A1A),
+                      color: isDarkMode
+                          ? const Color(0xFFF3F3F3)
+                          : const Color(0xFF1A1A1A),
                     ),
+
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+
                 RotationTransition(
-                  turns: Tween(begin: 0.0, end: 0.5).animate(_animController),
+                  turns: Tween(
+                    begin: 0.0,
+                    end: 0.5,
+                  ).animate(_animController),
+
                   child: Icon(
                     Icons.keyboard_arrow_down,
                     size: 16,
-                    color: isDarkMode ? const Color(0xFFA0A0A0) : const Color(0xFF5F5F5F),
+                    color: isDarkMode
+                        ? const Color(0xFFA0A0A0)
+                        : themeColor,
                   ),
                 ),
               ],

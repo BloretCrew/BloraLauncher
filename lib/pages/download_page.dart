@@ -58,7 +58,7 @@ class _DownloadPageState extends State<DownloadPage> {
           Text("  当前下载源: bangbang93/BMCLAPI"),
           const SizedBox(height: 8),
           DownloadCard(
-            image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/mc_be.png")),
+            image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/mc_be.png", scale: 0.9,)),
             title: "Minecraft 官方版本",
             subtitle: "下载并安装原生 Minecraft 核心",
             versions: vanillaVersions,
@@ -78,7 +78,7 @@ class _DownloadPageState extends State<DownloadPage> {
           DownloadCard(
             image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/fabric.png")),
             title: "Fabric Loader",
-            subtitle: "安装 Fabric 加载器以使用 modern Mod",
+            subtitle: "安装 Fabric 加载器以使用 Fabric Mod",
             versions: fabricVersions,
             onDownload: (version) {
               // TODO: Backend.downloadFabric()
@@ -159,6 +159,82 @@ class _DownloadCardState extends State<DownloadCard> {
   @override
   Widget build(BuildContext context) {
     selected ??= widget.versions?.firstOrNull;
+    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+
+    if (isPortrait) {
+      return FluentCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                widget.image,
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (widget.badge != null)
+                        Chip(label: Text(widget.badge!)),
+                      Text(
+                        widget.title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        widget.subtitle,
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                if (widget.versions != null)
+                  Expanded(
+                    child: Win11Dropdown(
+                      initialValue: selected,
+                      height: 38,
+                      items: widget.versions!
+                          .map((e) => Win11DropdownItem(
+                        value: e,
+                        label: e,
+                      ))
+                          .toList(),
+                      onChanged: (v) {
+                        setState(() => selected = v);
+                        if (v == "其他版本...") {
+                          // TODO: 打开版本选择Dialog
+                        }
+                      },
+                    ),
+                  ),
+                if (widget.versions != null) const SizedBox(width: 12),
+                Expanded(
+                  child: BloretButton(
+                    height: 38,
+                    onPressed: () {
+                      if (widget.onDownload != null) {
+                        widget.onDownload!(selected ?? "");
+                      } else {
+                        widget.onPressed?.call();
+                      }
+                    },
+                    text: widget.buttonText ?? "下载并安装",
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
 
     return FluentCard(
       child: Row(
@@ -191,6 +267,7 @@ class _DownloadCardState extends State<DownloadCard> {
               width: 150,
               child: Win11Dropdown(
                 initialValue: selected,
+                height: 38,
                 items: widget.versions!
                     .map((e) => Win11DropdownItem(
                   value: e,
@@ -207,6 +284,7 @@ class _DownloadCardState extends State<DownloadCard> {
             ),
           const SizedBox(width: 12),
           BloretButton(
+            height: 38,
             onPressed: () {
               if (widget.onDownload != null) {
                 widget.onDownload!(selected ?? "");

@@ -9,6 +9,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 
+import '../services/config_service.dart';
+
 class ToolsPage extends StatefulWidget {
   const ToolsPage({super.key});
 
@@ -79,27 +81,29 @@ class _ToolsPageState extends State<ToolsPage> {
             // TODO PluginHost Widget 加载
           ],
 
-          sectionTitle("资源包工具"),
-          const SizedBox(height: 4),
-          ToolCard(
-            icon: "assets/icons/resource_editor.png",
-            title: "Bloret Launcher 资源包编辑器",
-            subtitle: "创建和编辑 Minecraft 资源包，内置 Git 版本管理，无需编程基础",
-            button: "暂未兼容",
-            onPressed: null,
-          ),
+          if (Platform.isWindows) ...[
+            sectionTitle("资源包工具"),
+            const SizedBox(height: 4),
+            ToolCard(
+              icon: "assets/icons/resource_editor.png",
+              title: "Bloret Launcher 资源包编辑器",
+              subtitle: "创建和编辑 Minecraft 资源包，内置 Git 版本管理，无需编程基础",
+              button: "暂未兼容",
+              onPressed: null,
+            ),
 
-          sectionTitle("屏幕截图"),
-          const SizedBox(height: 4),
-          ToolCard(
-            icon: "assets/icons/screen_cap.png",
-            title: "Windows原生截图",
-            subtitle: "便捷地截取屏幕画面，包括 Minecraft 窗口",
-            button: "截图",
-            onPressed: () async {
-              await takeScreenCut();
-            },
-          ),
+            sectionTitle("屏幕截图"),
+            const SizedBox(height: 4),
+            ToolCard(
+              icon: "assets/icons/screen_cap.png",
+              title: "Windows原生截图",
+              subtitle: "便捷地截取屏幕画面，包括 Minecraft 窗口",
+              button: "截图",
+              onPressed: () async {
+                await takeScreenCut();
+              },
+            ),
+          ],
 
           sectionTitle("Minecraft 数据查询"),
 
@@ -331,7 +335,7 @@ Future<void> takeScreenCut() async {
       return;
     }
 
-    final dir = await getApplicationSupportDirectory();
+    final dir = await getSupportData();
 
     final saveDir = Directory(
       p.join(dir.path, "screenshot"),
@@ -360,13 +364,9 @@ Future<void> takeScreenCut() async {
       );
     }
 
-
     if (image.imageBytes != null) {
       await file.writeAsBytes(image.imageBytes!);
     }
-
-
-    // TODO: 写入系统图片剪贴板
 
     print(
       "Screenshot saved: ${file.path}",

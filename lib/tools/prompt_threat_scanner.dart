@@ -143,7 +143,6 @@ class PromptThreatScanner {
     ),
   ];
 
-
   List<String> scan(String content) {
     if (content.isEmpty) {
       return [];
@@ -176,7 +175,6 @@ class PromptThreatScanner {
 
     return result;
   }
-
 
   String? firstMessage(String content) {
     final findings = scan(content);

@@ -16,12 +16,14 @@ class AboutPageState extends State<AboutPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.only(left: 36, right: 24, top: 24, bottom: 24),
         child: SingleChildScrollView(
           child: Column(
-            mainAxisSize: .min,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 children: [
@@ -36,20 +38,25 @@ class AboutPageState extends State<AboutPage> {
                   children: [
                     Row(
                       children: [
-                        Image.asset(Theme.of(context).brightness == Brightness.dark ? "assets/bloret_dark.png" : "assets/bloret_light.png", width: 100, height: 100, fit: BoxFit.cover,),
+                        Image.asset(Theme.of(context).brightness == Brightness.dark ? "assets/bloret_dark.png" : "assets/bloret_light.png", width: isPortrait ? 64 : 100, height: isPortrait ? 64 : 100, fit: BoxFit.cover,),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text("$name Launcher", style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: 28)),
-                              Row(mainAxisSize: .min, children: [Text("Version: ${config?.latestVersion ?? ""}", style: theme.textTheme.bodyMedium), if (config?.latestVersion == null || config!.latestVersion.isEmpty) const SizedBox(width: 10, height: 10, child: Center(child: CircularProgressIndicator(strokeWidth: 2),))],),
-                              Text("Be creative, be simple. Your Personal Innovative Open Source AI Minecraft Launcher. Relax, it's $name Launcher.", style: TextStyle(color: theme.colorScheme.outline, fontSize: 15, height: 1.4)),
+                              Text("$name Launcher", style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: isPortrait ? 22 : 28)),
+                              Row(mainAxisSize: MainAxisSize.min, children: [Text("Version: ${config?.latestVersion ?? ""}", style: theme.textTheme.bodyMedium), if (config?.latestVersion == null || config!.latestVersion.isEmpty) const SizedBox(width: 10, height: 10, child: Center(child: CircularProgressIndicator(strokeWidth: 2),))],),
+                              if (!isPortrait)
+                                Text("Be creative, be simple. Your Personal Innovative Open Source AI Minecraft Launcher. Relax, it's $name Launcher.", style: TextStyle(color: theme.colorScheme.outline, fontSize: 15, height: 1.4)),
                             ],
                           ),
                         )
                       ],
                     ),
+                    if (isPortrait) ...[
+                      const SizedBox(height: 12),
+                      Text("Be creative, be simple. Your Personal Innovative Open Source AI Minecraft Launcher. Relax, it's $name Launcher.", style: TextStyle(color: theme.colorScheme.outline, fontSize: 14, height: 1.4)),
+                    ],
                   ],
                 ),
               ),
@@ -57,58 +64,118 @@ class AboutPageState extends State<AboutPage> {
               BloretAboutWidget(),
               const SizedBox(height: 12),
               FluentCard(
-                child: Row(
-                  children: [
-                    Container(width: 48, height: 48, decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)), clipBehavior: Clip.hardEdge, child: Image.asset("assets/icons/qq.png", isAntiAlias: true, filterQuality: FilterQuality.high,),),
-                    const SizedBox(width: 12),
-                    Text("Bloret QQ", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                    const Spacer(),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
+                child: isPortrait 
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        BloretButton(
-                          text: "Bloret",
-                          onPressed: () => launchUrl(Uri.parse("https://qm.qq.com/q/iGw0GwUCiI")),
+                        Row(
+                          children: [
+                            Container(width: 40, height: 40, decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)), clipBehavior: Clip.hardEdge, child: Image.asset("assets/icons/qq.png", isAntiAlias: true, filterQuality: FilterQuality.high,),),
+                            const SizedBox(width: 12),
+                            Text("Bloret QQ", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                          ],
                         ),
-                        const SizedBox(width: 16),
-                        BloretButton(
-                          text: "Bloret Software Community",
-                          onPressed: () => launchUrl(Uri.parse("https://qm.qq.com/q/kEt8fb41wc")),
-                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            BloretButton(
+                              text: "Bloret",
+                              onPressed: () => launchUrl(Uri.parse("https://qm.qq.com/q/iGw0GwUCiI")),
+                            ),
+                            BloretButton(
+                              text: "Bloret Software Community",
+                              onPressed: () => launchUrl(Uri.parse("https://qm.qq.com/q/kEt8fb41wc")),
+                            ),
+                          ],
+                        )
                       ],
                     )
-                  ],
-                ),
+                  : Row(
+                      children: [
+                        Container(width: 48, height: 48, decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)), clipBehavior: Clip.hardEdge, child: Image.asset("assets/icons/qq.png", isAntiAlias: true, filterQuality: FilterQuality.high,),),
+                        const SizedBox(width: 12),
+                        Text("Bloret QQ", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                        const Spacer(),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            BloretButton(
+                              text: "Bloret",
+                              onPressed: () => launchUrl(Uri.parse("https://qm.qq.com/q/iGw0GwUCiI")),
+                            ),
+                            const SizedBox(width: 16),
+                            BloretButton(
+                              text: "Bloret Software Community",
+                              onPressed: () => launchUrl(Uri.parse("https://qm.qq.com/q/kEt8fb41wc")),
+                            ),
+                          ],
+                        )
+                      ],
+                    ),
               ),
               const SizedBox(height: 8),
               FluentCard(
-                child: Row(
-                  children: [
-                    CustomPaint(painter: GithubPainter(), size: const Size(48, 48)),
-                    const SizedBox(width: 12),
-                    Text("Github", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                    const Spacer(),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
+                child: isPortrait
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        BloretButton(
-                          text: "组织界面",
-                          onPressed: () => launchUrl(Uri.parse("https://github.com/BloretCrew")),
+                        Row(
+                          children: [
+                            CustomPaint(painter: GithubPainter(), size: const Size(40, 40)),
+                            const SizedBox(width: 12),
+                            Text("Github", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                          ],
                         ),
-                        const SizedBox(width: 16),
-                        BloretButton(
-                          text: "原项目界面",
-                          onPressed: () => launchUrl(Uri.parse("https://github.com/BloretCrew/Bloret-Launcher")),
-                        ),
-                        const SizedBox(width: 16),
-                        BloretButton(
-                          text: "此项目界面",
-                          onPressed: () => launchUrl(Uri.parse("https://github.com/xXYxxdMC-GH/BloretLauncher")),
-                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            BloretButton(
+                              text: "组织界面",
+                              onPressed: () => launchUrl(Uri.parse("https://github.com/BloretCrew")),
+                            ),
+                            BloretButton(
+                              text: "原项目界面",
+                              onPressed: () => launchUrl(Uri.parse("https://github.com/BloretCrew/Bloret-Launcher")),
+                            ),
+                            BloretButton(
+                              text: "此项目界面",
+                              onPressed: () => launchUrl(Uri.parse("https://github.com/xXYxxdMC-GH/BloretLauncher")),
+                            ),
+                          ],
+                        )
                       ],
                     )
-                  ],
-                ),
+                  : Row(
+                      children: [
+                        CustomPaint(painter: GithubPainter(), size: const Size(48, 48)),
+                        const SizedBox(width: 12),
+                        Text("Github", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                        const Spacer(),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            BloretButton(
+                              text: "组织界面",
+                              onPressed: () => launchUrl(Uri.parse("https://github.com/BloretCrew")),
+                            ),
+                            const SizedBox(width: 16),
+                            BloretButton(
+                              text: "原项目界面",
+                              onPressed: () => launchUrl(Uri.parse("https://github.com/BloretCrew/Bloret-Launcher")),
+                            ),
+                            const SizedBox(width: 16),
+                            BloretButton(
+                              text: "此项目界面",
+                              onPressed: () => launchUrl(Uri.parse("https://github.com/xXYxxdMC-GH/BloretLauncher")),
+                            ),
+                          ],
+                        )
+                      ],
+                    ),
               ),
             ],
           ),
@@ -116,6 +183,7 @@ class AboutPageState extends State<AboutPage> {
       ),
     );
   }
+
 }
 
 class BloretAboutWidget extends StatelessWidget {

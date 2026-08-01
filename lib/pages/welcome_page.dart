@@ -43,7 +43,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 
   bool _isCheckingJava = false;
   bool _javaInstalled = false;
-  String _javaPath = "";
+  List<Map<String,String>> _detectedJavaList = [];
+  String? _javaPath;
   bool _isInstallingJava = false;
   double _installProgress = 0.0;
   String _installStatus = "";
@@ -75,13 +76,13 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   }
 
   Future<void> _checkJavaEnvironment() async {
+    final List<Map<String, String>> detected = [];
     if (_isCheckingJava) return;
     setState(() {
       _isCheckingJava = true;
       _checkCount++;
     });
 
-    String? foundPath;
     try {
       final List<String> searchPaths = [];
 
@@ -92,10 +93,12 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             if (Directory(drive).existsSync()) {
               searchPaths.add(drive);
             }
-          } catch (_) {}
+          } catch (_) {
+            print("Error checking drive $drive");
+          }
         }
 
-        final envVars = ['JAVA_HOME', 'JDK_HOME', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE'];
+        final envVars = ['JAVA_HOME', 'JDK_HOME', 'PROGRAMFILES', 'PROGRAMFILES(X86)'];
         for (var env in envVars) {
           final value = Platform.environment[env];
           if (value != null && value.isNotEmpty) {
@@ -103,7 +106,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               if (Directory(value).existsSync()) {
                 searchPaths.add(value);
               }
-            } catch (_) {}
+            } catch (_) {
+              print("Error checking environment variable $env");
+            }
           }
         }
 
@@ -141,17 +146,27 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                                       searchPaths.add(subSubEntity.path);
                                     }
                                   }
-                                } catch (_) {}
+                                } catch (_) {
+                                  print("Error checking directory $subSubEntity");
+                                }
                               }
                             }
-                          } catch (_) {}
+                          } catch (_) {
+                            print("Error listing subdirectories of $subEntity");
+                          }
                         }
-                      } catch (_) {}
+                      } catch (_) {
+                        print("Error checking directory $subEntity");
+                      }
                     }
                   }
-                } catch (_) {}
+                } catch (_) {
+                  print("Error listing subdirectories of $p");
+                }
               }
-            } catch (_) {}
+            } catch (_) {
+              print("Error checking directory $p");
+            }
           }
         }
       } else {
@@ -175,88 +190,158 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   final parent = Directory(trimmed).parent;
                   if (path.basename(parent.path).toLowerCase() == 'bin') {
                     final candidate = parent.parent.path;
-                    if (candidate.contains('21')) {
-                      foundPath = candidate;
-                      break;
-                    }
-                    foundPath ??= candidate;
-                  }
-                }
-              } catch (_) {}
-            }
-          }
-        }
-      } catch (_) {}
 
-      if (foundPath == null || !foundPath.contains('21')) {
-        final List<String> targetDirs = [];
-        for (var rootPath in searchPaths) {
-          if (rootPath.length <= 3) continue;
-          final rootDir = Directory(rootPath);
-          bool rootExists = false;
-          try {
-            rootExists = rootDir.existsSync();
-          } catch (_) {}
-          if (!rootExists) continue;
+                    if (!detected.any((e) => e["path"] == candidate)) {
+                      String version = "?";
 
-          try {
-            await for (var entity in rootDir.list(recursive: false, followLinks: false)) {
-              if (entity is Directory) {
-                targetDirs.add(entity.path);
-              } else if (entity is File && path.basename(entity.path).toLowerCase() == 'java.exe') {
-                final binDir = Directory(entity.path).parent;
-                if (path.basename(binDir.path).toLowerCase() == 'bin') {
-                  final candidate = binDir.parent.path;
-                  if (candidate.contains('21')) {
-                    foundPath = candidate;
-                    break;
-                  }
-                  foundPath ??= candidate;
-                }
-              }
-            }
-          } catch (_) {}
-          if (foundPath != null && foundPath.contains('21')) break;
-        }
+                      final name = path.basename(candidate);
 
-        if (foundPath == null || !foundPath.contains('21')) {
-          for (var dirPath in targetDirs) {
-            try {
-              await for (var entity in Directory(dirPath).list(recursive: true, followLinks: false)) {
-                try {
-                  if (entity is File && path.basename(entity.path).toLowerCase() == 'java.exe') {
-                    final binDir = Directory(entity.path).parent;
-                    if (path.basename(binDir.path).toLowerCase() == 'bin') {
-                      final candidate = binDir.parent.path;
-                      if (candidate.contains('21')) {
-                        foundPath = candidate;
-                        break;
+                      final match = RegExp(r'(\d+)').firstMatch(name);
+                      if (match != null) {
+                        version = match.group(1)!;
                       }
-                      foundPath ??= candidate;
+
+                      detected.add({
+                        "version": version,
+                        "path": candidate,
+                      });
                     }
                   }
-                } catch (_) {}
+                }
+              } catch (_) {
+                print("Error checking file $trimmed");
               }
-            } catch (_) {}
-            if (foundPath != null && foundPath.contains('21')) break;
+            }
           }
         }
+      } catch (_) {
+        print("Error checking java");
       }
-    } catch (_) {}
+
+      final List<String> targetDirs = [];
+
+      for (var rootPath in searchPaths) {
+        if (rootPath.length <= 3) continue;
+
+        final rootDir = Directory(rootPath);
+
+        try {
+          if (!rootDir.existsSync()) continue;
+        } catch (_) {
+          continue;
+        }
+
+        try {
+          await for (var entity in rootDir.list(
+            recursive: false,
+            followLinks: false,
+          )) {
+            if (entity is Directory) {
+              targetDirs.add(entity.path);
+            } else if (entity is File &&
+                path.basename(entity.path).toLowerCase() == 'java.exe') {
+
+              final binDir = entity.parent;
+
+              if (path.basename(binDir.path).toLowerCase() == 'bin') {
+                final candidate = binDir.parent.path;
+
+                if (!detected.any((e) => e["path"] == candidate)) {
+                  detected.add({
+                    "version": _getJavaVersion(candidate),
+                    "path": candidate,
+                  });
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      Future<void> scanJavaDir(
+          Directory dir,
+          int depth,
+          ) async {
+
+        if (depth > 3) return;
+
+        try {
+          await for (var entity in dir.list(
+            recursive: false,
+            followLinks: false,
+          )) {
+
+            if (entity is File &&
+                path.basename(entity.path).toLowerCase() == 'java.exe') {
+
+              final binDir = entity.parent;
+
+              if (path.basename(binDir.path).toLowerCase() == 'bin') {
+
+                final candidate = binDir.parent.path;
+
+                if (!detected.any((e) => e["path"] == candidate)) {
+                  detected.add({
+                    "version": _getJavaVersion(candidate),
+                    "path": candidate,
+                  });
+                }
+              }
+            }
+
+
+            if (entity is Directory) {
+              await scanJavaDir(
+                entity,
+                depth + 1,
+              );
+            }
+          }
+
+        } catch (_) {}
+      }
+
+
+      for (var dirPath in targetDirs) {
+        await scanJavaDir(
+          Directory(dirPath),
+          0,
+        );
+      }
+    } catch (_) {
+      print("Error checking java environment");
+    }
 
     if (mounted) {
       setState(() {
         _isCheckingJava = false;
         _checkCount++;
-        if (foundPath != null) {
+
+        _detectedJavaList = detected;
+
+        if (detected.isNotEmpty) {
           _javaInstalled = true;
-          _javaPath = foundPath;
+
+          final preferred = detected.firstWhere(
+                (e) => e["version"] == "21",
+            orElse: () => detected.first,
+          );
+
+          _javaPath = preferred["path"];
         } else {
           _javaInstalled = false;
           _javaPath = "";
         }
       });
     }
+  }
+
+  String _getJavaVersion(String candidate) {
+    final name = path.basename(candidate);
+
+    final match = RegExp(r'(\d+)').firstMatch(name);
+
+    return match?.group(1) ?? "?";
   }
 
   Future<void> _installJava() async {
@@ -607,13 +692,14 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
-      body: Column(
-        children: [
-          Container(
-            color: theme.colorScheme.surfaceContainer,
-            padding: EdgeInsets.only(top: isPortrait ? 20 : 36, bottom: 8),
-            child: SafeArea(bottom: false, child: _buildStepProgressIndicator(isPortrait)),
-          ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              color: theme.colorScheme.surfaceContainer,
+              padding: EdgeInsets.only(top: isPortrait ? 10 : 20, bottom: 8),
+              child: _buildStepProgressIndicator(isPortrait),
+            ),
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -653,9 +739,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
           Container(
             color: theme.colorScheme.surfaceContainer,
             padding: const EdgeInsets.symmetric(vertical: 16),
-            child: SafeArea(top: false, child: _buildBottomButtons(isPortrait)),
+            child: _buildBottomButtons(isPortrait),
           ),
         ],
+      ),
       ),
     );
   }
@@ -960,7 +1047,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                               duration: const Duration(milliseconds: 300),
                               scale: isSelected ? 1.1 : 1.0,
                               child: ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(4),
                                 child: Container(
                                   width: 32,
                                   height: 32,
@@ -1021,7 +1108,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
                                   color: theme.colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: const Text("切换", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
                               ),
@@ -1086,7 +1173,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             ),
             AnimatedSize(
               duration: const Duration(milliseconds: 300),
-              child: _javaInstalled && _javaPath.isNotEmpty
+              child: _javaInstalled && _javaPath != null
                   ? Center(
                 child: Container(
                   width: isPortrait ? double.infinity : 400,
@@ -1095,18 +1182,50 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   decoration: BoxDecoration(
                     color: theme.colorScheme.primaryContainer.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.2)),
+                    border: Border.all(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.folder_open, size: 20, color: theme.colorScheme.primary),
+                      Icon(
+                        Icons.folder_open,
+                        size: 20,
+                        color: theme.colorScheme.primary,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text("当前检测到的路径：", style: hintStyle.copyWith(fontSize: 12, fontWeight: FontWeight.bold)),
-                            Text(_javaPath, style: bodyStyle.copyWith(fontSize: 13, fontFamily: 'monospace')),
+                            Text(
+                              "当前检测到的 Java：",
+                              style: hintStyle.copyWith(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+
+                            Win11Dropdown(
+                              items: _detectedJavaList.map((java) {
+                                return Win11DropdownItem(
+                                  label:
+                                  "Java ${java["version"] ?? ""} (${java["path"] ?? ""})",
+                                  value:
+                                  java["path"] ?? "",
+                                );
+                              }).toList(),
+
+                              initialValue: _javaPath,
+
+                              themeColor: theme.colorScheme.primary,
+
+                              onChanged: (value) {
+                                setState(() {
+                                  _javaPath = value;
+                                });
+                              },
+                            ),
                           ],
                         ),
                       ),
@@ -1154,8 +1273,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                         child: GoogleSquigglySlider(
                           value: _installProgress * 100, 
                           max: 100,
-                          isPlaying: _installStatus.contains("安装"), // 安装阶段开启精子
-                          activeColor: Theme.of(context).colorScheme.primary, 
+                          isPlaying: _installStatus.contains("下载"), // 安装阶段开启精子
+                          activeColor: Theme.of(context).colorScheme.primary,
                           inactiveColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                         ),
                       ),
@@ -1399,6 +1518,117 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
           ),
         ],
       ),
+    );
+  }
+}
+
+class _GeneratedJavaSelector extends StatefulWidget {
+  final List<String> paths;
+  final String current;
+  final ValueChanged<String> onChanged;
+
+  const _GeneratedJavaSelector({
+    required this.paths,
+    required this.current,
+    required this.onChanged,
+  });
+
+  @override
+  State<_GeneratedJavaSelector> createState() => _GeneratedJavaSelectorState();
+}
+
+class _GeneratedJavaSelectorState extends State<_GeneratedJavaSelector> {
+  bool open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () {
+            setState(() {
+              open = !open;
+            });
+          },
+          child: Row(
+            children: [
+              Icon(
+                Icons.folder_open,
+                size: 20,
+                color: theme.colorScheme.primary,
+              ),
+
+              const SizedBox(width: 12),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "当前检测到的路径：",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+
+                    Text(
+                      widget.current,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontFamily: "monospace",
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              AnimatedRotation(
+                turns: open ? 0.5 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: const Icon(Icons.keyboard_arrow_down),
+              ),
+            ],
+          ),
+        ),
+
+        AnimatedSize(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+          child: open
+              ? Column(
+            children: widget.paths.map((path) {
+              return ListTile(
+                dense: true,
+                leading: const Icon(Icons.computer, size: 18),
+                title: Text(
+                  path,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: "monospace",
+                    fontSize: 12,
+                  ),
+                ),
+                selected: path == widget.current,
+                onTap: () {
+                  widget.onChanged(path);
+                  setState(() {
+                    open = false;
+                  });
+                },
+              );
+            }).toList(),
+          )
+              : const SizedBox.shrink(),
+        ),
+      ],
     );
   }
 }

@@ -34,6 +34,12 @@ android {
     }
 }
 
+dependencies {
+    implementation("dev.rikka.shizuku:api:12.2.0")
+    implementation("dev.rikka.shizuku:provider:12.2.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.5.1")
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17

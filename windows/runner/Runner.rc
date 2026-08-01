@@ -89,11 +89,11 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.xxyxxdmc" "\0"
-            VALUE "FileDescription", "bloret_launcher" "\0"
+            VALUE "CompanyName", "xXYxxdMC" "\0"
+            VALUE "FileDescription", "BloretLauncher" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "bloret_launcher" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.xxyxxdmc. All rights reserved." "\0"
+            VALUE "InternalName", "BloretLauncher" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 xXYxxdMC. Copyright (C) 2026 Bloret. All rights reserved." "\0"
             VALUE "OriginalFilename", "bloret_launcher.exe" "\0"
             VALUE "ProductName", "bloret_launcher" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
