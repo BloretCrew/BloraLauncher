@@ -65,6 +65,7 @@ class LiveService {
 
   static Future<void> sendSignal(String spaceId, Map<String, dynamic> signalData) async {
     try {
+      print("[LiveService] sendSignal: $signalData");
       await http.post(
         Uri.parse('$_baseUrl/api/live/signal/$spaceId'),
         headers: _getHeaders(),

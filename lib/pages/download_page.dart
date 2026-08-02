@@ -1,8 +1,11 @@
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/windows_widgets.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import '../main.dart';
 import '../core/java_config.dart';
@@ -29,18 +32,42 @@ class _DownloadPageState extends State<DownloadPage> {
     _loadVersions();
   }
 
-  void _loadVersions() {
-    // TODO:
-    // Backend.getVersionsByCategory()
-    // Backend.getJavaDownloadVersions()
-
+  Future<void> _loadVersions() async {
     setState(() {
-      vanillaVersions = ["1.21.8", "1.21.7"];
-      fabricVersions = ["1.21.8", "1.21.7"];
-      forgeVersions = ["1.21.8", "1.21.7"];
-      neoForgeVersions = ["1.21.8", "1.21.7"];
+      vanillaVersions = ["获取中..."];
+      fabricVersions = ["获取中..."];
+      forgeVersions = ["获取中..."];
+      neoForgeVersions = ["获取中..."];
       javaVersions = JavaConfig.versionList.map((e) => "Java $e").toList();
     });
+
+    try {
+      final dio = Dio();
+      final response = await dio.get("https://launcher.bloret.net/api/fastdownload");
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data['enabled'] == true) {
+          final List<dynamic> versions = data['versions'];
+          final verList = versions.map((v) => v['version'].toString()).toList();
+          setState(() {
+            vanillaVersions = verList;
+            fabricVersions = verList;
+            forgeVersions = verList;
+            neoForgeVersions = verList;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("获取下载版本列表失败: $e");
+      if (mounted) {
+        setState(() {
+        vanillaVersions = ["获取失败"];
+        fabricVersions = ["获取失败"];
+        forgeVersions = ["获取失败"];
+        neoForgeVersions = ["获取失败"];
+      });
+      }
+    }
   }
 
   @override
@@ -107,10 +134,39 @@ class _DownloadPageState extends State<DownloadPage> {
             subtitle: "下载并安装原生 Minecraft 核心",
             versions: vanillaVersions,
             onDownload: (version) async {
-              final url = "https://bmclapi2.bangbang93.com/version/$version/client";
+              final url = "https://raw.gitcode.com/Bloret/$version/archive/refs/heads/main.zip";
+              final targetDir = Directory('C:/Users/Administrator/AppData/Roaming/.minecraft');
+
               await DownloadService.instance.downloadFile(
-                "Vanilla_$version", url, "minecraft_$version.jar",
-                (path, updateStatus) async { return false; },
+                "Minecraft_$version",
+                url,
+                "minecraft_source.zip",
+                    (path, updateStatus) async {
+                  updateStatus("正在解压...");
+
+                  try {
+                    if (!await targetDir.exists()) await targetDir.create(recursive: true);
+
+                    final bytes = await File(path).readAsBytes();
+                    final archive = ZipDecoder().decodeBytes(bytes);
+
+                    for (final file in archive) {
+                      final filename = file.name;
+                      if (file.isFile) {
+                        final outFile = File(p.join(targetDir.path, filename));
+                        await outFile.parent.create(recursive: true);
+                        await outFile.writeAsBytes(file.content as List<int>);
+                      }
+                    }
+
+                    updateStatus("安装完成");
+                    return true;
+                  } catch (e) {
+                    debugPrint("解压失败: $e");
+                    updateStatus("解压失败");
+                    return false;
+                  }
+                },
               );
             },
           ),

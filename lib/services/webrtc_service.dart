@@ -9,10 +9,14 @@ class WebRTCManager {
   final Function(String userId, RTCPeerConnectionState state) onConnectionStateChanged;
 
   MediaStream? localStream;
+  MediaStream? localScreenStream;
   Map<String, RTCPeerConnection> peers = {};
+  Map<String,List<RTCIceCandidate>> pendingCandidates = {};
   
   bool _audioEnabled = false;
   bool _videoEnabled = false;
+  bool _screenEnabled = false;
+  bool _screenAudioEnabled = false;
 
   WebRTCManager({
     required this.spaceId,
@@ -33,6 +37,20 @@ class WebRTCManager {
 
     try {
       localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      try {
+        localScreenStream = await navigator.mediaDevices.getDisplayMedia(
+          {
+            'audio': true,
+            'video': true
+          },
+        );
+        for (var track in localScreenStream!.getAudioTracks()) {
+          track.enabled = _screenAudioEnabled;
+        }
+        for (var track in localScreenStream!.getVideoTracks()) {
+          track.enabled = _screenEnabled;
+        }
+      } catch (_) {}
       // Default disabled
       for (var track in localStream!.getAudioTracks()) {
         track.enabled = _audioEnabled;
@@ -55,11 +73,20 @@ class WebRTCManager {
     localStream?.getVideoTracks().forEach((track) => track.enabled = enabled);
   }
 
+  void toggleScreen(bool enabled) {
+    _screenEnabled = enabled;
+    localStream?.getVideoTracks().forEach((track) => track.enabled = enabled);
+  }
+
+  void toggleScreenAudio(bool enabled) {
+    _screenAudioEnabled = enabled;
+    localScreenStream?.getAudioTracks().forEach((track) => track.enabled = enabled);
+  }
+
   Future<RTCPeerConnection> _createPeerConnection(String userId) async {
     final Map<String, dynamic> config = {
       'iceServers': [
         {'urls': 'stun:stun.l.google.com:19302'},
-        {'urls': 'stun:stun1.l.google.com:19302'},
       ],
       'sdpSemantics': 'unified-plan',
     };
@@ -70,7 +97,7 @@ class WebRTCManager {
       debugPrint("[WebRTC] Sending ICE candidate to $userId");
       LiveService.sendSignal(spaceId, {
         "target": userId,
-        "type": "ice-candidate",
+        "type": "ice",
         "payload": {
           "candidate": candidate.candidate,
           "sdpMid": candidate.sdpMid,
@@ -121,6 +148,8 @@ class WebRTCManager {
   Future<void> handleSignal(Map<String, dynamic> event) async {
     final String type = event['type'];
     final String from = event['from'] ?? event['user'] ?? '';
+    print("[WebRTC] Received signal from $from: $type, length: ${event['payload']?.length}");
+
     if (from.isEmpty) return;
 
     final payload = event['payload'] ?? {};
@@ -133,13 +162,19 @@ class WebRTCManager {
         try {
           await pc.setRemoteDescription(RTCSessionDescription(payload['sdp'], 'offer'));
           debugPrint("[WebRTC] Remote description set successfully.");
+          final pending = pendingCandidates.remove(from);
+          if (pending != null) {
+            for (final candidate in pending) {
+              await pc.addCandidate(candidate);
+            }
+          }
           final answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          
+
           await LiveService.sendSignal(spaceId, {
             "target": from,
             "type": "answer",
-            "payload": {"sdp": answer.sdp}
+            "payload": {"sdp": answer.sdp, "type": "answer",}
           });
         } catch (e) {
           debugPrint("[WebRTC] Error setting remote description or creating answer: $e");
@@ -155,14 +190,23 @@ class WebRTCManager {
 
       case 'ice':
       case 'ice-candidate':
+
+        final candidate = RTCIceCandidate(
+          payload['candidate'],
+          payload['sdpMid'],
+          payload['sdpMLineIndex'],
+        );
+
         final pc = peers[from];
-        if (pc != null) {
-          await pc.addCandidate(RTCIceCandidate(
-            payload['candidate'],
-            payload['sdpMid'],
-            payload['sdpMLineIndex'],
-          ));
+
+        if(pc != null){
+          await pc.addCandidate(candidate);
+        }else{
+          pendingCandidates
+              .putIfAbsent(from,()=>[])
+              .add(candidate);
         }
+
         break;
         
       case 'user-joined':

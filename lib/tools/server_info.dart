@@ -36,7 +36,7 @@ class BloretApiService {
     return null;
   }
 
-  static Future<BloretLauncherConfig?> fetchLauncherConfig() async {
+  static Future<BloraLauncherConfig?> fetchLauncherConfig() async {
     for (int attempt = 1; attempt <= 5; attempt++) {
       try {
         final response = await _dio.get(_launcherInfoUrl);
@@ -45,7 +45,7 @@ class BloretApiService {
           final data = response.data is String
               ? json.decode(response.data)
               : response.data;
-          return BloretLauncherConfig.fromJson(data);
+          return BloraLauncherConfig.fromJson(data);
         }
       } catch (_) {
         if (attempt == 5) debugPrint('Failed to fetch launcher config');
@@ -248,7 +248,7 @@ class RealTimeStatus {
   }
 }
 
-class BloretLauncherConfig {
+class BloraLauncherConfig {
   final String latestVersion;
   final String description;
   final String newVersionDescription;
@@ -257,7 +257,7 @@ class BloretLauncherConfig {
   final List<String> blTips;
   final Activity activity;
 
-  BloretLauncherConfig({
+  BloraLauncherConfig({
     required this.latestVersion,
     required this.description,
     required this.newVersionDescription,
@@ -267,8 +267,8 @@ class BloretLauncherConfig {
     required this.activity,
   });
 
-  factory BloretLauncherConfig.fromJson(Map<String, dynamic> json) {
-    return BloretLauncherConfig(
+  factory BloraLauncherConfig.fromJson(Map<String, dynamic> json) {
+    return BloraLauncherConfig(
       latestVersion: json['latestVersion'] ?? '',
       description: json['description'] ?? '',
       newVersionDescription: json['newVersionDescription'] ?? '',

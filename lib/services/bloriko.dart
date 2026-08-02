@@ -8,7 +8,6 @@ import 'package:bloret_launcher/services/passport_service.dart';
 import 'package:bloret_launcher/services/system_prompt.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
-import 'package:http/http.dart';
 import 'package:http/io_client.dart';
 import 'package:openai_dart/openai_dart.dart';
 import 'package:path/path.dart' as p;
@@ -29,7 +28,7 @@ class BlorikoLLMClient implements LLMClient {
     final l = await AppLogger.getInstance();
     l.log("LLM requestActions Start", level: LogLevel.info, source: LogSource.network);
     Bloriko.instance._updateConnectionStatus(BlorikoConnectionStatus.connecting);
-    
+
     final List<ChatMessage> chatMessages = [
       ChatMessage.system('You are a UI automation agent. Analyze the UI tree and task, then call the appropriate tools. If the task is done, return plain text.'),
     ];
@@ -98,7 +97,7 @@ enum BlorikoConnectionStatus { idle, connecting, handshake, streaming, finished,
 class Bloriko extends ChangeNotifier {
   static Bloriko? _instance;
   static Bloriko get instance => _instance ??= Bloriko._();
-  
+
   BlorikoConnectionStatus _connectionStatus = BlorikoConnectionStatus.idle;
   BlorikoConnectionStatus get connectionStatus => _connectionStatus;
 
@@ -143,7 +142,7 @@ class Bloriko extends ChangeNotifier {
 
     final httpClient = HttpClient()
       ..idleTimeout = const Duration(minutes: 2)
-      ..connectionTimeout = const Duration(seconds: 25);;
+      ..connectionTimeout = const Duration(seconds: 25);
 
     return OpenAIClient(
       config: OpenAIConfig(
@@ -178,6 +177,7 @@ class Bloriko extends ChangeNotifier {
   FlutterAgentBridge? _uiAgent;
   ActionRegistry? _actionRegistry;
 
+  // ignore: unused_field
   AgentWorker? _worker;
 
   Bloriko._() {
@@ -193,6 +193,7 @@ class Bloriko extends ChangeNotifier {
     BuiltInActions.registerDefaults(
       subActionRegistry,
       performAction: (nodeId, action, {actionArgs}) async {
+        // ignore: deprecated_member_use
         RendererBinding.instance.pipelineOwner.semanticsOwner?.performAction(nodeId, action, actionArgs);
       },
     );
@@ -218,12 +219,13 @@ class Bloriko extends ChangeNotifier {
     _actionRegistry = ActionRegistry();
 
     BuiltInActions.registerDefaults(
-      _actionRegistry!, 
+      _actionRegistry!,
       performAction: (nodeId, action, {actionArgs}) async {
+        // ignore: deprecated_member_use
         RendererBinding.instance.pipelineOwner.semanticsOwner?.performAction(nodeId, action, actionArgs);
       }
     );
-    
+
     _uiAgent = FlutterAgentBridge(
       core: AgentCore(
         config: const AgentConfig(debugMode: true, maxSteps: 1),
@@ -634,7 +636,7 @@ class Bloriko extends ChangeNotifier {
     _busy = true;
     _isCancelled = false;
     final String currentRequestId = DateTime.now().toIso8601String();
-    this._currentRequestId = currentRequestId;
+    _currentRequestId = currentRequestId;
     notifyListeners();
 
     final l = await AppLogger.getInstance();
@@ -757,6 +759,7 @@ class Bloriko extends ChangeNotifier {
               messages: chatMsgs,
               tools: availableTools,
               toolChoice: ToolChoice.auto(),
+              reasoningEffort: ReasoningEffort.low,
             ),
           );
 
@@ -765,6 +768,13 @@ class Bloriko extends ChangeNotifier {
 
           bool firstChunk = true;
           await for (final chunk in stream) {
+            debugPrint("DEBUG [Raw Stream Chunk]: ${chunk.toString()}");
+            if (chunk.choices?.isNotEmpty ?? false) {
+              final message = chunk.choices!.first.delta;
+              debugPrint("DEBUG [Delta Content]: ${message.content}");
+              debugPrint("DEBUG [Tool Calls]: ${message.toolCalls?.length}");
+            }
+
             if (_isCancelled || _currentRequestId != currentRequestId) break;
             if (firstChunk) {
               final duration = DateTime.now().difference(apiStartTime).inMilliseconds;
@@ -801,7 +811,7 @@ class Bloriko extends ChangeNotifier {
 
         final accumulatedContent = accumulator.content.replaceAll("[DONE]", "").trim();
         final toolCalls = accumulator.toolCalls;
-        
+
         if (accumulatedContent.isEmpty && toolCalls.isEmpty) {
           _internalAddMessage({'role': 'error', 'title': "空回复", 'content': "AI 返回内容为空，请检查 API 状态。"});
           onError("AI 返回内容持续为空，请检查 API 状态。");
@@ -820,15 +830,15 @@ class Bloriko extends ChangeNotifier {
             final name = tc.function.name;
             if (name == 'web_search') searchCount++;
             final Map<String, dynamic> args = jsonDecode(tc.function.arguments);
-            
+
             _internalAddSystemMessage(name, args);
             onToolStart(name, args);
-            
+
             currentTool = _getToolFriendlyName(name);
             notifyListeners();
-            
+
             final result = await _executeTool(name, tc.function.arguments, workingDir);
-            
+
             currentTool = null;
             _internalUpdateSystemMessage(name, result);
             onToolEnd(name, result);
@@ -854,28 +864,28 @@ class Bloriko extends ChangeNotifier {
               'content': result,
             });
           }
-          continue; 
+          continue;
         } else {
           final xmlTool = _parseXmlToolCall(accumulatedContent);
           if (xmlTool != null) {
             final name = xmlTool['name'];
             final args = xmlTool['args'] as Map<String, dynamic>;
-            
+
             _internalAddSystemMessage(name, args);
             onToolStart(name, args);
-            
+
             currentTool = _getToolFriendlyName(name);
             notifyListeners();
-            
+
             final result = await _executeTool(name, jsonEncode(args), workingDir);
-            
+
             currentTool = null;
             _internalUpdateSystemMessage(name, result);
             onToolEnd(name, result);
-            
+
             chatMsgs.add(ChatMessage.assistant(content: accumulatedContent));
             chatMsgs.add(ChatMessage.user("工具执行结果: $result"));
-            continue; 
+            continue;
           }
         }
 
@@ -919,10 +929,10 @@ class Bloriko extends ChangeNotifier {
   void _internalAddSystemMessage(String toolName, Map<String, dynamic> args) {
     final friendlyName = _getToolFriendlyName(toolName);
 
-    if (messages.isNotEmpty && 
-        messages.last['role'] == 'system' && 
+    if (messages.isNotEmpty &&
+        messages.last['role'] == 'system' &&
         messages.last['tool'] == toolName) {
-      
+
       final last = messages.last;
       final newCount = (last['count'] ?? 1) + 1;
       last['count'] = newCount;
@@ -930,14 +940,14 @@ class Bloriko extends ChangeNotifier {
       last['content'] = "正在执行工具: $friendlyName x$newCount";
       last['isExpanded'] = toolName == 'ask_question' || toolName == 'ask_question_details';
       last['_detailIdx'] = newCount - 1;
-      
+
       List calls = last['calls'] ?? [];
       calls.add({'args': jsonEncode(args), 'status': 'running'});
       last['calls'] = calls;
 
       last['args'] = jsonEncode(args);
       last['result'] = null;
-      
+
       notifyListeners();
       return;
     }
@@ -958,10 +968,10 @@ class Bloriko extends ChangeNotifier {
   void _internalUpdateSystemMessage(String toolName, String result) {
     final friendlyName = _getToolFriendlyName(toolName);
     for (int i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]['role'] == 'system' && 
-          messages[i]['tool'] == toolName && 
+      if (messages[i]['role'] == 'system' &&
+          messages[i]['tool'] == toolName &&
           messages[i]['status'] == 'running') {
-        
+
         final msg = messages[i];
         final count = msg['count'] ?? 1;
         msg['content'] = "执行工具完毕: $friendlyName${count > 1 ? " x$count" : ""}";
@@ -970,7 +980,7 @@ class Bloriko extends ChangeNotifier {
         if (toolName == 'ask_question') {
            msg['isExpanded'] = false;
         }
-        
+
         List calls = msg['calls'] ?? [];
         if (calls.isNotEmpty) {
           for (int j = calls.length - 1; j >= 0; j--) {
@@ -1062,7 +1072,7 @@ class Bloriko extends ChangeNotifier {
           final target = args['target'] as String;
           final content = args['content'] ?? "";
           final oldText = args['old_text'] ?? "";
-          
+
           dynamic result;
           if (action == 'add') {
             result = await MemoryStore.instance.add(target, content);
@@ -1119,10 +1129,10 @@ class Bloriko extends ChangeNotifier {
               output += result.stderr.toString();
             }
             resultText = output.isEmpty ? "命令已执行（无输出）" : output;
-          } catch (e) { 
+          } catch (e) {
             final l = await AppLogger.getInstance();
             l.log("执行命令失败", level: LogLevel.error, source: LogSource.tool, detail: "Command: $command\nError: $e");
-            resultText = "命令执行失败: $e"; 
+            resultText = "命令执行失败: $e";
           }
           break;
         case 'get_semantics_tree':
@@ -1163,7 +1173,7 @@ class Bloriko extends ChangeNotifier {
             final String nodeId = item['id'].toString();
             final String? text = item['text'];
             try {
-              await _actionRegistry!.execute(actName, {'id': nodeId, if (text != null) 'text': text});
+              await _actionRegistry!.execute(actName, {'id': nodeId, 'text': ?text});
               results.add({"action": actName, "id": nodeId, "success": true});
               await Future.delayed(const Duration(milliseconds: 150));
             } catch (e) {

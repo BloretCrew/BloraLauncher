@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' hide Image;
 import 'package:pasteboard/pasteboard.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 
 import '../services/config_service.dart';

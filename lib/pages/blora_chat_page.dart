@@ -66,11 +66,16 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
         _inputController.text = prompt;
         _sendMessage();
       } else {
-        await _loadHistoryList();
-        if (_agent.messages.isEmpty && _historyList.isNotEmpty) {
-          _loadSession(_historyList.first['filename']);
+        _loadHistoryList().then((_) {
+          if (_agent.messages.isEmpty && _historyList.isNotEmpty) {
+            _loadSession(_historyList.first['filename']);
+          }
+        });
+        if (_agent.messages.isNotEmpty) {
+          Future.delayed(const Duration(milliseconds: 200), () {
+            _scrollToBottom();
+          });
         }
-        if (_agent.messages.isNotEmpty) _scrollToBottom();
       }
     });
   }
@@ -582,7 +587,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       PageRouteBuilder(
         opaque: false,
         barrierDismissible: true,
-        pageBuilder: (context, _, __) => Scaffold(
+        pageBuilder: (context, _, _) => Scaffold(
           backgroundColor: Colors.black.withValues(alpha: 0.85),
           body: Stack(
             children: [
@@ -912,7 +917,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
     } catch (e) {
       debugPrint("Fetch models error: $e");
     } finally {
-      setState(() => _isFetchingModels = false);
+      if (mounted) setState(() => _isFetchingModels = false);
     }
   }
 
@@ -1856,7 +1861,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                                                 ],
                                                 AnimatedSwitcher(
                                                   duration: const Duration(milliseconds: 300),
-                                                  layoutBuilder: (currentChild, previousChildren) => Stack(alignment: Alignment.topLeft, children: [...previousChildren, if (currentChild != null) currentChild]),
+                                                  layoutBuilder: (currentChild, previousChildren) => Stack(alignment: Alignment.topLeft, children: [...previousChildren, ?currentChild]),
                                                   transitionBuilder: (child, animation) {
                                                     final offsetAnimation = Tween<Offset>(
                                                       begin: const Offset(0.1, 0.0),

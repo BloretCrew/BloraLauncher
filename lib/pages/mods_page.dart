@@ -279,7 +279,7 @@ class _ModsPageState extends State<ModsPage> {
               child: Image.network(
                 mod["icon_url"] ?? "",
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) {
+                errorBuilder: (_, _, _) {
                   return const SizedBox(
                     width: 64,
                     height: 64,

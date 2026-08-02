@@ -222,8 +222,8 @@ class BbbsService {
     final body = {
       "filename": filename,
       "content": content,
-      if (parentId != null) "parent_id": parentId,
-      if (replyToId != null) "reply_to_id": replyToId,
+      "parent_id": ?parentId,
+      "reply_to_id": ?replyToId,
     };
     
     try {

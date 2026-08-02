@@ -13,6 +13,7 @@ import '../services/config_service.dart';
 import '../main.dart';
 import '../services/passport_service.dart';
 import '../services/win32_icon_service.dart';
+import '../shell/main_shell.dart';
 import '../widgets/google_widgets.dart';
 import '../widgets/windows_widgets.dart';
 import '../core/ffi_proxy.dart';
@@ -32,7 +33,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   final List<String> _stepLabels = ['欢迎', '语言', '登录', '同步', 'Java', '目录'];
   
   String _selectedLanguage = 'zh-cn';
-  List<String> _minecraftDirs = ['C:/Users/Administrator/AppData/Roaming/.minecraft'];
+  final List<String> _minecraftDirs = ['C:/Users/Administrator/AppData/Roaming/.minecraft'];
 
   bool _isWaitingForLogin = false;
   HttpServer? _authServer;
@@ -1328,7 +1329,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   shrinkWrap: true,
                   padding: const EdgeInsets.all(8),
                   itemCount: _minecraftDirs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     return Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

@@ -4,7 +4,6 @@ import 'package:gpt_markdown/gpt_markdown.dart';
 import '../core/i18n.dart';
 import '../services/bbbs.dart';
 import '../models/bbbs_post.dart';
-import '../widgets/button.dart';
 import 'bbbs_detail_page.dart';
 
 class BbbsPage extends StatefulWidget {
@@ -19,8 +18,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
   List<dynamic> _leaderboardData = [];
   List<BbbsPost> _allPostsData = [];
   List<BbbsPost> _todayFeedData = [];
-  String? _nextCursor;
-  Map<String, dynamic> _feedSettings = {};
+  // Map<String, dynamic> _feedSettings = {};
 
   bool _isLoading = true;
   bool _isAuthenticated = false;
@@ -32,7 +30,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
   final List<Map<String, String>> _blorikoMessages = [];
   final TextEditingController _blorikoController = TextEditingController();
   final ScrollController _blorikoScrollController = ScrollController();
-  bool _isBlorikoProcessing = false;
+  // bool _isBlorikoProcessing = false;
   final FocusNode _blorikoFocusNode = FocusNode();
 
   @override
@@ -91,8 +89,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
         
         if (todayFeed != null) {
           _todayFeedData = (todayFeed['items'] as List? ?? []).map((e) => BbbsPost.fromJson(e)).toList();
-          _nextCursor = todayFeed['nextCursor'];
-          _feedSettings = todayFeed['settings'] ?? {};
+          // _feedSettings = todayFeed['settings'] ?? {};
         }
 
         _isLoading = false;
@@ -103,96 +100,96 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
     }
   }
 
-  void _showFeedSettings() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text("推荐设置".tl),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _settingRow("启用推荐".tl, _feedSettings['enabled'] ?? false),
-            _settingRow("AI 增强".tl, _feedSettings['aiEnabled'] ?? false),
-            _settingRow("偏向多样性".tl, _feedSettings['preferDiversity'] ?? false),
-            if (_feedSettings['mutedBoards']?.isNotEmpty == true)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text("${"已屏蔽板块".tl}: ${_feedSettings['mutedBoards'].join(', ')}", style: const TextStyle(fontSize: 12)),
-              ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text("确定".tl)),
-        ],
-      ),
-    );
-  }
+  // void _showFeedSettings() {
+  //   showDialog(
+  //     context: context,
+  //     builder: (context) => AlertDialog(
+  //       title: Text("推荐设置".tl),
+  //       content: Column(
+  //         mainAxisSize: MainAxisSize.min,
+  //         crossAxisAlignment: CrossAxisAlignment.start,
+  //         children: [
+  //           _settingRow("启用推荐".tl, _feedSettings['enabled'] ?? false),
+  //           _settingRow("AI 增强".tl, _feedSettings['aiEnabled'] ?? false),
+  //           _settingRow("偏向多样性".tl, _feedSettings['preferDiversity'] ?? false),
+  //           if (_feedSettings['mutedBoards']?.isNotEmpty == true)
+  //             Padding(
+  //               padding: const EdgeInsets.only(top: 8),
+  //               child: Text("${"已屏蔽板块".tl}: ${_feedSettings['mutedBoards'].join(', ')}", style: const TextStyle(fontSize: 12)),
+  //             ),
+  //         ],
+  //       ),
+  //       actions: [
+  //         TextButton(onPressed: () => Navigator.pop(context), child: Text("确定".tl)),
+  //       ],
+  //     ),
+  //   );
+  // }
 
-  Widget _settingRow(String label, bool value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label),
-          Icon(
-            value ? Icons.check_circle_outline : Icons.highlight_off,
-            color: value ? Colors.green : Colors.grey,
-            size: 20,
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _settingRow(String label, bool value) {
+  //   return Padding(
+  //     padding: const EdgeInsets.symmetric(vertical: 4),
+  //     child: Row(
+  //       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  //       children: [
+  //         Text(label),
+  //         Icon(
+  //           value ? Icons.check_circle_outline : Icons.highlight_off,
+  //           color: value ? Colors.green : Colors.grey,
+  //           size: 20,
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
-  Future<void> _sendBlorikoMessage() async {
-    final text = _blorikoController.text.trim();
-    if (text.isEmpty || _isBlorikoProcessing) return;
+  // Future<void> _sendBlorikoMessage() async {
+  //   final text = _blorikoController.text.trim();
+  //   if (text.isEmpty || _isBlorikoProcessing) return;
+  //
+  //   _blorikoController.clear();
+  //   setState(() {
+  //     _blorikoMessages.add({"role": "user", "content": text});
+  //     _blorikoMessages.add({"role": "assistant", "content": ""});
+  //     _isBlorikoProcessing = true;
+  //   });
+  //   _scrollToBottom();
+  //
+  //   final lastIndex = _blorikoMessages.length - 1;
+  //
+  //   BbbsService.streamBlorikoChat(content: text).listen(
+  //     (chunk) {
+  //       if (!mounted) return;
+  //       setState(() {
+  //         _blorikoMessages[lastIndex]["content"] = (_blorikoMessages[lastIndex]["content"] ?? "") + chunk;
+  //       });
+  //       _scrollToBottom();
+  //     },
+  //     onDone: () {
+  //       if (!mounted) return;
+  //       setState(() => _isBlorikoProcessing = false);
+  //     },
+  //     onError: (e) {
+  //       if (!mounted) return;
+  //       setState(() {
+  //         _isBlorikoProcessing = false;
+  //         _blorikoMessages[lastIndex]["content"] = "Error: $e";
+  //       });
+  //     },
+  //   );
+  // }
 
-    _blorikoController.clear();
-    setState(() {
-      _blorikoMessages.add({"role": "user", "content": text});
-      _blorikoMessages.add({"role": "assistant", "content": ""});
-      _isBlorikoProcessing = true;
-    });
-    _scrollToBottom();
-
-    final lastIndex = _blorikoMessages.length - 1;
-
-    BbbsService.streamBlorikoChat(content: text).listen(
-      (chunk) {
-        if (!mounted) return;
-        setState(() {
-          _blorikoMessages[lastIndex]["content"] = (_blorikoMessages[lastIndex]["content"] ?? "") + chunk;
-        });
-        _scrollToBottom();
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() => _isBlorikoProcessing = false);
-      },
-      onError: (e) {
-        if (!mounted) return;
-        setState(() {
-          _isBlorikoProcessing = false;
-          _blorikoMessages[lastIndex]["content"] = "Error: $e";
-        });
-      },
-    );
-  }
-
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_blorikoScrollController.hasClients) {
-        _blorikoScrollController.animateTo(
-          _blorikoScrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
+  // void _scrollToBottom() {
+  //   WidgetsBinding.instance.addPostFrameCallback((_) {
+  //     if (_blorikoScrollController.hasClients) {
+  //       _blorikoScrollController.animateTo(
+  //         _blorikoScrollController.position.maxScrollExtent,
+  //         duration: const Duration(milliseconds: 300),
+  //         curve: Curves.easeOut,
+  //       );
+  //     }
+  //   });
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -404,63 +401,63 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildBlorikoInput(Color cardColor, Color borderColor, Color secondaryColor, ThemeData theme) {
-    return Container(
-      decoration: BoxDecoration(
-        color: cardColor,
-        border: Border(top: BorderSide(color: borderColor)),
-      ),
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(12, 12, 12, MediaQuery.of(context).viewInsets.bottom + 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOutCubic,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _blorikoFocusNode.hasFocus ? theme.colorScheme.primary : borderColor,
-                    width: _blorikoFocusNode.hasFocus ? 1.8 : 1.0,
-                  ),
-                ),
-                child: TextField(
-                  controller: _blorikoController,
-                  focusNode: _blorikoFocusNode,
-                  maxLines: 5,
-                  minLines: 1,
-                  onChanged: (v) => setState(() {}),
-                  onSubmitted: (_) => _sendBlorikoMessage(),
-                  decoration: InputDecoration(
-                    hintText: "向 Bloriko 提问...".tl,
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 6),
-                  ),
-                  style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            _isBlorikoProcessing
-                ? const Padding(
-                    padding: EdgeInsets.all(10.0),
-                    child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
-                  )
-                : BloretIconButton(
-                    onPressed: _blorikoController.text.trim().isEmpty ? null : _sendBlorikoMessage,
-                    icon: Icons.send,
-                    tooltip: "发送".tl,
-                  ),
-          ],
-        ),
-      ),
-    );
-  }
+  // Widget _buildBlorikoInput(Color cardColor, Color borderColor, Color secondaryColor, ThemeData theme) {
+  //   return Container(
+  //     decoration: BoxDecoration(
+  //       color: cardColor,
+  //       border: Border(top: BorderSide(color: borderColor)),
+  //     ),
+  //     child: Padding(
+  //       padding: EdgeInsets.fromLTRB(12, 12, 12, MediaQuery.of(context).viewInsets.bottom + 12),
+  //       child: Row(
+  //         crossAxisAlignment: CrossAxisAlignment.end,
+  //         children: [
+  //           Expanded(
+  //             child: AnimatedContainer(
+  //               duration: const Duration(milliseconds: 300),
+  //               curve: Curves.easeInOutCubic,
+  //               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  //               decoration: BoxDecoration(
+  //                 color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+  //                 borderRadius: BorderRadius.circular(12),
+  //                 border: Border.all(
+  //                   color: _blorikoFocusNode.hasFocus ? theme.colorScheme.primary : borderColor,
+  //                   width: _blorikoFocusNode.hasFocus ? 1.8 : 1.0,
+  //                 ),
+  //               ),
+  //               child: TextField(
+  //                 controller: _blorikoController,
+  //                 focusNode: _blorikoFocusNode,
+  //                 maxLines: 5,
+  //                 minLines: 1,
+  //                 onChanged: (v) => setState(() {}),
+  //                 onSubmitted: (_) => _sendBlorikoMessage(),
+  //                 decoration: InputDecoration(
+  //                   hintText: "向 Bloriko 提问...".tl,
+  //                   border: InputBorder.none,
+  //                   isDense: true,
+  //                   contentPadding: const EdgeInsets.symmetric(vertical: 6),
+  //                 ),
+  //                 style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
+  //               ),
+  //             ),
+  //           ),
+  //           const SizedBox(width: 10),
+  //           _isBlorikoProcessing
+  //               ? const Padding(
+  //                   padding: EdgeInsets.all(10.0),
+  //                   child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
+  //                 )
+  //               : BloretIconButton(
+  //                   onPressed: _blorikoController.text.trim().isEmpty ? null : _sendBlorikoMessage,
+  //                   icon: Icons.send,
+  //                   tooltip: "发送".tl,
+  //                 ),
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
 
   Widget _buildSliverContent(
       Color textColor,
@@ -1115,10 +1112,10 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
     }
   }
 
-  String _truncate(String text, int limit) {
-    if (text.length > limit) {
-      return '${text.substring(0, limit)}...';
-    }
-    return text;
-  }
+  // String _truncate(String text, int limit) {
+  //   if (text.length > limit) {
+  //     return '${text.substring(0, limit)}...';
+  //   }
+  //   return text;
+  // }
 }

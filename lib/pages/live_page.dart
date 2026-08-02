@@ -8,6 +8,7 @@ import '../core/i18n.dart';
 import '../services/bbbs.dart';
 import '../services/live_service.dart';
 import '../services/webrtc_service.dart';
+import 'fullscreen_video_page.dart';
 
 class LivePage extends StatefulWidget {
   const LivePage({super.key});
@@ -37,6 +38,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   final Map<String, RTCPeerConnectionState> _peerStates = {};
   bool _audioEnabled = false;
   bool _videoEnabled = false;
+  bool _screenEnabled = false;
 
   // EasyTier State
   Map<String, dynamic> _easytierState = {};
@@ -143,7 +145,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       final type = event['type'];
       
       // Handle WebRTC Signaling
-      if (['offer', 'answer', 'ice-candidate'].contains(type)) {
+      if (['offer', 'answer', 'ice-candidate', 'ice'].contains(type)) {
         _rtcManager?.handleSignal(event);
         return;
       }
@@ -240,6 +242,14 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
     _chatController.clear();
   }
 
+  void _sendState() {
+    LiveService.sendSignal(_currentSpace['id'], {
+      "type": "state",
+      "payload": {"audio": _audioEnabled, "video": _videoEnabled}
+    });
+    _chatController.clear();
+  }
+
   void _showCreateSpaceDialog() {
     final ctrl = TextEditingController();
     showDialog(
@@ -310,7 +320,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   }
 
   Widget _buildVideoGrid() {
-    if (!_videoEnabled && _remoteRenderers.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+    if (!_videoEnabled && !_screenEnabled && _remoteRenderers.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
 
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
@@ -322,51 +332,71 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           childAspectRatio: 4 / 3,
         ),
         delegate: SliverChildListDelegate([
-          if (_videoEnabled)
-            _buildVideoCard(ConfigService.get("Bloret_PassPort_UserName") ?? "我 (本地)", _localRenderer, isLocal: true),
-          ..._remoteRenderers.entries.map((e) => _buildVideoCard(e.key, e.value)),
+          ..._onlineUsers.where((u) => u != null).map((u) {
+            final username = u['username'] ?? "未知";
+            return _buildVideoCard(username, _remoteRenderers[username]);
+          }),
         ]),
       ),
     );
   }
 
-  Widget _buildVideoCard(String name, RTCVideoRenderer renderer, {bool isLocal = false}) {
+  Widget _buildVideoCard(String name, RTCVideoRenderer? renderer, {bool isLocal = false}) {
     final userInfo = _currentSpace['users']?[name] ?? {};
     final audio = userInfo['audio'] == true;
     final video = userInfo['video'] == true;
     final screen = userInfo['screen'] == true;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          (video || screen)
-              ? RTCVideoView(renderer, mirror: isLocal, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
-              : Center(child: Icon(Icons.person, size: 48, color: Colors.white.withValues(alpha: 0.5))),
-          Positioned(
-            bottom: 8,
-            left: 8,
-            right: 8,
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
-                  child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 10)),
-                ),
-                const Spacer(),
-                if (audio) const Icon(Icons.mic, color: Colors.white, size: 12),
-                if (video) const Icon(Icons.videocam, color: Colors.white, size: 12),
-                if (screen) const Icon(Icons.screen_share, color: Colors.white, size: 12),
-              ],
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (context) => FullScreenVideoPage(
+            renderer: renderer,
+            title: name,
+          ),
+        ));
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white10),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            Hero(
+              tag: 'video-$name',
+              child: (renderer?.srcObject != null)
+                  ? RTCVideoView(
+                renderer!,
+                mirror: isLocal,
+                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+              )
+                  : const Center(
+                child: Icon(Icons.person, size: 48, color: Colors.white54),
+              ),
             ),
-          )
-        ],
+            Positioned(
+              bottom: 8,
+              left: 8,
+              right: 8,
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
+                    child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 10)),
+                  ),
+                  const Spacer(),
+                  if (audio) const Icon(Icons.mic, color: Colors.white, size: 12),
+                  if (video) const Icon(Icons.videocam, color: Colors.white, size: 12),
+                  if (screen) const Icon(Icons.screen_share, color: Colors.white, size: 12),
+                ],
+              ),
+            )
+          ],
+        ),
       ),
     );
   }
@@ -419,6 +449,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
               setState(() {
                 _audioEnabled = !_audioEnabled;
                 _rtcManager?.toggleAudio(_audioEnabled);
+                _sendState();
               });
             },
           ),
@@ -428,6 +459,17 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
               setState(() {
                 _videoEnabled = !_videoEnabled;
                 _rtcManager?.toggleVideo(_videoEnabled);
+                _sendState();
+              });
+            },
+          ),
+          IconButton(
+            icon: Icon(_screenEnabled ? Icons.desktop_windows : Icons.desktop_access_disabled),
+            onPressed: () {
+              setState(() {
+                _screenEnabled = !_screenEnabled;
+                _rtcManager?.toggleVideo(_videoEnabled);
+                _sendState();
               });
             },
           ),
@@ -693,7 +735,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
               child: Row(
                 children: _onlineUsers.map((u) => Padding(
                   padding: const EdgeInsets.only(right: 8),
-                  child: Chip(label: Text(u['username'] ?? "", style: const TextStyle(fontSize: 11)), padding: EdgeInsets.zero),
+                  child: Chip(label: Text(u?['username'] ?? "", style: const TextStyle(fontSize: 11)), padding: EdgeInsets.zero),
                 )).toList(),
               ),
             ),
@@ -721,6 +763,18 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 if (isJoinRecord) {
                   final username = msg['user']?['username'] ?? msg['from'];
                   if (index > 0) {
+                    if (msg['type'] == 'user-left') {
+                      final username = msg['user']?['username'] ?? msg['from'];
+
+                      if (index + 1 < _chatMessages.length) {
+                        final next = _chatMessages[index + 1];
+
+                        if (next['type'] == 'user-joined' &&
+                            next['user']?['username'] == username) {
+                          return const SizedBox.shrink();
+                        }
+                      }
+                    }
                     final prev = _chatMessages[index - 1];
                     if (prev['type'] == 'user-left' && msg['type'] == 'user-joined' && prev['user']?['username'] == username) {
                       int reEntryCount = 1;
@@ -728,7 +782,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                          if (_chatMessages[i]['type'] == 'user-left' && _chatMessages[i+1]['type'] == 'user-joined' &&
                              _chatMessages[i]['user']?['username'] == username) {
                            reEntryCount++;
-                           i++; 
+                           i++;
                          } else {
                            break;
                          }
