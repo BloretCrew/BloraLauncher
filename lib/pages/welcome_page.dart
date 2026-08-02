@@ -16,6 +16,7 @@ import '../services/win32_icon_service.dart';
 import '../widgets/google_widgets.dart';
 import '../widgets/windows_widgets.dart';
 import '../core/ffi_proxy.dart';
+import '../core/java_config.dart';
 
 class WelcomeSetupScreen extends StatefulWidget {
   const WelcomeSetupScreen({super.key});
@@ -50,15 +51,6 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   String _installStatus = "";
   String _selectedJavaVersion = '21';
   int _checkCount = 0;
-
-  final Map<String, Map<String, Map<String, String>>> _javaVersions = {
-    "25": {"Windows": {"x64": "https://cdn.azul.com/zulu/bin/zulu25.30.17-ca-jdk25.0.1-win_x64.msi"}},
-    "24": {"Windows": {"x64": "https://cdn.azul.com/zulu/bin/zulu24.32.13-ca-jdk24.0.2-win_x64.msi"}},
-    "21": {"Windows": {"x64": "https://cdn.azul.com/zulu/bin/zulu21.44.17-ca-jdk21.0.8-win_x64.msi"}},
-    "17": {"Windows": {"x64": "https://cdn.azul.com/zulu/bin/zulu17.60.17-ca-jdk17.0.16-win_x64.msi"}},
-    "11": {"Windows": {"x64": "https://cdn.azul.com/zulu/bin/zulu11.82.19-ca-jdk11.0.28-win_x64.msi"}},
-    "8": {"Windows": {"x64": "https://cdn.azul.com/zulu/bin/zulu8.88.0.19-ca-jdk8.0.462-win_x64.msi"}},
-  };
 
   bool _isSyncingAccounts = false;
 
@@ -354,7 +346,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
     WinTaskbar.showProgress(0, 100);
 
     try {
-      final url = _javaVersions[_selectedJavaVersion]?['Windows']?['x64'];
+      final url = JavaConfig.versions[_selectedJavaVersion]?['Windows']?['x64'];
       if (url == null) throw "不支持的版本或平台";
 
       final tempDir = await getTemporaryDirectory();
@@ -1249,7 +1241,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
                 ),
                 child: Win11Dropdown(
-                  items: _javaVersions.keys.map((String version) {
+                  items: JavaConfig.versionList.map((String version) {
                     return Win11DropdownItem(
                       value: version,
                       label: "Java $version",

@@ -17,6 +17,10 @@ class FlutterWindow : public Win32Window {
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
 
+  void SetupTrayIcon();
+  void Show();
+  void Hide();
+
   void SetTaskbarProgress(uint64_t completed, uint64_t total);
   void SetTaskbarState(TBPFLAG state);
 

@@ -7,6 +7,7 @@ import 'package:bloret_launcher/pages/bbbs_page.dart';
 import 'package:bloret_launcher/pages/blora_chat_page.dart';
 import 'package:bloret_launcher/pages/cores_page.dart';
 import 'package:bloret_launcher/pages/download_page.dart';
+import 'package:bloret_launcher/pages/live_page.dart';
 import 'package:bloret_launcher/pages/mods_page.dart';
 import 'package:bloret_launcher/pages/stat_page.dart';
 import 'package:bloret_launcher/pages/tools_page.dart';
@@ -17,12 +18,15 @@ import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/sliding_text.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import 'core/global.dart';
 import 'services/config_service.dart';
 import 'services/win32_icon_service.dart';
 import 'services/passport_service.dart';
+import 'core/window_bridge.dart';
 import 'pages/welcome_page.dart';
 import 'dart:convert';
 
@@ -30,7 +34,7 @@ BloretLauncherConfig? config;
 
 BloretServer? server;
 
-const name = "Bloret";
+const name = "Blora";
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -120,9 +124,30 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   bool _isExtended = true;
   Timer? _timer;
 
+  final _trayChannel = const BasicMessageChannel('bloret/tray', StandardMessageCodec());
+
   @override
   void initState() {
     super.initState();
+    WindowBridge.init(context);
+
+    _trayChannel.setMessageHandler((message) async {
+      if (message == null) return null;
+      
+      switch (message.toString()) {
+        case "bbbs":
+          launchUrlString("https://bbs.bloret.net/");
+          break;
+        case "passport":
+          launchUrlString("https://passport.bloret.net/");
+          break;
+        case "img_host":
+          launchUrlString("https://img.bloret.net/");
+          break;
+      }
+      return null;
+    });
+
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (ConfigService.isFirstRun()) {
@@ -174,7 +199,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     (const _NavDestination("统计", Icons.bar_chart_outlined, Icons.bar_chart), const StatsPage()),
     (const _NavDestination("Mods", Icons.extension_outlined, Icons.extension), const ModsPage()),
     (const _NavDestination("BBBS", Icons.forum_outlined, Icons.forum), const BbbsPage()),
-    (const _NavDestination("Live", Icons.live_tv_outlined, Icons.live_tv), const PlaceholderPage(title: "Live")),
+    (const _NavDestination("Live", Icons.live_tv_outlined, Icons.live_tv), const LivePage()),
 
     "divider",
     (const _NavDestination("通行证", Icons.person_outline, Icons.person), const PassPortPage()),
@@ -345,8 +370,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(Bloriko.instance.currentTool != null && Bloriko.instance.currentTool! != "set_user_identity"
-                                    ? "${Bloriko.type == "bloriko" ? "络可" : "BloraAgent"}正在: ${Bloriko.instance.currentTool}"
-                                    : "${Bloriko.type == "bloriko" ? "Bloriko" : "BloraAgent"} 正在运行...",
+                                    ? "$agentName正在: ${Bloriko.instance.currentTool}"
+                                    : "$agentName 正在运行...",
                                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onPrimaryContainer)
                                   ),
                                   if (Bloriko.instance.currentTool == null)
@@ -719,7 +744,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             child: LayoutBuilder(
                                 builder: (context, constraints) {
                                   final isShort = constraints.maxWidth < 300;
-                                  final agentName = Bloriko.type == "bloriko" ? "络可" : "Blora Agent";
                                   final identityId = ConfigService.get("user_identity");
                                   final identity = identityId == "sister" ? "姐姐" : identityId == "little_sister" ? "妹妹" : "哥哥";
                                   
@@ -779,7 +803,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 SlideFadeIn(
                   controller: _listController,
                   delay: 0.5,
-                  child: Text("${Bloriko.type == "bloriko" ? "络可" : "Blora Agent"} 依靠 AI。可能犯错，请核实重要信息。",
+                  child: Text("$agentName 依靠 AI。可能犯错，请核实重要信息。",
                       style: theme.textTheme.bodySmall?.copyWith(fontSize: 14)),
                 ),
 
@@ -829,7 +853,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ],
                         ),
                         const Divider(height: 24),
-                        Text("${Bloriko.type == "bloriko" ? "络可" : "Blora Agent"} 推荐时间段", style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text("$agentName 推荐时间段", style: const TextStyle(fontWeight: FontWeight.bold)),
                         const SizedBox(height: 12),
                         AnimatedSwitcher(
                           duration: const Duration(milliseconds: 300),
@@ -859,7 +883,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                 key: ValueKey(server != null), 
                                 mainAxisSize: MainAxisSize.min, 
                                 children: [
-                                  Expanded(child: Text("嘿嘿~ ${Bloriko.type == "bloriko" ? "络可" : "Blora Agent"} 来啦！现在的在线人数非常适合游玩哦~", style: theme.textTheme.bodySmall)), 
+                                  Expanded(child: Text("嘿嘿~ $agentName 来啦！现在的在线人数非常适合游玩哦~", style: theme.textTheme.bodySmall)),
                                   const SizedBox(width: 8), 
                                   const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
                                   const SizedBox(width: 4,)
@@ -1020,7 +1044,7 @@ class _BottomActionRail extends StatelessWidget {
                       const SizedBox(width: 12),
                       Expanded(
                         child: BloretButton(
-                          onPressed: () {}, 
+                          onPressed: () {},
                           icon: Icons.swap_horiz, 
                           text: "切换核心",
                         ),
@@ -1061,9 +1085,10 @@ class _BottomActionRail extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   BloretButton(
-                    onPressed: () {}, 
+                    onPressed: () {},
                     icon: Icons.swap_horiz, 
-                    text: "切换核心"
+                    text: "切换核心",
+                    height: 48,
                   ),
                   const SizedBox(width: 12),
                   SizedBox(

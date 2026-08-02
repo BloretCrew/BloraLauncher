@@ -9,8 +9,8 @@ class GoogleSquigglySlider extends StatefulWidget {
   final ValueChanged<double>? onChanged;
   final ValueChanged<double>? onChangeStart;
   final ValueChanged<double>? onChangeEnd;
-  final Color activeColor;
-  final Color inactiveColor;
+  final Color? activeColor;
+  final Color? inactiveColor;
   final bool isPlaying;
   final bool hasThumb;
 
@@ -21,8 +21,8 @@ class GoogleSquigglySlider extends StatefulWidget {
     this.onChanged,
     this.onChangeStart,
     this.onChangeEnd,
-    required this.activeColor,
-    required this.inactiveColor,
+    this.activeColor,
+    this.inactiveColor,
     this.isPlaying = true,
     this.hasThumb = true,
   });
@@ -135,6 +135,8 @@ class _GoogleSquigglySliderState extends State<GoogleSquigglySlider> with Ticker
 
   @override
   Widget build(BuildContext context) {
+    final activeColor = widget.activeColor ?? Theme.of(context).colorScheme.primary;
+    final inactiveColor = widget.inactiveColor ?? Theme.of(context).colorScheme.secondary;
     return GestureDetector(
       onHorizontalDragStart: (details) {
         setState(() {
@@ -170,8 +172,8 @@ class _GoogleSquigglySliderState extends State<GoogleSquigglySlider> with Ticker
               painter: _SquigglySliderPainter(
                 progressPercent: progressPercent,
                 wavePhase: _waveController.value * 2 * math.pi,
-                activeColor: widget.activeColor,
-                inactiveColor: widget.inactiveColor,
+                activeColor: activeColor,
+                inactiveColor: inactiveColor,
                 squggleProgress: _transitionController.value,
                 thumbOpacity: _thumbAnimation.value.clamp(0, 1),
               ),

@@ -675,7 +675,6 @@ class Bloriko extends ChangeNotifier {
             }).toList()));
           }
         } else if (role == 'assistant') {
-          // 修复：必须回传完整的 assistant 消息，包含之前的 tool_calls 和 reasoning_content
           chatMsgs.add(ChatMessage.raw({
             'role': 'assistant',
             'content': msg['content'],
@@ -810,10 +809,11 @@ class Bloriko extends ChangeNotifier {
         }
 
         if (toolCalls.isNotEmpty) {
-          chatMsgs.add(ChatMessage.assistant(
-            content: accumulatedContent.isNotEmpty ? accumulatedContent : null,
-            toolCalls: toolCalls,
-          ));
+          chatMsgs.add(ChatMessage.raw({
+            'role': 'assistant',
+            'content': accumulatedContent.isNotEmpty ? accumulatedContent : null,
+            'tool_calls': toolCalls.map((t) => t.toJson()).toList(),
+          }));
 
           for (final tc in toolCalls) {
             if (_isCancelled || _currentRequestId != currentRequestId) break;
@@ -832,19 +832,22 @@ class Bloriko extends ChangeNotifier {
             currentTool = null;
             _internalUpdateSystemMessage(name, result);
             onToolEnd(name, result);
-            
-            // 记录到本地消息列表，包含 tool_calls 信息
+
             if (messages.isNotEmpty && messages.last['role'] == 'assistant') {
               messages.last['tool_calls'] = toolCalls.map((t) => t.toJson()).toList();
-              // 如果有推理内容也一并记录
+
               if (accumulator.reasoning.isNotEmpty) {
                 messages.last['reasoning_content'] = accumulator.reasoning;
               }
             }
 
-            chatMsgs.add(ChatMessage.tool(toolCallId: tc.id, content: result));
-            
-            // 记录工具返回结果到本地历史
+            chatMsgs.add(ChatMessage.raw({
+              'role': 'tool',
+              'tool_call_id': tc.id,
+              'name': tc.function.name,
+              'content': result,
+            }));
+
             _internalAddMessage({
               'role': 'tool',
               'tool_call_id': tc.id,
@@ -852,8 +855,7 @@ class Bloriko extends ChangeNotifier {
             });
           }
           continue; 
-        }
-else {
+        } else {
           final xmlTool = _parseXmlToolCall(accumulatedContent);
           if (xmlTool != null) {
             final name = xmlTool['name'];

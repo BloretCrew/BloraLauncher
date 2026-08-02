@@ -52,6 +52,8 @@ dependencies:
   image: ^4.5.0
   pasteboard: ^0.2.0
   http: ^1.6.0
+  flutter_webrtc: ^1.5.2
+  share_plus: ^10.1.4
 
 dev_dependencies:
   flutter_test:

@@ -1,3 +1,4 @@
+import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -12,6 +13,7 @@ class AboutPage extends StatefulWidget {
 }
 
 class AboutPageState extends State<AboutPage> {
+  int count = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +47,25 @@ class AboutPageState extends State<AboutPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text("$name Launcher", style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: isPortrait ? 22 : 28)),
-                              Row(mainAxisSize: MainAxisSize.min, children: [Text("Version: ${config?.latestVersion ?? ""}", style: theme.textTheme.bodyMedium), if (config?.latestVersion == null || config!.latestVersion.isEmpty) const SizedBox(width: 10, height: 10, child: Center(child: CircularProgressIndicator(strokeWidth: 2),))],),
+                              MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: GestureDetector(
+                                  onTap: () {
+                                    if (count > 5) {
+                                      if (!(ConfigService.get("develop_mode") ?? false)) {
+                                        ConfigService.set("develop_mode", true).then((_) {
+                                          setState(() {});
+                                        });
+                                      }
+                                    } else {
+                                      setState(() {
+                                        count++;
+                                      });
+                                    }
+                                  },
+                                  child: Row(mainAxisSize: MainAxisSize.min, children: [Text("Version: ${config?.latestVersion ?? ""}", style: ConfigService.get("develop_mode") == true ? theme.textTheme.bodyMedium!.copyWith(color: Colors.greenAccent) : theme.textTheme.bodyMedium), if (config?.latestVersion == null || config!.latestVersion.isEmpty) const SizedBox(width: 10, height: 10, child: Center(child: CircularProgressIndicator(strokeWidth: 2),))],),
+                                ),
+                              ),
                               if (!isPortrait)
                                 Text("Be creative, be simple. Your Personal Innovative Open Source AI Minecraft Launcher. Relax, it's $name Launcher.", style: TextStyle(color: theme.colorScheme.outline, fontSize: 15, height: 1.4)),
                             ],

@@ -3,6 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  flutter_webrtc
   pasteboard
   screen_capturer_linux
   url_launcher_linux

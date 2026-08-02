@@ -1,8 +1,13 @@
+import 'dart:io';
+
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/windows_widgets.dart';
 import 'package:flutter/material.dart';
 
 import '../main.dart';
+import '../core/java_config.dart';
+import '../services/download_service.dart';
+import '../widgets/google_widgets.dart';
 
 class DownloadPage extends StatefulWidget {
   const DownloadPage({super.key});
@@ -30,19 +35,20 @@ class _DownloadPageState extends State<DownloadPage> {
     // Backend.getJavaDownloadVersions()
 
     setState(() {
-      vanillaVersions = ["1.21.1", "1.20.1", "其他版本..."];
-      fabricVersions = ["1.21.1", "其他版本..."];
-      forgeVersions = ["1.20.1", "其他版本..."];
-      neoForgeVersions = ["1.21", "其他版本..."];
-      javaVersions = ["Java 17", "Java 21"];
+      vanillaVersions = ["1.21.8", "1.21.7"];
+      fabricVersions = ["1.21.8", "1.21.7"];
+      forgeVersions = ["1.21.8", "1.21.7"];
+      neoForgeVersions = ["1.21.8", "1.21.7"];
+      javaVersions = JavaConfig.versionList.map((e) => "Java $e").toList();
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
     return Scaffold(
       body: ListView(
-        padding: const EdgeInsets.only(left: 32, right: 16, top: 16, bottom: 16),
+        padding: EdgeInsets.only(left: isPortrait ? 16 : 32, right: 16, top: 16, bottom: 16),
         children: [
           Padding(
             padding: const EdgeInsets.only(left: 8, top: 8),
@@ -55,6 +61,44 @@ class _DownloadPageState extends State<DownloadPage> {
             ),
           ),
           const SizedBox(height: 16),
+          AnimatedBuilder(
+            animation: DownloadService.instance,
+            builder: (context, _) {
+              final activeTasks = DownloadService.instance.getTasks().where((t) => t.isDownloading).toList();
+              return AnimatedSize(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                child: activeTasks.isEmpty
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: FluentCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text("当前下载队列", style: TextStyle(fontWeight: FontWeight.bold)),
+                              ...activeTasks.map((task) => Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Row(
+                                  children: [
+                                    Expanded(child: Text(task.id, style: const TextStyle(fontSize: 12))),
+                                    SizedBox(width: 200, child: GoogleSquigglySlider(value: task.progress * 100, max: 100, isPlaying: true)),
+                                    const SizedBox(width: 8),
+                                    Text("${(task.progress * 100).toInt()}%", style: const TextStyle(fontSize: 12)),
+                                    IconButton(
+                                      icon: const Icon(Icons.close, size: 16),
+                                      onPressed: () => DownloadService.instance.cancelTask(task.id),
+                                    ),
+                                  ],
+                                ),
+                              )),
+                            ],
+                          ),
+                        ),
+                      ),
+              );
+            },
+          ),
           Text("  当前下载源: bangbang93/BMCLAPI"),
           const SizedBox(height: 8),
           DownloadCard(
@@ -62,8 +106,12 @@ class _DownloadPageState extends State<DownloadPage> {
             title: "Minecraft 官方版本",
             subtitle: "下载并安装原生 Minecraft 核心",
             versions: vanillaVersions,
-            onDownload: (version) {
-              // TODO: Backend.downloadVanilla()
+            onDownload: (version) async {
+              final url = "https://bmclapi2.bangbang93.com/version/$version/client";
+              await DownloadService.instance.downloadFile(
+                "Vanilla_$version", url, "minecraft_$version.jar",
+                (path, updateStatus) async { return false; },
+              );
             },
           ),
           DownloadCard(
@@ -71,8 +119,12 @@ class _DownloadPageState extends State<DownloadPage> {
             title: "Forge Loader",
             subtitle: "安装 Forge 加载器以使用 Forge Mod",
             versions: forgeVersions,
-            onDownload: (version) {
-              // TODO: Backend.downloadForge()
+            onDownload: (version) async {
+              final url = "https://bmclapi2.bangbang93.com/forge/download/$version";
+              await DownloadService.instance.downloadFile(
+                "Forge_$version", url, "forge_$version.jar",
+                (path, updateStatus) async { return false; },
+              );
             },
           ),
           DownloadCard(
@@ -80,18 +132,25 @@ class _DownloadPageState extends State<DownloadPage> {
             title: "Fabric Loader",
             subtitle: "安装 Fabric 加载器以使用 Fabric Mod",
             versions: fabricVersions,
-            onDownload: (version) {
-              // TODO: Backend.downloadFabric()
+            onDownload: (version) async {
+              final url = "https://bmclapi2.bangbang93.com/fabric/loader/$version/installer";
+              await DownloadService.instance.downloadFile(
+                "Fabric_$version", url, "fabric_$version.jar",
+                (path, updateStatus) async { return false; },
+              );
             },
           ),
-
           DownloadCard(
             image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/neoforge.png")),
             title: "NeoForge Loader",
             subtitle: "安装 NeoForge 加载器以使用 NeoForge Mod",
             versions: neoForgeVersions,
-            onDownload: (version) {
-              // TODO: Backend.downloadNeoForge()
+            onDownload: (version) async {
+              final url = "https://bmclapi2.bangbang93.com/neoforge/loader/$version/installer";
+              await DownloadService.instance.downloadFile(
+                "NeoForge_$version", url, "neoforge_$version.jar",
+                (path, updateStatus) async { return false; },
+              );
             },
           ),
           DownloadCard(
@@ -99,8 +158,21 @@ class _DownloadPageState extends State<DownloadPage> {
             title: "Java 运行时环境",
             subtitle: "运行 Minecraft 所需的 Java 环境",
             versions: javaVersions,
-            onDownload: (version) {
-              // TODO: Backend.downloadJava()
+            onDownload: (v) async {
+              final version = v.replaceAll("Java ", "");
+              final url = JavaConfig.versions[version]!["Windows"]!["x64"];
+              if (url != null) {
+                await DownloadService.instance.downloadFile(
+                    "Java_$version", url, "java_$version.msi",
+                        (path, updateStatus) async {
+                      updateStatus("正在启动安装...");
+                      final result = await Process.start("msiexec", ["/i", path, "/quiet", "/qn"]);
+                      updateStatus("后台安装中...");
+                      final exitCode = await result.exitCode;
+                      return exitCode == 0;
+                    }
+                );
+              }
             },
           ),
           DownloadCard(
@@ -155,10 +227,21 @@ class DownloadCard extends StatefulWidget {
 
 class _DownloadCardState extends State<DownloadCard> {
   String? selected;
+  late DownloadTask _task;
+
+  @override
+  void initState() {
+    super.initState();
+    selected = widget.versions?.firstOrNull;
+    _updateTask();
+  }
+
+  void _updateTask() {
+    _task = DownloadService.instance.getTask(widget.title + (selected ?? ""));
+  }
 
   @override
   Widget build(BuildContext context) {
-    selected ??= widget.versions?.firstOrNull;
     final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
     if (isPortrait) {
@@ -174,20 +257,9 @@ class _DownloadCardState extends State<DownloadCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (widget.badge != null)
-                        Chip(label: Text(widget.badge!)),
-                      Text(
-                        widget.title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        widget.subtitle,
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
+                      if (widget.badge != null) Chip(label: Text(widget.badge!)),
+                      Text(widget.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text(widget.subtitle, style: TextStyle(color: Colors.grey.shade600)),
                     ],
                   ),
                 ),
@@ -201,32 +273,44 @@ class _DownloadCardState extends State<DownloadCard> {
                     child: Win11Dropdown(
                       initialValue: selected,
                       height: 38,
-                      items: widget.versions!
-                          .map((e) => Win11DropdownItem(
-                        value: e,
-                        label: e,
-                      ))
-                          .toList(),
+                      items: widget.versions!.map((e) => Win11DropdownItem(value: e, label: e)).toList(),
                       onChanged: (v) {
-                        setState(() => selected = v);
-                        if (v == "其他版本...") {
-                          // TODO: 打开版本选择Dialog
-                        }
+                        setState(() {
+                          selected = v;
+                          _updateTask();
+                        });
                       },
                     ),
                   ),
                 if (widget.versions != null) const SizedBox(width: 12),
                 Expanded(
-                  child: BloretButton(
-                    height: 38,
-                    onPressed: () {
-                      if (widget.onDownload != null) {
-                        widget.onDownload!(selected ?? "");
-                      } else {
-                        widget.onPressed?.call();
+                  child: AnimatedBuilder(
+                    animation: _task,
+                    builder: (context, _) {
+                      if (_task.isDownloading) {
+                        return Row(
+                          children: [
+                            const Expanded(child: Text("正在下载...", style: TextStyle(fontSize: 10))),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 16),
+                              onPressed: () => DownloadService.instance.cancelTask(widget.title + (selected ?? "")),
+                            ),
+                          ],
+                        );
                       }
-                    },
-                    text: widget.buttonText ?? "下载并安装",
+                      return BloretButton(
+                        height: 38,
+                        onPressed: () async {
+                          if (widget.onDownload != null) {
+                            final String version = selected ?? "";
+                            await widget.onDownload!(version);
+                          } else {
+                            widget.onPressed?.call();
+                          }
+                        },
+                        text: widget.buttonText ?? "下载并安装",
+                      );
+                    }
                   ),
                 ),
               ],
@@ -245,20 +329,9 @@ class _DownloadCardState extends State<DownloadCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (widget.badge != null)
-                  Chip(label: Text(widget.badge!)),
-                Text(
-                  widget.title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  widget.subtitle,
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                  ),
-                ),
+                if (widget.badge != null) Chip(label: Text(widget.badge!)),
+                Text(widget.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(widget.subtitle, style: TextStyle(color: Colors.grey.shade600)),
               ],
             ),
           ),
@@ -268,31 +341,48 @@ class _DownloadCardState extends State<DownloadCard> {
               child: Win11Dropdown(
                 initialValue: selected,
                 height: 38,
-                items: widget.versions!
-                    .map((e) => Win11DropdownItem(
-                  value: e,
-                  label: e,
-                ))
-                    .toList(),
+                items: widget.versions!.map((e) => Win11DropdownItem(value: e, label: e)).toList(),
                 onChanged: (v) {
-                  setState(() => selected = v);
-                  if (v == "其他版本...") {
-                    // TODO: 打开版本选择Dialog
-                  }
+                  setState(() {
+                    selected = v;
+                    _updateTask();
+                  });
                 },
               ),
             ),
           const SizedBox(width: 12),
-          BloretButton(
-            height: 38,
-            onPressed: () {
-              if (widget.onDownload != null) {
-                widget.onDownload!(selected ?? "");
-              } else {
-                widget.onPressed?.call();
+          AnimatedBuilder(
+            animation: _task,
+            builder: (context, _) {
+              if (_task.isDownloading) {
+                return SizedBox(
+                  width: 150,
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text("正在下载...", style: TextStyle(fontSize: 10)),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 16),
+                        onPressed: () => DownloadService.instance.cancelTask(widget.title + (selected ?? "")),
+                      ),
+                    ],
+                  ),
+                );
               }
-            },
-            text: widget.buttonText ?? "下载并安装",
+              return BloretButton(
+                height: 38,
+                onPressed: () async {
+                  if (widget.onDownload != null) {
+                    final String version = selected ?? "";
+                    await widget.onDownload!(version);
+                  } else {
+                    widget.onPressed?.call();
+                  }
+                },
+                text: widget.buttonText ?? "下载并安装",
+              );
+            }
           ),
         ],
       ),

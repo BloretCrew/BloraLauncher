@@ -67,6 +67,14 @@ class ConfigService {
   static Future<void> setLanguage(String lang) {
     return set("language", lang);
   }
+
+  static String getExitBehavior() {
+    return get("exit_behavior") ?? "ask";
+  }
+
+  static Future<void> setExitBehavior(String behavior) async {
+    await set("exit_behavior", behavior);
+  }
 }
 
 Future<Directory> getSupportData() async {

@@ -5,21 +5,22 @@ class BloretButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final IconData? icon;
   final double? height;
+  final Color? color;
 
-  const BloretButton({super.key, required this.text, required this.onPressed, this.icon, this.height});
+  const BloretButton({super.key, required this.text, required this.onPressed, this.icon, this.height, this.color});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final style = ElevatedButton.styleFrom(
       padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-      minimumSize: Size(0, height ?? 36),
+      minimumSize: Size(0, height ?? 42),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8), 
         side: BorderSide(color: Colors.white.withValues(alpha: 0.1))
       ),
       backgroundColor: theme.colorScheme.outline.withValues(alpha: 0.1),
-      foregroundColor: theme.colorScheme.onSurface,
+      foregroundColor: color ?? theme.colorScheme.onSurface,
       elevation: 0,
       textStyle: theme.textTheme.bodyMedium?.copyWith(
         fontWeight: FontWeight.bold,

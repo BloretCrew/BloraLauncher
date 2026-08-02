@@ -3,8 +3,10 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  flutter_webrtc
   pasteboard
   screen_capturer_windows
+  share_plus
   url_launcher_windows
 )
 

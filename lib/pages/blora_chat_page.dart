@@ -11,6 +11,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
+import 'package:image/image.dart' hide Image, Color;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pasteboard/pasteboard.dart';
@@ -205,32 +206,13 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
     final List<Map<String, dynamic>> parts = [];
 
     String effectiveText = text;
-    if (text.length > 3000) {
-      final textBase64 = base64Encode(utf8.encode(text));
-      parts.add({
-        "type": "input_file",
-        "filename": "long_text.txt",
-        "file_data": textBase64,
-      });
-      effectiveText = _tr("[已将长文本整合为文件附件]");
-    } else if (text.isNotEmpty) {
+    if (text.isNotEmpty) {
       parts.add({"type": "input_text", "text": text});
     }
 
     for (var file in _attachments) {
       if (!file.existsSync()) continue;
       final bytes = await file.readAsBytes();
-
-      // 限制 3MB (3 * 1024 * 1024 bytes)
-      if (bytes.length > 3 * 1024 * 1024) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("${_tr("文件")} ${p.basename(file.path)} ${_tr("超过 3MB，已跳过")}"))
-          );
-        }
-        continue;
-      }
-
       final base64Data = base64Encode(bytes);
       final filename = p.basename(file.path);
       final ext = p.extension(file.path).toLowerCase();
@@ -660,6 +642,15 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       for (var path in result.paths) {
         if (path != null) {
           final file = File(path);
+          final bytes = await file.length();
+          if (bytes > 3 * 1024 * 1024) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text("${_tr("文件")} ${p.basename(file.path)} ${_tr("超过 3MB，无法添加")}"))
+              );
+            }
+            continue;
+          }
           _attachments.add(file);
           _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
         }
@@ -692,6 +683,15 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
         for (var path in files) {
           final file = File(path);
           final ext = p.extension(path).toLowerCase();
+          final bytes = await file.length();
+          if (bytes > 3 * 1024 * 1024) {
+             if (mounted) {
+               ScaffoldMessenger.of(context).showSnackBar(
+                   SnackBar(content: Text("${_tr("文件")} ${p.basename(file.path)} ${_tr("超过 3MB，无法添加")}"))
+               );
+             }
+             continue;
+          }
           if (file.existsSync() && allowedExts.contains(ext) && !_attachments.any((a) => a.path == path)) {
             _attachments.add(file);
             _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
@@ -703,30 +703,47 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
 
       final imageBytes = await Pasteboard.image;
       if (imageBytes != null) {
+        Uint8List? compBytes;
+        if (imageBytes.length > 3 * 1024 * 1024) {
+          final img = decodeImage(imageBytes);
+          final comp = encodeJpg(img!, quality: 50);
+          compBytes = Uint8List.fromList(comp);
+          if (imageBytes.length > 3 * 1024 * 1024) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_tr("图片超过 3MB，无法添加"))));
+            }
+            return;
+          }
+        }
         final tempDir = await getTemporaryDirectory();
         final fileName = 'pasted_img_${DateTime.now().millisecondsSinceEpoch}.png';
         final file = File(p.join(tempDir.path, fileName));
-        await file.writeAsBytes(imageBytes);
+        await file.writeAsBytes(compBytes ?? imageBytes);
         _attachments.add(file);
         _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
         setState(() {});
         return;
       }
 
-      // 检查超长文本粘贴 (超过 5000 字符静默转文件)
       final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
       final plainText = clipboardData?.text;
-      if (plainText != null && plainText.length > 5000) {
-        final tempDir = await getTemporaryDirectory();
-        final fileName = 'pasted_text_${DateTime.now().millisecondsSinceEpoch}.txt';
-        final file = File(p.join(tempDir.path, fileName));
-        await file.writeAsString(plainText);
+      if (plainText != null) {
+        final hasExistingText = _inputController.text.trim().isNotEmpty;
+        if (plainText.length > 4000 || hasExistingText) {
+          final tempDir = await getTemporaryDirectory();
+          final fileName = 'pasted_text_${DateTime.now().millisecondsSinceEpoch}.txt';
+          final file = File(p.join(tempDir.path, fileName));
+          await file.writeAsString(plainText);
 
-        setState(() {
-          _attachments.add(file);
-          _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
-        });
-        return;
+          setState(() {
+            _attachments.add(file);
+            _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
+            _inputController.text = '';
+            _isDocumentMode = false;
+          });
+        } else {
+          _inputController.text = plainText;
+        }
       }
     } catch (e) {
       debugPrint("Paste error: $e");
@@ -915,9 +932,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       },
       "google_ai_studio": {
         "models": [
-          {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "tool_call": true},
-          {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "tool_call": true},
-          {"id": "gemini-2.0-flash-exp", "name": "Gemini 2.0 Flash Exp", "tool_call": true},
+          {"id": "none", "name": "未获取到模型", "tool_call": false},
         ],
       },
       "custom_api": {
@@ -934,7 +949,6 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       _fetchRemoteModels();
     }
 
-    // 尝试恢复供应商特定的最后模型
     final lastModelKey = 'ai_model_last_$_currentProviderKey';
     final savedLastModel = ConfigService.get(lastModelKey);
 
@@ -971,7 +985,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
               ),
             TextField(
               controller: keyController,
-              decoration: InputDecoration(labelText: _tr("API Key"), hintText: "sk-..."),
+              decoration: InputDecoration(labelText: _tr("API Key"), hintText: "AQ.xxxxxx"),
               obscureText: true,
             ),
             if (!isGoogle)
@@ -1124,6 +1138,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                               items: [
                                 Win11DropdownItem(label: _tr("默认"), value: "default"),
                                 Win11DropdownItem(label: _tr("络可"), value: "bloriko"),
+                                if (ConfigService.get("develop_mode") ?? false) Win11DropdownItem(label: _tr("络可 (R18)"), value: "bloriko_r18"),
                               ],
                               onChanged: (value) async {
                                 if (value != null && value != Bloriko.type) {
@@ -1197,7 +1212,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                                   ),
                                 );
                               },
-                              child: Bloriko.type == "bloriko"
+                              child: Bloriko.type == "bloriko" || Bloriko.type == "bloriko_r18"
                                   ? Center(
                                       key: const ValueKey("empty_bloriko"),
                                       child: SizedBox(width: 360, child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -1205,7 +1220,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                                         const SizedBox(height: 12),
                                         Text(_tr("络可"), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
                                         const SizedBox(height: 12),
-                                        Text(_tr("${ConfigService.get("user_identity") == "sister" ? "姐姐" : ConfigService.get("user_identity") == "little_sister" ? "妹妹" : "哥哥"}好呀！ 络可在这里等你很久啦~(开心地挥挥小手)\n\n试试跟 Bloriko 说：\n• 帮我创建一个文件\n• 搜索一下项目里的 TODO"), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
+                                        Text(_tr("${ConfigService.get("user_identity") == "sister" ? "姐姐" : ConfigService.get("user_identity") == "little_sister" ? "妹妹" : "哥哥"}好呀${Bloriko.type == "bloriko_r18" ? "♥" : "！"} 络可在这里等你很久啦~(开心地挥挥小手)\n\n试试跟 Bloriko 说：\n• 帮我创建一个文件\n• 搜索一下项目里的 TODO"), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
                                         AnimatedSwitcher(
                                           duration: const Duration(milliseconds: 300),
                                           transitionBuilder: (child, anim) => SizeTransition(sizeFactor: anim, alignment: Alignment.center, child: FadeTransition(opacity: anim, child: child)),
@@ -1240,7 +1255,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                               builder: (context, constraints) {
                                 return ListView.builder(
                                   key: const ValueKey("chat_list"),
-                                  padding: const EdgeInsets.only(bottom: 240), // 使用固定内边距避免动画期间因 constraints 变化导致的频繁重绘
+                                  padding: const EdgeInsets.only(bottom: 240),
                                   controller: _agent.messages.isEmpty ? null : _msgScrollController,
                                   itemCount: _agent.messages.length + (_agent.busy ? 1 : 0),
                                   itemBuilder: (context, index) {
@@ -1478,7 +1493,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                                                     borderRadius: BorderRadius.circular(8),
                                                     child: part['_decodedBytes'] != null
                                                       ? Image.memory(
-                                                          part['_decodedBytes'],
+                                                          Uint8List.fromList((part['_decodedBytes'] as List).cast()),
                                                           width: 100, height: 100, fit: BoxFit.cover,
                                                           gaplessPlayback: true,
                                                           key: ValueKey(url),
@@ -2027,23 +2042,46 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                                       )
                                     : const SizedBox.shrink(),
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Win11Dropdown(
-                                  items: _currentModels.map((model) => Win11DropdownItem(label: model["name"] ?? "", value: model["id"])).toList(),
-                                  initialValue: _currentModelId,
-                                  onChanged: (value) async {
-                                    if (value != null) {
-                                      await ConfigService.set('ai_model', value);
-                                      await ConfigService.set('ai_model_last_$_currentProviderKey', value);
-                                      setState(() => _currentModelId = value);
-                                    }
-                                  },
+                              if (!isPortrait || (_currentProviderKey != 'custom_api' && _currentProviderKey != 'google_ai_studio')) ...[
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Win11Dropdown(
+                                    items: _currentModels.map((model) => Win11DropdownItem(label: model["name"] ?? "", value: model["id"])).toList(),
+                                    initialValue: _currentModelId,
+                                    onChanged: (value) async {
+                                      if (value != null) {
+                                        await ConfigService.set('ai_model', value);
+                                        await ConfigService.set('ai_model_last_$_currentProviderKey', value);
+                                        setState(() => _currentModelId = value);
+                                      }
+                                    },
+                                  ),
                                 ),
-                              ),
+                              ]
                             ],
                           ),
                         ),
+                        if (isPortrait && (_currentProviderKey == 'custom_api' || _currentProviderKey == 'google_ai_studio'))
+                          Padding(
+                            padding: const EdgeInsets.only(left: 12, right: 12, top: 12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Win11Dropdown(
+                                    items: _currentModels.map((model) => Win11DropdownItem(label: model["name"] ?? "", value: model["id"])).toList(),
+                                    initialValue: _currentModelId,
+                                    onChanged: (value) async {
+                                      if (value != null) {
+                                        await ConfigService.set('ai_model', value);
+                                        await ConfigService.set('ai_model_last_$_currentProviderKey', value);
+                                        setState(() => _currentModelId = value);
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ],
+                            )
+                          ),
                         Padding(
                           padding: const EdgeInsets.all(12.0),
                           child: Row(
@@ -2076,28 +2114,12 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                                         child: _buildAttachmentBar(),
                                       ),
                                       if (_attachments.isNotEmpty) const Divider(height: 1),
-                                      // 文本输入区域
+                                      // 文
                                       Flexible(
                                         child: Column(
                                           mainAxisSize: MainAxisSize.min,
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            if (_inputController.text.length > 3000)
-                                              Padding(
-                                                padding: const EdgeInsets.only(left: 4, bottom: 4),
-                                                child: Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                  decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
-                                                  child: Row(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      const Icon(Icons.auto_fix_high_rounded, size: 10, color: Colors.orange),
-                                                      const SizedBox(width: 4),
-                                                      Text(_tr("内容过长，发送时将自动整合为文件"), style: const TextStyle(fontSize: 9, color: Colors.orange, fontWeight: FontWeight.bold)),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
                                             Flexible(
                                               child: Scrollbar(
                                                 thumbVisibility: true, controller: _inputScrollController, radius: const Radius.circular(8),
@@ -2107,7 +2129,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                                                     onKeyEvent: (node, event) {
                                                       if (Platform.isAndroid) return KeyEventResult.ignored;
 
-                                                      // 拦截粘贴事件 (Ctrl+V)
+                                                      // 你复制个集贸 (Ctrl+V)
                                                       final isV = event.logicalKey == LogicalKeyboardKey.keyV;
                                                       final isControl = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlLeft) ||
                                                                        HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlRight);
@@ -2133,7 +2155,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                                                           focusNode: _focusNode,
                                                           maxLines: null,
                                                           onChanged: (val) {
-                                                            setState(() {}); // 刷新字数提醒
+                                                            setState(() {});
                                                             if (val.length > 500 && !_isDocumentMode) {
                                                               setState(() => _isDocumentMode = true);
                                                             } else if (val.length <= 500 && _isDocumentMode) {
@@ -2281,6 +2303,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                   items: [
                     Win11DropdownItem(label: _tr("默认"), value: "default"),
                     Win11DropdownItem(label: _tr("络可"), value: "bloriko"),
+                    if (ConfigService.get("develop_mode") ?? false) Win11DropdownItem(label: _tr("络可 (R18)"), value: "bloriko_r18"),
                   ],
                   onChanged: (value) async {
                     if (value != null && value != Bloriko.type) {
