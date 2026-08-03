@@ -8,6 +8,7 @@ import '../core/i18n.dart';
 import '../services/bbbs.dart';
 import '../services/live_service.dart';
 import '../services/webrtc_service.dart';
+import '../main.dart';
 import 'fullscreen_video_page.dart';
 
 class LivePage extends StatefulWidget {
@@ -91,9 +92,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       _startEventListener(space['id']);
     } else {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['message'] ?? "加入失败".tl)),
-      );
+      noticeManager.show(context, message: res['message'] ?? "加入失败".tl, icon: Icons.error);
     }
     setState(() => _isLoading = false);
   }
@@ -275,9 +274,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 } else {
                   setState(() => _isLoading = false);
                   if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(res?['message'] ?? "创建失败".tl)),
-                  );
+                  noticeManager.show(context, message: res?['message'] ?? "创建失败".tl, icon: Icons.error);
                 }
               }
             },

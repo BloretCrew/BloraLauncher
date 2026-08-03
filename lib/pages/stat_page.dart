@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 class StatsPage extends StatefulWidget {
@@ -68,15 +70,15 @@ class _StatsPageState extends State<StatsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: ListView(
-        padding: const EdgeInsets.only(
-          left: 32,
+        padding: EdgeInsets.only(
+          left: Platform.isAndroid ? 16 : 32,
           right: 16,
           top: 16,
           bottom: 16,
         ),
         children: [
           const Padding(
-            padding: EdgeInsets.only(left: 8, top: 8),
+            padding: EdgeInsets.only(top: 8),
             child: Text(
               "统计信息",
               style: TextStyle(

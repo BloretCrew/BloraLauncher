@@ -1,0 +1,274 @@
+{
+  "extra": {
+    "domain": "https://wwbug.lanzn.com"
+  },
+  "rule_acw": {
+    "flow": [
+      {
+        "action": "extract",
+        "regex": "arg1\\s*=\\s*'([0-9A-F]+)'",
+        "save": "arg1"
+      },
+      {
+        "action": "extract",
+        "regex": "(?:var\\s+)?m\\s*=\\s*\\[(.*?)\\]",
+        "save": "m"
+      },
+      {
+        "action": "execute",
+        "way": "#parse_number_array",
+        "input": "$m",
+        "save": "mArray"
+      },
+      {
+        "action": "execute",
+        "way": "#array_reorder",
+        "values": [
+          "$arg1",
+          "$mArray"
+        ],
+        "save": "u"
+      },
+      {
+        "action": "execute",
+        "way": "#xor_hex",
+        "values": [
+          "$u",
+          "3000176000856006061501533003690027800375"
+        ],
+        "save": "result"
+      },
+      {
+        "action": "cookie",
+        "value": {
+          "way": "#stringMerge",
+          "values": [
+            "acw_sc__v2=",
+            "$result",
+            "; codelen=1; pc_ad1=1;"
+          ]
+        }
+      }
+    ]
+  },
+  "get_folder_page_rule": {
+    "url": "*domain/$shareId",
+    "method": "GET",
+    "header": {
+      "User-Agent": "&ua"
+    },
+    "parse": {
+      "way": "#stringMerge",
+      "values": [
+        {
+          "way": "#regex_extract",
+          "regex": "/q/jb/\\?f=(\\d+)"
+        },
+        "|",
+        {
+          "way": "#regex_variable_extract",
+          "nameRegex": "'t'\\s*:\\s*([a-zA-Z_$][\\w$]*)"
+        },
+        "|",
+        {
+          "way": "#regex_variable_extract",
+          "nameRegex": "'k'\\s*:\\s*([a-zA-Z0-9_]+)"
+        },
+        "|",
+        {
+          "way": "#regex_extract",
+          "regex": "'puid':'([^']+)'"
+        },
+        "|",
+        {
+          "way": "#regex_extract",
+          "regex": "'uid':'([^']+)'"
+        }
+      ]
+    }
+  },
+  "get_folder_list_rule": {
+    "url": "*domain/filemoreajax.php?file=$folderFid",
+    "method": "POST",
+    "header": {
+      "User-Agent": "&ua",
+      "Referer": "*domain/$shareId",
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    "data": {
+      "lx": 2,
+      "fid": "$folderFid",
+      "uid": "$folderUid",
+      "puid": "$folderPuid",
+      "pg": 1,
+      "rep": "0",
+      "t": "$folderT",
+      "k": "$folderK",
+      "up": 1,
+      "ls": 1,
+      "pwd": "$password"
+    },
+    "parse": {
+      "way": "#json_extract",
+      "key": "text"
+    }
+  },
+  "get_folder_unlock_rule": {
+    "url": "*domain/filemoreajax.php?file=$folderFid",
+    "method": "POST",
+    "header": {
+      "User-Agent": "&ua",
+      "Referer": "*domain/$shareId",
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    "data": {
+      "lx": 2,
+      "fid": "$folderFid",
+      "uid": "$folderUid",
+      "puid": "$folderPuid",
+      "pg": 1,
+      "rep": "0",
+      "t": "$folderT",
+      "k": "$folderK",
+      "up": 1,
+      "ls": 1,
+      "pwd": "$password"
+    }
+  },
+  "get_iframe_rule": {
+    "url": "*domain/$shareId",
+    "method": "GET",
+    "header": {
+      "User-Agent": "&ua"
+    },
+    "parse": {
+      "way": "#regex_extract",
+      "regex": "iframe.*?src=\"([^\"]+)\""
+    }
+  },
+  "get_params_rule": {
+    "url": "*domain/$iframePath",
+    "method": "GET",
+    "header": {
+      "User-Agent": "&ua",
+      "Referer": "*domain/$shareId"
+    },
+    "parse": {
+      "way": "#stringMerge",
+      "values": [
+        {
+          "way": "#regex_extract",
+          "regex": "ajaxdata\\s*=\\s*'([^']*)'"
+        },
+        "|",
+        {
+          "way": "#regex_extract",
+          "regex": "wp_sign\\s*=\\s*'([^']*)'"
+        },
+        "|",
+        {
+          "way": "#regex_extract",
+          "regex": "ajaxm\\.php\\?file=(\\d+)"
+        }
+      ]
+    }
+  },
+  "get_link_rule": {
+    "url": "*domain/ajaxm.php?file=$fileId",
+    "method": "POST",
+    "header": {
+      "User-Agent": "&ua",
+      "Referer": "*domain/$iframePath",
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    "data": {
+      "action": "downprocess",
+      "signs": "$ajaxData",
+      "sign": "$sign",
+      "websignkey": "$ajaxData",
+      "websign": "",
+      "ves": 1,
+      "kd": 1
+    },
+    "parse": {
+      "way": "#stringMerge",
+      "values": [
+        {
+          "way": "#json_extract",
+          "key": "dom"
+        },
+        "/file/",
+        {
+          "way": "#json_extract",
+          "key": "url"
+        }
+      ]
+    }
+  },
+  "get_page_rule": {
+    "url": "*domain/$shareId",
+    "method": "GET",
+    "header": {
+      "User-Agent": "&ua"
+    }
+  },
+  "flows": {
+    "folder_parse": [
+      {
+        "rule": "get_page_rule"
+      },
+      {
+        "rule": "rule_acw",
+        "condition":{
+          "contains": "var arg1"
+        }
+      },
+      {
+        "rule": "get_folder_page_rule",
+        "save": [
+          "folderFid",
+          "folderT",
+          "folderK",
+          "folderPuid",
+          "folderUid"
+        ],
+        "split": "|"
+      },
+      {
+        "rule": "get_folder_unlock_rule"
+      },
+      {
+        "rule": "get_folder_list_rule",
+        "result": "folderFiles"
+      }
+    ],
+    "file_parse": [
+      {
+        "rule": "get_page_rule"
+      },
+      {
+        "rule":"rule_acw",
+        "condition":{
+          "contains":"var arg1"
+        }
+      },
+      {
+        "rule": "get_iframe_rule",
+        "save": "iframePath"
+      },
+      {
+        "rule": "get_params_rule",
+        "save": [
+          "ajaxData",
+          "sign",
+          "fileId"
+        ],
+        "split": "|"
+      },
+      {
+        "rule": "get_link_rule",
+        "result": "downloadInfo"
+      }
+    ]
+  }
+}

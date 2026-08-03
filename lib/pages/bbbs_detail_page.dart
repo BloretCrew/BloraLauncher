@@ -8,6 +8,7 @@ import '../models/bbbs_post.dart';
 import '../services/bbbs.dart';
 import '../services/config_service.dart';
 import '../widgets/button.dart';
+import '../main.dart';
 
 class BbbsDetailPage extends StatefulWidget {
   final BbbsPost post;
@@ -107,11 +108,11 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
         _replyTo = null;
         _isSubmitting = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("评论成功".tl)));
+      noticeManager.show(context, message: "评论成功".tl, icon: Icons.check_circle);
       _refreshPost(); // 提交后刷新列表
     } else {
       setState(() => _isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${"评论失败".tl}: ${res['message']}")));
+      noticeManager.show(context, message: "${"评论失败".tl}: ${res['message']}", icon: Icons.error);
     }
   }
 

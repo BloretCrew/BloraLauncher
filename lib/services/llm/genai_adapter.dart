@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:bloret_launcher/core/llm_interface.dart';
-import 'package:genai/genai.dart';
+import 'package:genai/genai.dart' show ModelAPIProvider;
+import 'package:openai_dart/openai_dart.dart' as oa;
 
 class GenAIAdapter implements LLMProvider {
   final ModelAPIProvider provider;
@@ -18,32 +20,57 @@ class GenAIAdapter implements LLMProvider {
     required List<AgentTool> tools,
     String? model,
   }) async* {
-    final systemPrompt = messages.firstWhere(
-      (m) => m.role == AgentRole.system,
-      orElse: () => AgentMessage(role: AgentRole.system, content: ""),
-    ).content as String;
-
-    final userPrompt = messages.lastWhere(
-      (m) => m.role == AgentRole.user,
-      orElse: () => AgentMessage(role: AgentRole.user, content: ""),
-    ).content as String;
-
-    final request = AIRequestModel(
-      modelApiProvider: provider,
-      model: model ?? modelName,
-      apiKey: apiKey,
-      systemPrompt: systemPrompt,
-      userPrompt: userPrompt,
-      stream: true,
+    final client = oa.OpenAIClient(
+      config: oa.OpenAIConfig(
+        authProvider: oa.ApiKeyProvider(apiKey),
+        baseUrl: provider == ModelAPIProvider.gemini 
+            ? 'https://generativelanguage.googleapis.com/v1beta/openai/'
+            : 'https://api.openai.com/v1',
+      ),
     );
 
-    final stream = await streamGenAIRequest(request);
+    final stream = client.chat.completions.createStream(
+      oa.ChatCompletionCreateRequest(
+        model: model ?? modelName,
+        messages: messages.map((m) {
+          switch (m.role) {
+            case AgentRole.system:
+              return oa.ChatMessage.system(m.content.toString());
+            case AgentRole.user:
+              return oa.ChatMessage.user(m.content);
+            case AgentRole.assistant:
+              return oa.ChatMessage.assistant(
+                content: m.content?.toString(),
+                toolCalls: m.toolCalls?.map((tc) => oa.ToolCall(
+                  id: tc.id,
+                  type: 'function',
+                  function: oa.FunctionCall(name: tc.name, arguments: jsonEncode(tc.arguments)),
+                )).toList(),
+              );
+            case AgentRole.tool:
+              return oa.ChatMessage.tool(
+                toolCallId: m.toolResult?.toolCallId ?? '',
+                content: m.toolResult?.content ?? '',
+              );
+          }
+        }).toList(),
+      ),
+    );
 
-    await for (final chunk in stream) {
-      yield LLMChunk(
-        text: chunk.toString(),
-        toolCalls: [],
-      );
+    await for (final event in stream) {
+      final choice = event.choices?.firstOrNull;
+      if (choice == null) continue;
+      
+      final text = choice.delta.content;
+      final reasoning = choice.delta.reasoningContent;
+
+      if ((text != null && text.isNotEmpty) || (reasoning != null && reasoning.isNotEmpty)) {
+        yield LLMChunk(
+          text: text,
+          reasoning: reasoning,
+          toolCalls: [],
+        );
+      }
     }
   }
 }

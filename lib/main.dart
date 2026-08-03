@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 import 'package:ai_flutter_agent/ai_flutter_agent.dart';
+import 'package:bloret_launcher/core/logger.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/memory.dart';
+import 'package:bloret_launcher/services/notice_manager.dart';
+import 'package:bloret_launcher/services/update_manager.dart';
 import 'package:bloret_launcher/shell/main_shell.dart';
 import 'package:bloret_launcher/tools/server_info.dart';
 import 'package:bloret_launcher/widgets/button.dart';
@@ -21,15 +25,23 @@ BloretServer? server;
 
 const name = "Blora";
 
+late final AppLogger logger;
+
+late final UpdateManager updateManager;
+
+final NoticeManager noticeManager = NoticeManager.instance;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ConfigService.init();
+  logger = await AppLogger.getInstance();
   Win32IconService.init();
   ErrorWidget.builder = (FlutterErrorDetails details) {
     return const SizedBox.shrink();
   };
   Bloriko.getInstance();
   await MemoryStore.instance.loadOnInit();
+  updateManager = await UpdateManager.instance.init();
   runApp(const BloraLauncherApp());
 }
 
@@ -134,7 +146,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         children: [
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.only(left: 36, top: 24, bottom: 24, right: 24),
+              padding: EdgeInsets.only(left: Platform.isAndroid ? 24 : 36, top: 24, bottom: 24, right: 24),
               children: [
                 SlideFadeIn(
                   controller: _listController,
@@ -519,8 +531,8 @@ class _BottomActionRail extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("1.20.1-Forge-47.2.0", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      Text("以身份 Bloret 启动 Minecraft", style: theme.textTheme.bodySmall),
+                      const Text("26.2", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text("以身份 ${jsonDecode(ConfigService.get("MinecraftAccountList")[ConfigService.get("MinecraftAccount_Chosen") ?? 0])["username"] ?? "None"} 启动 Minecraft", style: theme.textTheme.bodySmall),
                     ],
                   ),
                   const Spacer(),

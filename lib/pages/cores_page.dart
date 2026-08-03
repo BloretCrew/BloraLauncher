@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 class CoresPage extends StatefulWidget {
@@ -27,8 +29,8 @@ class _CoresPageState extends State<CoresPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: ListView(
-        padding: const EdgeInsets.only(
-          left: 32,
+        padding: EdgeInsets.only(
+          left: Platform.isAndroid ? 16 : 32,
           right: 16,
           top: 16,
           bottom: 16,

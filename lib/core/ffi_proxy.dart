@@ -9,6 +9,8 @@ typedef _SetProgress_Dart = void Function(int completed, int total);
 typedef _SetState_Native = Void Function(Int32 state);
 typedef _SetState_Dart = void Function(int state);
 
+final terminateProcess = _executable.lookupFunction<Void Function(), void Function()>("c_terminate_process");
+
 final setClipboardImage =
 _executable.lookupFunction<
     Bool Function(

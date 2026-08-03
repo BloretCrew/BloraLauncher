@@ -9,11 +9,15 @@ import 'package:bloret_launcher/services/system_prompt.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:http/io_client.dart';
+import 'package:openai_dart/openai_dart.dart' as oa;
 import 'package:openai_dart/openai_dart.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:genai/genai.dart';
+import '../core/llm_interface.dart' as llm;
+import 'llm/genai_adapter.dart';
 import 'memory.dart';
 import 'shizuku_service.dart';
 
@@ -55,6 +59,28 @@ class BlorikoLLMClient implements LLMClient {
 
     chatMessages.add(ChatMessage.user(prompt));
     Bloriko.instance._updateConnectionStatus(BlorikoConnectionStatus.handshake);
+
+    final provider = ConfigService.get("ai_provider") ?? "bloret_passport";
+
+    if (provider == 'google_ai_studio') {
+      l.log("Calling GenAIAdapter (Google AI Studio) - Tool calling disabled", level: LogLevel.info, source: LogSource.network);
+      final adapter = GenAIAdapter(
+        provider: ModelAPIProvider.gemini,
+        apiKey: ConfigService.get("google_ai_key") ?? "",
+        modelName: ConfigService.get("ai_model") ?? 'gemini-1.5-pro',
+      );
+
+      final stream = adapter.chat(
+        messages: Bloriko.instance._convertToAgentMessages(chatMessages),
+        tools: [], // 不传递任何工具
+      );
+
+      // 仅消耗流内容，不进行任何工具解析
+      await for (final _ in stream) {}
+      Bloriko.instance._updateConnectionStatus(BlorikoConnectionStatus.finished);
+
+      return []; // 明确返回空动作列表
+    }
 
     l.log("Calling OpenAI chat.completions.create", level: LogLevel.info, source: LogSource.network, detail: "Model: ${ConfigService.get("ai_model") ?? 'default'}");
     final startTime = DateTime.now();
@@ -747,34 +773,45 @@ class Bloriko extends ChangeNotifier {
           chatMsgs.add(ChatMessage.system("你已经尝试搜索了 6 次。如果仍未找到，请如实告知用户搜不到。"));
         }
 
-        l.log("OpenAI Stream API Call Initiated", level: LogLevel.info, source: LogSource.network, detail: "Iteration: $iterations");
+        final provider = ConfigService.get("ai_provider") ?? "bloret_passport";
+        String genAiContent = "";
+        String genAiReasoning = "";
+
+        l.log("Stream API Call Initiated", level: LogLevel.info, source: LogSource.network, detail: "Iteration: $iterations, Provider: $provider");
         final apiStartTime = DateTime.now();
         _updateConnectionStatus(BlorikoConnectionStatus.connecting);
 
         try {
           if (_isCancelled || _currentRequestId != currentRequestId) break;
-          final stream = client.chat.completions.createStream(
-            ChatCompletionCreateRequest(
-              model: ConfigService.get("ai_model") ?? 'default',
-              messages: chatMsgs,
-              tools: availableTools,
-              toolChoice: ToolChoice.auto(),
-              reasoningEffort: ReasoningEffort.low,
-            ),
-          );
+          
+          final Stream stream;
+          if (provider == 'google_ai_studio') {
+            final adapter = GenAIAdapter(
+              provider: ModelAPIProvider.gemini,
+              apiKey: ConfigService.get("google_ai_key") ?? "",
+              modelName: ConfigService.get("ai_model") ?? 'gemini-1.5-pro',
+            );
+            stream = adapter.chat(
+              messages: _convertToAgentMessages(chatMsgs),
+              tools: _convertToAgentTools(availableTools, workingDir),
+            );
+          } else {
+            stream = client.chat.completions.createStream(
+              ChatCompletionCreateRequest(
+                model: ConfigService.get("ai_model") ?? 'default',
+                messages: chatMsgs,
+                tools: availableTools,
+                toolChoice: ToolChoice.auto(),
+                reasoningEffort: ReasoningEffort.low,
+              ),
+            );
+          }
 
           l.log("Stream Connection Established", level: LogLevel.debug, source: LogSource.network);
           _updateConnectionStatus(BlorikoConnectionStatus.handshake);
 
           bool firstChunk = true;
           await for (final chunk in stream) {
-            debugPrint("DEBUG [Raw Stream Chunk]: ${chunk.toString()}");
-            if (chunk.choices?.isNotEmpty ?? false) {
-              final message = chunk.choices!.first.delta;
-              debugPrint("DEBUG [Delta Content]: ${message.content}");
-              debugPrint("DEBUG [Tool Calls]: ${message.toolCalls?.length}");
-            }
-
             if (_isCancelled || _currentRequestId != currentRequestId) break;
             if (firstChunk) {
               final duration = DateTime.now().difference(apiStartTime).inMilliseconds;
@@ -782,12 +819,21 @@ class Bloriko extends ChangeNotifier {
               firstChunk = false;
               _updateConnectionStatus(BlorikoConnectionStatus.streaming);
             }
-            accumulator.add(chunk);
-            final text = chunk.textDelta;
-            if (text != null && text.isNotEmpty) {
-              final fullContent = accumulator.content.replaceAll("[DONE]", "");
-              _internalUpdateLastAssistantMessage(fullContent);
-              onTextChunk(fullContent);
+
+            if (chunk is ChatStreamEvent) {
+              accumulator.add(chunk);
+              final text = chunk.textDelta;
+              if (text != null && text.isNotEmpty) {
+                final fullContent = accumulator.content.replaceAll("[DONE]", "");
+                _internalUpdateLastAssistantMessage(fullContent);
+                onTextChunk(fullContent);
+              }
+            } else if (chunk is llm.LLMChunk) {
+              if (chunk.text != null) {
+                genAiContent += chunk.text!;
+                _internalUpdateLastAssistantMessage(genAiContent);
+                onTextChunk(genAiContent);
+              }
             }
           }
           if (_isCancelled || _currentRequestId != currentRequestId) {
@@ -809,8 +855,13 @@ class Bloriko extends ChangeNotifier {
 
         if (_isCancelled || _currentRequestId != currentRequestId) break;
 
-        final accumulatedContent = accumulator.content.replaceAll("[DONE]", "").trim();
-        final toolCalls = accumulator.toolCalls;
+        final accumulatedContent = (provider == 'google_ai_studio') 
+            ? genAiContent.trim()
+            : accumulator.content.replaceAll("[DONE]", "").trim();
+            
+        final List<oa.ToolCall> toolCalls = (provider == 'google_ai_studio')
+            ? []
+            : accumulator.toolCalls;
 
         if (accumulatedContent.isEmpty && toolCalls.isEmpty) {
           _internalAddMessage({'role': 'error', 'title': "空回复", 'content': "AI 返回内容为空，请检查 API 状态。"});
@@ -846,8 +897,12 @@ class Bloriko extends ChangeNotifier {
             if (messages.isNotEmpty && messages.last['role'] == 'assistant') {
               messages.last['tool_calls'] = toolCalls.map((t) => t.toJson()).toList();
 
-              if (accumulator.reasoning.isNotEmpty) {
-                messages.last['reasoning_content'] = accumulator.reasoning;
+              final finalReasoning = (provider == 'google_ai_studio') 
+                  ? genAiReasoning 
+                  : accumulator.reasoning;
+                  
+              if (finalReasoning.isNotEmpty) {
+                messages.last['reasoning_content'] = finalReasoning;
               }
             }
 
@@ -866,7 +921,8 @@ class Bloriko extends ChangeNotifier {
           }
           continue;
         } else {
-          final xmlTool = _parseXmlToolCall(accumulatedContent);
+          // Google AI Studio 模式下跳过 XML 工具解析，仅限其他供应商
+          final xmlTool = (provider == 'google_ai_studio') ? null : _parseXmlToolCall(accumulatedContent);
           if (xmlTool != null) {
             final name = xmlTool['name'];
             final args = xmlTool['args'] as Map<String, dynamic>;
@@ -1505,6 +1561,71 @@ class Bloriko extends ChangeNotifier {
         "error": e.toString(),
       });
     }
+  }
+
+  List<llm.AgentMessage> _convertToAgentMessages(List<ChatMessage> messages) {
+    return messages.map((m) {
+      llm.AgentRole role;
+      if (m is SystemMessage) {
+        role = llm.AgentRole.system;
+      } else if (m is UserMessage) {
+        role = llm.AgentRole.user;
+      } else if (m is AssistantMessage) {
+        role = llm.AgentRole.assistant;
+      } else if (m is ToolMessage) {
+        role = llm.AgentRole.tool;
+      } else {
+        final rawRole = (m as dynamic).toJson()['role'];
+        role = switch (rawRole) {
+          'system' => llm.AgentRole.system,
+          'user' => llm.AgentRole.user,
+          'assistant' => llm.AgentRole.assistant,
+          'tool' => llm.AgentRole.tool,
+          _ => llm.AgentRole.assistant,
+        };
+      }
+
+      dynamic content;
+      if (m is SystemMessage) {
+        content = m.content;
+      }
+      if (m is UserMessage) {
+         final text = m.text;
+         if (text != null) {
+           content = text;
+         } else {
+           content = m.parts?.map((p) => p.toString()).join("\n");
+         }
+      }
+      if (m is AssistantMessage) {
+        content = m.content;
+      }
+      if (m is ToolMessage) {
+        content = m.content;
+      }
+      if (m is MapMessage) {
+        content = m.json['content'];
+      }
+
+      return llm.AgentMessage(
+        role: role,
+        content: content?.toString() ?? "",
+        toolCalls: m is AssistantMessage ? m.toolCalls?.map((tc) => llm.ToolCall(
+          id: tc.id,
+          name: tc.function.name,
+          arguments: jsonDecode(tc.function.arguments),
+        )).toList() : null,
+      );
+    }).toList();
+  }
+
+  List<llm.AgentTool> _convertToAgentTools(List<Tool> tools, String workingDir) {
+    return tools.map((t) => llm.AgentTool(
+      name: t.function.name,
+      description: t.function.description ?? "",
+      parameters: t.function.parameters ?? {},
+      execute: (args) => _executeTool(t.function.name, jsonEncode(args), workingDir),
+    )).toList();
   }
 
   Future<List<SearchResult>> searchBing(

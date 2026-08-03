@@ -9,11 +9,16 @@
 #include "flutter/generated_plugin_registrant.h"
 #include <flutter/encodable_value.h>
 #include <flutter/standard_message_codec.h>
+#include <dwmapi.h>
+
+#pragma comment(lib, "dwmapi.lib")
 
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAYICON 1001
 
 static FlutterWindow* g_flutter_window = nullptr;
+
+bool g_isDark = false;
 
 extern "C" __declspec(dllexport) void SetTaskbarProgress(uint64_t completed, uint64_t total) {
   if (g_flutter_window) g_flutter_window->SetTaskbarProgress(completed, total);
@@ -27,7 +32,38 @@ extern "C" __declspec(dllexport) void SetTrayTheme(bool is_dark) {
   if (g_flutter_window) SetWindowTheme(g_flutter_window->GetHandle(), is_dark ? L"DarkMode_Explorer" : L"Explorer", NULL);
 }
 
+typedef enum {
+    BDefault = 0,
+    AllowDark = 1,
+    ForceDark = 2,
+    ForceLight = 3
+} PreferredAppMode;
+
+
+void SetWinMenuTheme(bool dark)
+{
+  HMODULE hUxTheme = LoadLibraryW(L"uxtheme.dll");
+
+  if (!hUxTheme)
+    return;
+
+  using SetPreferredAppModeFunc = PreferredAppMode(WINAPI*)(PreferredAppMode);
+
+  auto func = (SetPreferredAppModeFunc)GetProcAddress(
+          hUxTheme,
+          MAKEINTRESOURCEA(135)
+  );
+
+  if (func)
+  {
+    func(dark ? ForceDark : ForceLight);
+  }
+
+  FreeLibrary(hUxTheme);
+}
+
 extern "C" __declspec(dllexport) void ShowTrayMenu(bool is_dark) {
+  SetWinMenuTheme(is_dark);
   HMENU hMenu = CreatePopupMenu();
   AppendMenu(hMenu, MF_STRING, 1, L"访问 BBBS");
   AppendMenu(hMenu, MF_STRING, 2, L"访问 Bloret Passport");
@@ -42,13 +78,124 @@ extern "C" __declspec(dllexport) void ShowTrayMenu(bool is_dark) {
 
   POINT pt;
   GetCursorPos(&pt);
-  SetForegroundWindow(g_flutter_window->GetHandle());
+  HWND hwnd = g_flutter_window->GetHandle();
+  SetForegroundWindow(hwnd);
   TrackPopupMenu(hMenu, TPM_RIGHTALIGN | TPM_BOTTOMALIGN, pt.x, pt.y, 0, g_flutter_window->GetHandle(), NULL);
   DestroyMenu(hMenu);
 }
 
-extern "C" __declspec(dllexport) void DestroyApp() { PostQuitMessage(0); }
+extern "C" __declspec(dllexport) void c_terminate_process() {
+  TerminateProcess(GetCurrentProcess(), 0);
+}
+
+extern "C" __declspec(dllexport) void DestroyApp() { c_terminate_process(); }
 extern "C" __declspec(dllexport) void HideApp() { if (g_flutter_window) g_flutter_window->Hide(); }
+
+extern "C" __declspec(dllexport)
+void SetDarkMode(HWND hwnd, bool dark)
+{
+  BOOL value = dark ? TRUE : FALSE;
+
+  g_isDark = dark;
+
+  DwmSetWindowAttribute(
+          hwnd,
+          DWMWA_USE_IMMERSIVE_DARK_MODE,
+          &value,
+          sizeof(value)
+  );
+
+  SetWinMenuTheme(
+          dark
+  );
+}
+
+extern "C" __declspec(dllexport)
+void SetIconTheme(bool dark)
+{
+  HWND hwnd = FindWindowW(
+          L"FLUTTER_RUNNER_WIN32_WINDOW",
+          nullptr
+  );
+
+  if (!hwnd)
+    return;
+
+  SetDarkMode(hwnd, dark);
+
+  wchar_t exePath[MAX_PATH];
+  GetModuleFileNameW(
+          nullptr,
+          exePath,
+          MAX_PATH
+  );
+
+  std::wstring path(exePath);
+
+  auto pos = path.find_last_of(L"\\/");
+  if (pos != std::wstring::npos)
+  {
+    path = path.substr(0, pos + 1);
+  }
+
+  path += L"data\\flutter_assets\\assets\\";
+
+  path += dark
+          ? L"bloret_dark.ico"
+          : L"bloret_light.ico";
+
+  HICON hIcon = (HICON)LoadImageW(
+          nullptr,
+          path.c_str(),
+          IMAGE_ICON,
+          0,
+          0,
+          LR_LOADFROMFILE | LR_DEFAULTSIZE
+  );
+
+
+  if (!hIcon)
+    return;
+
+
+  SendMessageW(
+          hwnd,
+          WM_SETICON,
+          ICON_BIG,
+          (LPARAM)hIcon
+  );
+
+  SendMessageW(
+          hwnd,
+          WM_SETICON,
+          ICON_SMALL,
+          (LPARAM)hIcon
+  );
+
+  SetWindowPos(
+          hwnd,
+          nullptr,
+          0,0,0,0,
+          SWP_NOMOVE |
+          SWP_NOSIZE |
+          SWP_NOZORDER |
+          SWP_FRAMECHANGED
+  );
+
+  NOTIFYICONDATA nid = {};
+  nid.cbSize = sizeof(NOTIFYICONDATA);
+
+  nid.hWnd = g_flutter_window->GetHandle();
+  nid.uID = ID_TRAYICON;
+  nid.uFlags = NIF_ICON;
+
+  nid.hIcon = hIcon;
+
+  Shell_NotifyIcon(
+          NIM_MODIFY,
+          &nid
+  );
+}
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project) : project_(project) {
   g_flutter_window = this;
@@ -69,7 +216,7 @@ void FlutterWindow::SetupTrayIcon() {
   nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
   nid.uCallbackMessage = WM_TRAYICON;
   nid.hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_APP_ICON));
-  wcscpy_s(nid.szTip, L"Bloret Launcher");
+  wcscpy_s(nid.szTip, L"Blora Launcher");
   Shell_NotifyIcon(NIM_ADD, &nid);
 }
 
@@ -152,14 +299,14 @@ LRESULT FlutterWindow::MessageHandler(HWND hwnd, UINT const message, WPARAM cons
         case 4:
           if (::IsWindowVisible(hwnd)) Hide(); else Show();
           break;
-        case 5: PostQuitMessage(0); break;
+        case 5: c_terminate_process(); break;
       }
       break;
     case WM_TRAYICON:
       if (lparam == WM_LBUTTONUP) {
         if (::IsWindowVisible(hwnd)) Hide(); else Show();
       } else if (lparam == WM_RBUTTONUP) {
-        ShowTrayMenu(false);
+        ShowTrayMenu(g_isDark);
       }
       break;
     case WM_CLOSE: {

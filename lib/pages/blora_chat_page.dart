@@ -16,6 +16,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pasteboard/pasteboard.dart';
 
+import '../main.dart';
 import '../services/config_service.dart';
 
 class BloraChatPage extends StatefulWidget {
@@ -515,9 +516,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
           final exportFile = File(outputFile);
           await exportFile.writeAsString(content);
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(_tr("导出成功"))),
-            );
+            noticeManager.show(context, message: _tr("导出成功"), icon: Icons.check_circle);
           }
         }
       }
@@ -575,10 +574,10 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       if (outputFile != null) {
         final file = File(outputFile);
         await file.writeAsBytes(response.data);
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_tr("图片已保存"))));
+        if (mounted) noticeManager.show(context, message: _tr("图片已保存"), icon: Icons.image);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_tr("下载失败: $e"))));
+      if (mounted) noticeManager.show(context, message: _tr("下载失败: $e"), icon: Icons.error);
     }
   }
 
@@ -650,9 +649,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
           final bytes = await file.length();
           if (bytes > 3 * 1024 * 1024) {
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text("${_tr("文件")} ${p.basename(file.path)} ${_tr("超过 3MB，无法添加")}"))
-              );
+              noticeManager.show(context, message: "${_tr("文件")} ${p.basename(file.path)} ${_tr("超过 3MB，无法添加")}", icon: Icons.warning);
             }
             continue;
           }
@@ -691,9 +688,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
           final bytes = await file.length();
           if (bytes > 3 * 1024 * 1024) {
              if (mounted) {
-               ScaffoldMessenger.of(context).showSnackBar(
-                   SnackBar(content: Text("${_tr("文件")} ${p.basename(file.path)} ${_tr("超过 3MB，无法添加")}"))
-               );
+               noticeManager.show(context, message: "${_tr("文件")} ${p.basename(file.path)} ${_tr("超过 3MB，无法添加")}", icon: Icons.warning);
              }
              continue;
           }
@@ -715,7 +710,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
           compBytes = Uint8List.fromList(comp);
           if (imageBytes.length > 3 * 1024 * 1024) {
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_tr("图片超过 3MB，无法添加"))));
+              noticeManager.show(context, message: _tr("图片超过 3MB，无法添加"), icon: Icons.warning);
             }
             return;
           }
@@ -1078,9 +1073,34 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                         ListenableBuilder(
                           listenable: _agent,
                           builder: (context, child) {
+                            final provider = ConfigService.get('ai_provider');
+                            final isGoogle = provider == 'google_ai_studio';
+
                             if (_agent.connectionStatus == BlorikoConnectionStatus.idle || _agent.connectionStatus == BlorikoConnectionStatus.finished) {
+                              if (isGoogle) {
+                                return Tooltip(
+                                  message: _tr("Google AI Studio 模式暂不支持执行工具/自动化任务"),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: Colors.orange.withValues(alpha: 0.2)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.warning_amber_rounded, size: 12, color: Colors.orange),
+                                        const SizedBox(width: 4),
+                                        Text(_tr("纯文本模式"), style: const TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }
                               return const SizedBox.shrink();
                             }
+
                             String statusText = "";
                             Color statusColor = accentColor;
                             switch (_agent.connectionStatus) {
@@ -2153,7 +2173,12 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                                                     child: Builder(
                                                       builder: (context) {
                                                         final agentName = Bloriko.type == "bloriko" ? _tr("络可") : _tr("Blora Agent");
-                                                        String hint = _tr("向 $agentName 说些什么...");
+                                                        final provider = ConfigService.get('ai_provider');
+                                                        final isGoogle = provider == 'google_ai_studio';
+
+                                                        String hint = isGoogle
+                                                          ? _tr("向 $agentName 说些什么 (纯文本模式)...")
+                                                          : _tr("向 $agentName 说些什么...");
 
                                                         return TextField(
                                                           controller: _inputController,

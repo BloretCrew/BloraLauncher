@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:flutter/material.dart';
@@ -22,7 +24,7 @@ class AboutPageState extends State<AboutPage> {
 
     return Scaffold(
       body: Padding(
-        padding: const EdgeInsets.only(left: 36, right: 24, top: 24, bottom: 24),
+        padding: EdgeInsets.only(left: Platform.isAndroid ? 24 : 36, right: 24, top: 24, bottom: 24),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,

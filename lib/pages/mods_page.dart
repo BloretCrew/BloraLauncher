@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:flutter/material.dart';
@@ -67,7 +69,7 @@ class _ModsPageState extends State<ModsPage> {
 
     return Scaffold(
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(32, 16, 16, 16),
+        padding: EdgeInsets.fromLTRB(Platform.isAndroid ? 16 : 32, 16, 16, 16),
         children: [
           const Text(
             "Mod",

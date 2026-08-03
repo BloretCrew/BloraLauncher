@@ -4,6 +4,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.content.pm.PackageManager
+import android.content.ComponentName
 import android.util.Log
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -37,6 +38,13 @@ class MainActivity : FlutterActivity() {
                         result.error("INVALID_ARGUMENT", "Command is null", null)
                     }
                 }
+                "changeIcon" -> {
+                    val isNight = call.argument<Boolean>("isNight") ?: false
+
+                    changeNightIcon(isNight)
+
+                    result.success(true)
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -44,6 +52,49 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    fun changeNightIcon(isNight: Boolean) {
+        val pm = packageManager
+
+        val darkIcon = ComponentName(
+            this,
+            "com.xxyxxdmc.bloret_launcher.DarkIcon"
+        )
+
+        val lightIcon = ComponentName(
+            this,
+            "com.xxyxxdmc.bloret_launcher.LightIcon"
+        )
+
+        when (isNight) {
+            true -> {
+                pm.setComponentEnabledSetting(
+                    darkIcon,
+                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    PackageManager.DONT_KILL_APP
+                )
+
+                pm.setComponentEnabledSetting(
+                    lightIcon,
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP
+                )
+            }
+
+            false -> {
+                pm.setComponentEnabledSetting(
+                    lightIcon,
+                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    PackageManager.DONT_KILL_APP
+                )
+
+                pm.setComponentEnabledSetting(
+                    darkIcon,
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP
+                )
+            }
+        }
+    }
     private suspend fun runShizukuShell(command: String): String = withContext(Dispatchers.IO) {
         val result = StringBuilder()
         try {
