@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:bloret_launcher/main.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/update_manager.dart';
@@ -166,7 +167,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildSettingItem("Minecraft 文件夹位置", "C:/Users/Administrator/AppData/Roaming/.minecraft", Icons.folder),
         ],
         if (_currentCategory == "control") ...[
-          _buildSettingItem(
+          if (Platform.isWindows) _buildSettingItem(
             "检查更新", 
             "检查并安装热更新补丁 (当前: $_hotfixVersion)", 
             Icons.update, 

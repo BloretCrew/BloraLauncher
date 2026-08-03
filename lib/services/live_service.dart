@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:bloret_launcher/services/config_service.dart';
+import 'package:dio/dio.dart' as dio;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -16,7 +17,7 @@ class LiveService {
     
     return {
       'Content-Type': 'application/json',
-      if (cookies.isNotEmpty) 'cookie': cookies.join('; '),
+      if (cookies.isNotEmpty) 'Cookie': cookies.join('; '),
     };
   }
 
@@ -158,6 +159,32 @@ class LiveService {
       if (!controller.isClosed) controller.close();
       debugPrint("[LiveService] SSE 资源已回收/连接关闭");
     }
+  }
+
+  static Future<Map<String, dynamic>?> uploadImage(Uint8List bytes, String filename) async {
+    try {
+      final dioClient = dio.Dio();
+      final headers = _getHeaders();
+      // Dio 会自动处理 Content-Type: multipart/form-data
+      headers.remove('Content-Type');
+      
+      final formData = dio.FormData.fromMap({
+        'image': dio.MultipartFile.fromBytes(bytes, filename: filename),
+      });
+
+      final response = await dioClient.post(
+        'https://bbs.bloret.net/api/upload-proxy',
+        data: formData,
+        options: dio.Options(headers: headers),
+      );
+
+      if (response.statusCode == 200) {
+        return response.data;
+      }
+    } catch (e) {
+      debugPrint("[LiveService] uploadImage error: $e");
+    }
+    return null;
   }
 
   // EasyTier Actions

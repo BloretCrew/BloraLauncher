@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
+import 'package:pasteboard/pasteboard.dart';
 import '../core/i18n.dart';
 import '../services/bbbs.dart';
 import '../services/live_service.dart';
@@ -278,6 +280,47 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       "payload": {"msg": text}
     });
     _chatController.clear();
+    setState(() {}); // 强制刷新以更新发送按钮状态
+  }
+
+  Future<void> _pickImage() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+    if (result != null && result.files.single.bytes != null) {
+      _uploadAndSendImage(result.files.single.bytes!, result.files.single.name);
+    }
+  }
+
+  Future<void> _handlePaste() async {
+    final image = await Pasteboard.image;
+    if (image != null) {
+      _uploadAndSendImage(image, "pasted_image.png");
+    }
+  }
+
+  Future<void> _uploadAndSendImage(Uint8List bytes, String filename) async {
+    final res = await LiveService.uploadImage(bytes, filename);
+    if (res != null && res['success'] == true) {
+      final url = "https://img.bloret.net${res['data']['url']}";
+      final markdown = "![image]($url)";
+      
+      final message = {
+        "from": ConfigService.get("Bloret_PassPort_UserName"),
+        "payload": {"msg": markdown},
+        "time": DateTime.now().millisecondsSinceEpoch
+      };
+      
+      setState(() {
+        _chatMessages = List.from(_chatMessages)..add(message);
+      });
+      _scrollToBottom();
+      
+      LiveService.sendSignal(_currentSpace['id'], {
+        "type": "chat",
+        "payload": {"msg": markdown}
+      });
+    } else {
+      if (mounted) noticeManager.show(context, message: "图片上传失败".tl, icon: Icons.error);
+    }
   }
 
   void _sendState() {
@@ -381,9 +424,11 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
     final borderColor = theme.dividerColor.withValues(alpha: 0.1);
 
     return Scaffold(
-      body: Stack(
-        children: [
-          CustomScrollView(
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Stack(
+          children: [
+            CustomScrollView(
             slivers: [
               _buildHeader(textColor, secondaryColor),
               if (!_isAuthenticated) _buildLoginWarning(cardColor, borderColor, textColor, secondaryColor),
@@ -400,7 +445,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
             ),
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildVideoGrid() {
@@ -411,7 +456,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           crossAxisCount: 2,
           mainAxisSpacing: 10,
           crossAxisSpacing: 10,
-          childAspectRatio: 4 / 3,
+          childAspectRatio: 16 / 9,
         ),
         delegate: SliverChildListDelegate([
           _buildVideoCard(
@@ -444,6 +489,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
     final isMuted = _mutedUsers.contains(name);
 
     final bool showStream = (renderer?.srcObject != null) && (video || screen);
+    const shadows = [Shadow(color: Colors.black45, offset: Offset(0, 1), blurRadius: 4)];
 
     return TweenAnimationBuilder<double>(
       key: ValueKey('video-anim-$name'),
@@ -462,10 +508,14 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       },
       child: InkWell(
         onTap: () {
+          // 移除焦点，防止返回时自动聚焦
+          FocusScope.of(context).unfocus();
           Navigator.of(context).push(MaterialPageRoute(
             builder: (context) => FullScreenVideoPage(
               renderer: renderer,
               title: name,
+              spaceId: _currentSpace['id']?.toString(),
+              initialMessages: List.from(_chatMessages),
             ),
           ));
         },
@@ -486,8 +536,8 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                   mirror: isLocal && _videoEnabled && !_screenEnabled,
                   objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                 )
-                    : const Center(
-                  child: Icon(Icons.person, size: 48, color: Colors.white54),
+                    : Center(
+                  child: Icon(Icons.person, size: 48, color: Colors.white54, shadows: shadows),
                 ),
               ),
               Positioned(
@@ -498,6 +548,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                     isMuted ? Icons.volume_off : Icons.volume_up,
                     color: isMuted ? Colors.red : Colors.white70,
                     size: 20,
+                    shadows: shadows,
                   ),
                   onPressed: () {
                     setState(() {
@@ -529,12 +580,12 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
-                      child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 10)),
+                      child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 10, shadows: shadows)),
                     ),
                     const Spacer(),
-                    if (audio) Icon(isMuted ? Icons.mic_off : Icons.mic, color: isMuted ? Colors.red : Colors.white, size: 12),
-                    if (video) const Icon(Icons.videocam, color: Colors.white, size: 12),
-                    if (screen) const Icon(Icons.screen_share, color: Colors.white, size: 12),
+                    if (audio) Icon(isMuted ? Icons.mic_off : Icons.mic, color: isMuted ? Colors.red : Colors.white, size: 12, shadows: shadows),
+                    if (video) Icon(Icons.videocam, color: Colors.white, size: 12, shadows: shadows),
+                    if (screen) Icon(Icons.screen_share, color: Colors.white, size: 12, shadows: shadows),
                   ],
                 ),
               )
@@ -546,31 +597,40 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   }
 
   Widget _buildHeader(Color textColor, Color secondaryColor) {
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    final displayTitle = _inSpace ? (_currentSpace['name'] ?? "Live") : "Live";
+
     return SliverPadding(
       padding: const EdgeInsets.all(24),
       sliver: SliverToBoxAdapter(
         child: Row(
           children: [
-            Text("Live", style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: textColor)),
-            const SizedBox(width: 10),
-            Text("实时空间".tl, style: TextStyle(fontSize: 14, color: secondaryColor)),
-            const SizedBox(width: 10),
-            _buildBadge("Bloret BBS", Colors.green),
-            const Spacer(),
+            if (isPortrait)
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(displayTitle, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: textColor), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Row(
+                      children: [
+                        Text(_inSpace ? "正在通话".tl : "实时空间".tl, style: TextStyle(fontSize: 14, color: secondaryColor)),
+                        const SizedBox(width: 8),
+                        _buildBadge("Bloret BBS", Colors.green),
+                      ],
+                    ),
+                  ],
+                ),
+              )
+            else ...[
+              Text(displayTitle, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: textColor)),
+              const SizedBox(width: 10),
+              Text(_inSpace ? "正在通话".tl : "实时空间".tl, style: TextStyle(fontSize: 14, color: secondaryColor)),
+              const SizedBox(width: 10),
+              _buildBadge("Bloret BBS", Colors.green),
+              const Spacer(),
+            ],
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
-              transitionBuilder: (Widget child, Animation<double> animation) {
-                return FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0.1, 0),
-                      end: Offset.zero,
-                    ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
-                    child: child,
-                  ),
-                );
-              },
               child: _buildHeaderActions(),
             ),
           ],
@@ -581,70 +641,79 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
 
   Widget _buildHeaderActions() {
     if (!_isAuthenticated) return const SizedBox.shrink(key: ValueKey("none"));
+    const shadows = [Shadow(color: Colors.black12, offset: Offset(0, 1), blurRadius: 4)];
 
     if (_inSpace) {
       return Row(
         key: const ValueKey("in_space"),
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            icon: Icon(_audioEnabled ? Icons.mic : Icons.mic_off),
-            onPressed: () {
-              setState(() {
-                _audioEnabled = !_audioEnabled;
-                _rtcManager?.toggleAudio(_audioEnabled);
-                _sendState();
-              });
-            },
-          ),
-          IconButton(
-            icon: Icon(_videoEnabled ? Icons.videocam : Icons.videocam_off),
-            color: _videoEnabled ? Colors.green : null,
-            onPressed: () async {
-              setState(() {
-                _videoEnabled = !_videoEnabled;
-                if (_videoEnabled) _screenEnabled = false;
-              });
-              
-              if (_videoEnabled) {
-                await _rtcManager?.toggleScreen(false);
-              }
-              _rtcManager?.toggleVideo(_videoEnabled);
-
-              setState(() {
-                _localRenderer.srcObject = _rtcManager?.localStream;
-              });
-              
-              _sendState();
-            },
-          ),
-          IconButton(
-            icon: Icon(_screenEnabled ? Icons.desktop_windows : Icons.desktop_access_disabled),
-            color: _screenEnabled ? Colors.green : null,
-            onPressed: () async {
-              setState(() {
-                _screenEnabled = !_screenEnabled;
-                if (_screenEnabled) _videoEnabled = false;
-              });
-
-              if (_screenEnabled) {
-                _rtcManager?.toggleVideo(false);
-              }
-              await _rtcManager?.toggleScreen(_screenEnabled);
-
-              if (mounted) {
+          PopupMenuButton<String>(
+            icon: Icon(Icons.settings_input_component, shadows: shadows),
+            tooltip: "媒体控制".tl,
+            offset: const Offset(0, 40),
+            onSelected: (value) async {
+              if (value == 'audio') {
                 setState(() {
-                  _screenEnabled = _rtcManager?.localScreenStream != null;
-                  _localRenderer.srcObject = _screenEnabled 
-                      ? _rtcManager?.localScreenStream 
-                      : _rtcManager?.localStream;
+                  _audioEnabled = !_audioEnabled;
+                  _rtcManager?.toggleAudio(_audioEnabled);
+                  _sendState();
                 });
+              } else if (value == 'video') {
+                setState(() {
+                  _videoEnabled = !_videoEnabled;
+                  if (_videoEnabled) _screenEnabled = false;
+                });
+                if (_videoEnabled) await _rtcManager?.toggleScreen(false);
+                _rtcManager?.toggleVideo(_videoEnabled);
+                setState(() => _localRenderer.srcObject = _rtcManager?.localStream);
+                _sendState();
+              } else if (value == 'screen') {
+                setState(() {
+                  _screenEnabled = !_screenEnabled;
+                  if (_screenEnabled) _videoEnabled = false;
+                });
+                if (_screenEnabled) _rtcManager?.toggleVideo(false);
+                await _rtcManager?.toggleScreen(_screenEnabled);
+                if (mounted) {
+                  setState(() {
+                    _screenEnabled = _rtcManager?.localScreenStream != null;
+                    _localRenderer.srcObject = _screenEnabled ? _rtcManager?.localScreenStream : _rtcManager?.localStream;
+                  });
+                }
+                _sendState();
               }
-              _sendState();
             },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'audio',
+                child: ListTile(
+                  leading: Icon(_audioEnabled ? Icons.mic : Icons.mic_off, color: _audioEnabled ? Colors.green : null),
+                  title: Text("麦克风".tl),
+                  dense: true,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'video',
+                child: ListTile(
+                  leading: Icon(_videoEnabled ? Icons.videocam : Icons.videocam_off, color: _videoEnabled ? Colors.green : null),
+                  title: Text("摄像头".tl),
+                  dense: true,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'screen',
+                child: ListTile(
+                  leading: Icon(_screenEnabled ? Icons.desktop_windows : Icons.desktop_access_disabled, color: _screenEnabled ? Colors.green : null),
+                  title: Text("屏幕共享".tl),
+                  dense: true,
+                ),
+              ),
+            ],
           ),
+          const SizedBox(width: 8),
           TextButton.icon(
-            icon: const Icon(Icons.exit_to_app),
+            icon: const Icon(Icons.exit_to_app, shadows: shadows),
             label: Text("离开".tl),
             onPressed: () async {
               LiveService.sendSignal(_currentSpace['id'], {
@@ -677,7 +746,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
         key: const ValueKey("list"),
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _checkAuthAndFetch),
+          IconButton(icon: const Icon(Icons.refresh, shadows: shadows), onPressed: _checkAuthAndFetch),
           if (_spaceList.isNotEmpty) ...[
             const SizedBox(width: 8),
             BloretButton(
@@ -1119,7 +1188,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                     duration: const Duration(milliseconds: 200),
                     curve: Curves.easeInOut,
                     constraints: const BoxConstraints(maxHeight: 120),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
                       borderRadius: BorderRadius.circular(12),
@@ -1130,9 +1199,14 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                     ),
                     child: Focus(
                       onKeyEvent: (node, event) {
-                        if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-                          final isShift = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftRight);
-                          if (!isShift) { _sendMessage(); return KeyEventResult.handled; }
+                        if (event is KeyDownEvent) {
+                          if (event.logicalKey == LogicalKeyboardKey.enter) {
+                            final isShift = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftRight);
+                            if (!isShift) { _sendMessage(); return KeyEventResult.handled; }
+                          } else if (event.logicalKey == LogicalKeyboardKey.keyV) {
+                            final isCtrl = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlRight) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.metaLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.metaRight);
+                            if (isCtrl) { _handlePaste(); return KeyEventResult.handled; }
+                          }
                         }
                         return KeyEventResult.ignored;
                       },
@@ -1140,11 +1214,17 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                         controller: _chatController,
                         maxLines: null,
                         keyboardType: TextInputType.multiline,
+                        textAlignVertical: TextAlignVertical.center,
                         decoration: InputDecoration(
                           hintText: "输入消息...".tl,
                           border: InputBorder.none,
                           isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.image_outlined, size: 20),
+                            onPressed: _pickImage,
+                            tooltip: "发送图片".tl,
+                          ),
                         ),
                         onChanged: (_) => setState(() {}),
                         onSubmitted: (_) => _sendMessage(),
@@ -1157,7 +1237,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 const SizedBox(width: 10),
                 IconButton.filled(
                   padding: const EdgeInsets.all(12),
-                  icon: const Icon(Icons.send, size: 20),
+                  icon: const Icon(Icons.send, size: 20, shadows: [Shadow(color: Colors.black26, offset: Offset(0, 1), blurRadius: 4)]),
                   onPressed: _sendMessage,
                 ),
               ],
