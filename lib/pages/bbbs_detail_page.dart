@@ -24,6 +24,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
   bool _isLoading = false;
   
   final TextEditingController _commentController = TextEditingController();
+  final ScrollController _scrollController = ScrollController(); // 新增
   final FocusNode _focusNode = FocusNode();
   bool _isFocused = false;
   
@@ -48,6 +49,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
   @override
   void dispose() {
     _commentController.dispose();
+    _scrollController.dispose(); // 释放
     _focusNode.dispose();
     super.dispose();
   }
@@ -109,7 +111,8 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
         _isSubmitting = false;
       });
       noticeManager.show(context, message: "评论成功".tl, icon: Icons.check_circle);
-      _refreshPost(); // 提交后刷新列表
+      await _refreshPost(); // 提交后刷新列表
+      _scrollToBottom(); // 平滑滚动到底部
     } else {
       setState(() => _isSubmitting = false);
       noticeManager.show(context, message: "${"评论失败".tl}: ${res['message']}", icon: Icons.error);
@@ -183,6 +186,18 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     }
   }
 
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -208,6 +223,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
             child: RefreshIndicator(
               onRefresh: _refreshPost,
               child: SingleChildScrollView(
+                controller: _scrollController, // 绑定控制器
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 child: Column(
@@ -416,7 +432,25 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _currentPost.comments.length,
       separatorBuilder: (context, index) => Divider(height: 32, color: borderColor.withValues(alpha: 0.05)),
-      itemBuilder: (context, index) => _buildCommentItem(_currentPost.comments[index], textColor, secondaryColor, cardColor, borderColor),
+      itemBuilder: (context, index) {
+        final comment = _currentPost.comments[index];
+        return TweenAnimationBuilder<double>(
+          key: ValueKey(comment.id),
+          duration: const Duration(milliseconds: 400),
+          tween: Tween(begin: 0.0, end: 1.0),
+          curve: Curves.easeOutCubic,
+          builder: (context, value, child) {
+            return Opacity(
+              opacity: value,
+              child: Transform.translate(
+                offset: Offset(0, 20 * (1 - value)),
+                child: child,
+              ),
+            );
+          },
+          child: _buildCommentItem(comment, textColor, secondaryColor, cardColor, borderColor),
+        );
+      },
     );
   }
 

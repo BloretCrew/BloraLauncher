@@ -8,6 +8,8 @@ FluentWindow {
     id: window
     visible: true
     title: (Backend ? Backend.tr("Bloret Launcher") : "Bloret Launcher")
+    // macOS 原生标题区依赖 TitleBar / NavigationBar leading 显示应用名；
+    // 保持 title 始终为有效字符串，避免系统栏与自定义栏同时空白。
     width: 1000
     height: 700
     minimumWidth: 800
@@ -299,12 +301,18 @@ FluentWindow {
                     if (isLoggedIn && passPortAvatar) {
                         list[i].title = passPortName
                         list[i].source = passPortAvatar
-                        list[i].radius = 10
+                        list[i].size = 22
+                        list[i].circular = true  // 圆形头像（Icon.circular + NavigationItem）
+                        list[i].radius = 11
+                        list[i].cropToFit = true
                         list[i].icon = ""
                     } else {
                         list[i].title = (Backend ? Backend.tr("通行证") : "通行证")
                         list[i].source = ""
+                        list[i].size = undefined
+                        list[i].circular = false
                         list[i].radius = 0
+                        list[i].cropToFit = true
                         list[i].icon = "ic_fluent_person_20_regular"
                     }
                     break
@@ -319,7 +327,12 @@ FluentWindow {
     Connections {
         target: Backend
         function onMinecraftAccountsChanged(accounts) {
-            // 账户信息变化时更新导航
+            // 账户信息变化时更新导航并异步刷新头像缓存
+            updatePassPortNavigation()
+            Backend.refreshPassPortAvatarAsync()
+        }
+
+        function onPassportAvatarChanged(url) {
             updatePassPortNavigation()
         }
 
@@ -341,27 +354,17 @@ FluentWindow {
             launchProgressDialog.close()
         }
 
-        function onDownloadDialogRequested(title) {
-            downloadDialog.resetDialog()
-            downloadDialog.downloadTitle = title
-            downloadDialog.downloadStatus = Backend ? Backend.tr("准备下载...") : "准备下载..."
+        // 多任务下载面板自己通过 Timer + signals 管理刷新
+        function onDownloadTaskAdded(taskId) {
+            // DownloadDialog 内部的 Connections 已经处理了
+        }
+
+        function onDownloadTaskRemoved(taskId) {
+            // DownloadDialog 内部的 Connections 已经处理了
+        }
+
+        function onDownloadManagerOpenRequested() {
             downloadDialog.open()
-        }
-
-        function onDownloadProgressUpdated(progress, status, speed, downloaded, total) {
-            downloadDialog.updateProgress(progress, status, speed, downloaded, total)
-        }
-
-        function onDownloadDialogClosed() {
-            downloadDialog.close()
-        }
-
-        function onDownloadCompleted(message) {
-            downloadDialog.setCompleted(message)
-        }
-
-        function onDownloadPaused(paused) {
-            downloadDialog.setPaused(paused)
         }
 
         function onDownloadErrorOccurred(title, message, version, versionName, loaderType) {
@@ -411,14 +414,9 @@ FluentWindow {
 
     DownloadDialog {
         id: downloadDialog
-
-        onPauseClicked: {
-            if (Backend) Backend.toggleDownloadPause()
-        }
-
-        onCancelClicked: {
-            if (Backend) Backend.cancelDownload()
-        }
+        // 挂到窗口 Overlay，避免随页面销毁；非模态 + 无遮罩以便下载时切页
+        parent: Overlay.overlay
+        anchors.centerIn: Overlay.overlay
     }
 
     Dialog {
@@ -433,17 +431,24 @@ FluentWindow {
         title: errorTitle
         modal: true
         width: Math.min(520, window.width - 80)
+        implicitHeight: Math.max(200, errorContent.implicitHeight + 96)
         standardButtons: Dialog.NoButton
+        closePolicy: Popup.CloseOnEscape
 
         ColumnLayout {
+            id: errorContent
             Layout.fillWidth: true
             spacing: 16
 
             Text {
                 text: downloadErrorDialog.errorMessage
                 Layout.fillWidth: true
+                Layout.maximumWidth: downloadErrorDialog.availableWidth
+                    ? downloadErrorDialog.availableWidth - 8
+                    : 480
                 wrapMode: Text.Wrap
                 typography: Typography.Body
+                color: Theme.currentTheme.colors.textColor
             }
 
             RowLayout {
@@ -463,7 +468,11 @@ FluentWindow {
                     onClicked: {
                         downloadErrorDialog.close()
                         if (Backend) {
-                            Backend.retryDownload(downloadErrorDialog.loaderType, downloadErrorDialog.version, downloadErrorDialog.versionName)
+                            Backend.retryDownload(
+                                downloadErrorDialog.loaderType,
+                                downloadErrorDialog.version,
+                                downloadErrorDialog.versionName
+                            )
                         }
                     }
                 }
@@ -564,6 +573,7 @@ FluentWindow {
         rebuildNavigation()
         applyPluginTheme()
         updatePassPortNavigation()
+        Backend.refreshPassPortAvatarAsync()
 
         // 初始化背景效果
         if (Backend) {

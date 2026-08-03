@@ -15,6 +15,7 @@ class FullScreenVideoPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Focus(
+        autofocus: true,
         onKeyEvent: (node, event) {
           if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
             Navigator.pop(context);

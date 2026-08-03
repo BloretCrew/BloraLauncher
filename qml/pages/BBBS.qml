@@ -47,6 +47,11 @@ FluentPage {
     content: ColumnLayout {
         spacing: 18
 
+        PluginPanelHost {
+            area: "bbbs"
+            Layout.fillWidth: true
+        }
+
         // 页面标题
         RowLayout {
             Layout.fillWidth: true
@@ -78,9 +83,10 @@ FluentPage {
                 visible: isAuthenticated
                 onClicked: {
                     isLoading = true
-                    Backend.fetchBBBSSummary()
-                    Backend.fetchBBBSLeaderboard()
-                    Backend.fetchBBBSAllPosts()
+                    // forceRefresh=true：绕过 TTL 缓存
+                    Backend.fetchBBBSSummary(true)
+                    Backend.fetchBBBSLeaderboard(true)
+                    Backend.fetchBBBSAllPosts(true)
                 }
             }
         }

@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 2.15
 import RinUI
+import "../components"
 
 FluentPage {
     id: modsPage
@@ -126,6 +127,11 @@ FluentPage {
             Layout.fillWidth: true
             visible: false
             timeout: 4000
+        }
+
+        PluginPanelHost {
+            area: "mods"
+            Layout.fillWidth: true
         }
 
         // --- Header ---
@@ -404,6 +410,7 @@ FluentPage {
         property string text: ""
         property var slugs: []
         width: Math.min(parent.width * 0.9, 650)
+        implicitHeight: 500
         modal: true
 
         ColumnLayout {
@@ -494,6 +501,7 @@ FluentPage {
             ? (Backend ? Backend.tr("Blora Agent 正在挑选 Mod…") : "Blora Agent 正在挑选 Mod…")
             : (Backend ? Backend.tr("选择 Minecraft 版本") : "选择 Minecraft 版本")
         width: versionSelectDialog.loading ? Math.min(modsPage.width * 0.92, 640) : 400
+        implicitHeight: 400
         modal: true
         closePolicy: Popup.NoAutoClose
 
@@ -648,6 +656,7 @@ FluentPage {
         title: (Backend ? Backend.tr("选择安装版本") : "选择安装版本")
         standardButtons: Dialog.Ok | Dialog.Cancel
         width: 350
+        implicitHeight: 280
         modal: true
 
         property string modId: ""
@@ -682,6 +691,7 @@ FluentPage {
         title: (Backend ? Backend.tr("选择保存位置") : "选择保存位置")
         standardButtons: Dialog.Ok | Dialog.Cancel
         width: 400
+        implicitHeight: 320
         modal: true
 
         property string modId: ""

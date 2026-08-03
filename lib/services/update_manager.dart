@@ -12,7 +12,7 @@ import 'package:path/path.dart' as p;
 import '../tools/isolate.dart';
 import 'config_service.dart';
 
-const currentVersion = "0.0.4";
+const currentVersion = "0.0.5";
 
 class UpdateInfo {
   final String version;
@@ -216,7 +216,6 @@ class UpdateManager {
         await file.writeAsBytes(bytes);
       }
       
-      await _saveLocalVersion(update.version);
       if (context?.mounted == true) noticeManager.show(context, message: "热更新补丁 ${update.version} 已应用，重启生效", icon: Icons.check_circle);
       return true;
     } catch (e) {
@@ -230,18 +229,6 @@ class UpdateManager {
   }
 
   Future<String> getLocalVersion() async {
-    try {
-      final supportDir = await getSupportData();
-      final file = File(p.join(supportDir.path, 'data', 'version.txt'));
-      if (await file.exists()) return await file.readAsString();
-    } catch (_) {}
     return currentVersion;
-  }
-
-  Future<void> _saveLocalVersion(String version) async {
-    final supportDir = await getSupportData();
-    final file = File(p.join(supportDir.path, 'data', 'version.txt'));
-    await file.parent.create(recursive: true);
-    await file.writeAsString(version);
   }
 }

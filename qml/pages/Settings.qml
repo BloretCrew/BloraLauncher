@@ -22,6 +22,7 @@ FluentPage {
     property var languages: []
     property bool traySupported: true
     property string localIPAddress: ""
+    property bool sshCheckRunning: false
 
     Component.onCompleted: {
         console.log("[Settings] page loaded, showing category hub")
@@ -41,6 +42,22 @@ FluentPage {
         function onLanguageChanged() {
             refreshTranslations()
             updatePageTitle()
+        }
+        function onJavaRuntimesReady(runtimes) {
+            javaRuntimes = runtimes
+            currentJavaPath = Backend.getCurrentJavaPath()
+            refreshJavaComboSelection()
+        }
+        function onGitSshCheckFinished(available, message) {
+            if (typeof sshStatusIndicator !== "undefined" && sshStatusIndicator !== null)
+                sshStatusIndicator.color = available ? "#10b981" : "#ef4444"
+            if (typeof sshStatusLabel !== "undefined" && sshStatusLabel !== null) {
+                sshStatusLabel.text = available
+                    ? "SSH " + _gitSshAvailable
+                    : "SSH " + _gitSshUnavailable + (message ? " — " + message : "")
+                sshStatusLabel.color = available ? "#10b981" : "#ef4444"
+            }
+            sshCheckRunning = false
         }
     }
 
@@ -225,6 +242,7 @@ FluentPage {
         switch (id) {
         case "minecraft": return _mcJavaSection
         case "home": return _homeSection
+        case "system": return _systemSection
         case "webremoter": return _webRemoterSection
         case "gamepad": return _gamepadSection
         case "notification": return _notificationSection
@@ -260,8 +278,21 @@ FluentPage {
         _mcToolbarDesc = Backend ? Backend.tr("当游玩 Minecraft 时，在 Minecraft 窗口上方显示快捷小工具栏") : "当游玩 Minecraft 时，在 Minecraft 窗口上方显示快捷小工具栏"
         _sourceTitle = Backend ? Backend.tr("下载源") : "下载源"
         _sourceDesc = Backend ? Backend.tr("选择下载来源：BMCLAPI（优先镜像，失败回退官方）、Bloret (以非常规方式快速下载，只支持部分版本) 或 Mojang 官方直连") : "选择下载来源：BMCLAPI（优先镜像，失败回退官方）、Bloret (以非常规方式快速下载，只支持部分版本) 或 Mojang 官方直连"
+        _gitProtocolTitle = Backend ? Backend.tr("Git 连接方式") : "Git 连接方式"
+        _gitProtocolDesc = Backend ? Backend.tr("选择 Git 传输协议：HTTPS（默认，兼容性好）或 SSH（适合频繁操作，需端口 22 可达）") : "选择 Git 传输协议：HTTPS（默认，兼容性好）或 SSH（适合频繁操作，需端口 22 可达）"
+        _gitSshTestBtn = Backend ? Backend.tr("检测 SSH 可用性") : "检测 SSH 可用性"
+        _gitSshAvailable = Backend ? Backend.tr("SSH 连接 GitHub 正常 ✓") : "SSH 连接 GitHub 正常 ✓"
+        _gitSshUnavailable = Backend ? Backend.tr("SSH 连接不可用，请检查 SSH 配置") : "SSH 连接不可用，请检查 SSH 配置"
         _homeSection = Backend ? Backend.tr("首页") : "首页"
         _homeHubDesc = Backend ? Backend.tr("账户展示、托盘与多开") : "账户展示、托盘与多开"
+        _systemSection = Backend ? Backend.tr("系统") : "系统"
+        _systemHubDesc = Backend ? Backend.tr("关闭与重启程序") : "关闭与重启程序"
+        _shutdownTitle = Backend ? Backend.tr("关闭程序") : "关闭程序"
+        _shutdownDesc = Backend ? Backend.tr("完全退出 Bloret Launcher") : "完全退出 Bloret Launcher"
+        _restartTitle = Backend ? Backend.tr("重启程序") : "重启程序"
+        _restartDesc = Backend ? Backend.tr("关闭并重新启动 Bloret Launcher") : "关闭并重新启动 Bloret Launcher"
+        _shutdownBtn = Backend ? Backend.tr("关闭") : "关闭"
+        _restartBtn = Backend ? Backend.tr("重启") : "重启"
         _showAccountTitle = Backend ? Backend.tr("显示账户信息") : "显示账户信息"
         _showAccountDesc = Backend ? Backend.tr("在首页启动卡片上显示 Bloret PassPort 和 Minecraft 账户信息") : "在首页启动卡片上显示 Bloret PassPort 和 Minecraft 账户信息"
         _showAccountModeCompact = Backend ? Backend.tr("简略展示") : "简略展示"
@@ -319,7 +350,7 @@ FluentPage {
         _notifInstall = Backend ? Backend.tr("安装完成及失败") : "安装完成及失败"
         _notifUpdate = Backend ? Backend.tr("应用更新") : "应用更新"
         _notifChatMessage = Backend ? Backend.tr("Minecraft 聊天消息") : "Minecraft 聊天消息"
-        _notifCopilot = Backend ? Backend.tr("Copilot Agent") : "Copilot Agent"
+        _notifCopilot = Backend ? Backend.tr("Blora Agent") : "Blora Agent"
         _notifBloriko = Backend ? Backend.tr("Blora Agent") : "Blora Agent"
         _notifAccount = Backend ? Backend.tr("账户登录 / 同步") : "账户登录 / 同步"
         _notifConfigBtn = Backend ? Backend.tr("配置通知...") : "配置通知..."
@@ -340,7 +371,7 @@ FluentPage {
         _blorikoSection = Backend ? Backend.tr("Blora Agent") : "Blora Agent"
         _blorikoHubDesc = Backend ? Backend.tr("AI 设置与消息连接器管理") : "AI 设置与消息连接器管理"
         _aiProvidersTitle = Backend ? Backend.tr("AI 供应商管理") : "AI 供应商管理"
-        _aiProvidersDesc = Backend ? Backend.tr("管理自定义 AI 供应商，添加后可在资源包编辑器 Copilot 中使用") : "管理自定义 AI 供应商，添加后可在资源包编辑器 Copilot 中使用"
+        _aiProvidersDesc = Backend ? Backend.tr("管理自定义 AI 供应商，添加后可在资源包编辑器 Blora Agent 中使用") : "管理自定义 AI 供应商，添加后可在资源包编辑器 Blora Agent 中使用"
         _addProviderBtn = Backend ? Backend.tr("添加供应商") : "添加供应商"
         _addProviderDialogTitle = Backend ? Backend.tr("添加 AI 供应商") : "添加 AI 供应商"
         _selectProviderLabel = Backend ? Backend.tr("选择 AI 供应商：") : "选择 AI 供应商："
@@ -398,8 +429,21 @@ FluentPage {
     property string _mcToolbarDesc: Backend ? Backend.tr("当游玩 Minecraft 时，在 Minecraft 窗口上方显示快捷小工具栏") : "当游玩 Minecraft 时，在 Minecraft 窗口上方显示快捷小工具栏"
     property string _sourceTitle: Backend ? Backend.tr("下载源") : "下载源"
     property string _sourceDesc: Backend ? Backend.tr("选择下载来源：Bloret (以非常规方式快速下载，只支持部分版本)、Mojang 官方直连 或 BMCLAPI（优先镜像，失败回退官方）") : "选择下载来源：Bloret (以非常规方式快速下载，只支持部分版本)、Mojang 官方直连 或 BMCLAPI（优先镜像，失败回退官方）"
+    property string _gitProtocolTitle: Backend ? Backend.tr("Git 连接方式") : "Git 连接方式"
+    property string _gitProtocolDesc: Backend ? Backend.tr("选择 Git 传输协议：HTTPS（默认，兼容性好）或 SSH（适合频繁操作，需端口 22 可达）") : "选择 Git 传输协议：HTTPS（默认，兼容性好）或 SSH（适合频繁操作，需端口 22 可达）"
+    property string _gitSshTestBtn: Backend ? Backend.tr("检测 SSH 可用性") : "检测 SSH 可用性"
+    property string _gitSshAvailable: Backend ? Backend.tr("SSH 连接 GitHub 正常 ✓") : "SSH 连接 GitHub 正常 ✓"
+    property string _gitSshUnavailable: Backend ? Backend.tr("SSH 连接不可用，请检查 SSH 配置") : "SSH 连接不可用，请检查 SSH 配置"
     property string _homeSection: Backend ? Backend.tr("首页") : "首页"
     property string _homeHubDesc: Backend ? Backend.tr("账户展示、托盘与多开") : "账户展示、托盘与多开"
+    property string _systemSection: Backend ? Backend.tr("系统") : "系统"
+    property string _systemHubDesc: Backend ? Backend.tr("关闭与重启程序") : "关闭与重启程序"
+    property string _shutdownTitle: Backend ? Backend.tr("关闭程序") : "关闭程序"
+    property string _shutdownDesc: Backend ? Backend.tr("完全退出 Bloret Launcher") : "完全退出 Bloret Launcher"
+    property string _restartTitle: Backend ? Backend.tr("重启程序") : "重启程序"
+    property string _restartDesc: Backend ? Backend.tr("关闭并重新启动 Bloret Launcher") : "关闭并重新启动 Bloret Launcher"
+    property string _shutdownBtn: Backend ? Backend.tr("关闭") : "关闭"
+    property string _restartBtn: Backend ? Backend.tr("重启") : "重启"
     property string _showAccountTitle: Backend ? Backend.tr("显示账户信息") : "显示账户信息"
     property string _showAccountDesc: Backend ? Backend.tr("在首页启动卡片上显示 Bloret PassPort 和 Minecraft 账户信息") : "在首页启动卡片上显示 Bloret PassPort 和 Minecraft 账户信息"
     property string _showAccountModeCompact: Backend ? Backend.tr("简略展示") : "简略展示"
@@ -457,7 +501,7 @@ FluentPage {
     property string _notifInstall: Backend ? Backend.tr("安装完成及失败") : "安装完成及失败"
     property string _notifUpdate: Backend ? Backend.tr("应用更新") : "应用更新"
     property string _notifChatMessage: Backend ? Backend.tr("Minecraft 聊天消息") : "Minecraft 聊天消息"
-    property string _notifCopilot: Backend ? Backend.tr("Copilot Agent") : "Copilot Agent"
+    property string _notifCopilot: Backend ? Backend.tr("Blora Agent") : "Blora Agent"
     property string _notifBloriko: Backend ? Backend.tr("Blora Agent") : "Blora Agent"
     property string _notifAccount: Backend ? Backend.tr("账户登录 / 同步") : "账户登录 / 同步"
     property string _notifConfigBtn: Backend ? Backend.tr("配置通知...") : "配置通知..."
@@ -504,7 +548,7 @@ FluentPage {
     property string _wechatQRProgress: Backend ? Backend.tr("二维码状态") : "二维码状态"
 
     property string _aiProvidersTitle: Backend ? Backend.tr("AI 供应商管理") : "AI 供应商管理"
-    property string _aiProvidersDesc: Backend ? Backend.tr("管理自定义 AI 供应商，添加后可在资源包编辑器 Copilot 中使用") : "管理自定义 AI 供应商，添加后可在资源包编辑器 Copilot 中使用"
+    property string _aiProvidersDesc: Backend ? Backend.tr("管理自定义 AI 供应商，添加后可在资源包编辑器 Blora Agent 中使用") : "管理自定义 AI 供应商，添加后可在资源包编辑器 Blora Agent 中使用"
     property string _addProviderBtn: Backend ? Backend.tr("添加供应商") : "添加供应商"
     property string _addProviderDialogTitle: Backend ? Backend.tr("添加 AI 供应商") : "添加 AI 供应商"
     property string _selectProviderLabel: Backend ? Backend.tr("选择 AI 供应商：") : "选择 AI 供应商："
@@ -590,6 +634,7 @@ FluentPage {
         var base = [
             { id: "minecraft", title: _mcJavaSection, desc: _mcJavaHubDesc, icon: "ic_fluent_cube_20_regular" },
             { id: "home", title: _homeSection, desc: _homeHubDesc, icon: "ic_fluent_home_20_regular" },
+            { id: "system", title: _systemSection, desc: _systemHubDesc, icon: "ic_fluent_power_20_regular" },
             { id: "webremoter", title: _webRemoterSection, desc: _webRemoterHubDesc, icon: "ic_fluent_phone_20_regular" },
             { id: "gamepad", title: _gamepadSection, desc: _gamepadHubDesc, icon: "ic_fluent_xbox_controller_20_regular" },
             { id: "notification", title: _notificationSection, desc: _notificationHubDesc, icon: "ic_fluent_alert_20_regular" },
@@ -840,6 +885,20 @@ FluentPage {
         }
     }
 
+    // ── Git SSH 可用性检测 ──
+    function checkSsh() {
+        if (!Backend) return
+        console.log("[Settings] checking SSH availability asynchronously...")
+        if (typeof sshStatusIndicator !== "undefined" && sshStatusIndicator !== null)
+            sshStatusIndicator.color = "#9E9E9E"
+        if (typeof sshStatusLabel !== "undefined" && sshStatusLabel !== null) {
+            sshStatusLabel.text = "SSH " + (Backend ? Backend.tr("检测中...") : "检测中...")
+            sshStatusLabel.color = "#9E9E9E"
+        }
+        sshCheckRunning = true
+        Backend.checkGitSshAvailableAsync()
+    }
+
     function connectorStatusText(status) {
         if (status === "connected") return _wechatConnected
         if (status === "connecting") return _wechatConnecting
@@ -891,9 +950,8 @@ FluentPage {
 
     function rescanJavas() {
         if (!Backend) return
-        console.log("[Settings] 重新扫描 Java")
-        javaRuntimes = Backend.getSystemJavas()
-        refreshJavaComboSelection()
+        console.log("[Settings] 后台重新扫描 Java")
+        Backend.scanSystemJavasAsync(true)
     }
 
     function refreshData() {
@@ -902,6 +960,7 @@ FluentPage {
         if (Backend) {
             currentMcDir = Backend.getMinecraftDir()
             javaRuntimes = Backend.getSystemJavas()
+            Backend.scanSystemJavasAsync(false)
             javaSelectionMode = Backend.getJavaSelectionMode()
             currentJavaPath = Backend.getCurrentJavaPath()
             javaModeCombo.currentIndex = javaSelectionMode === "fixed" ? 1 : 0
@@ -918,7 +977,8 @@ FluentPage {
                 }
             }
 
-            showAccountCombo.currentIndex = ["compact", "full", "hidden"].indexOf(Backend.getShowAccountOnHome())
+            var _showAccountIdx = ["compact", "full", "hidden"].indexOf(Backend.getShowAccountOnHome())
+            showAccountCombo.currentIndex = _showAccountIdx >= 0 ? _showAccountIdx : 0  // 默认 "简略展示"
             minimizeToTraySwitch.checked = Backend.getMinimizeToTrayOnClose()
             traySupported = Backend.isSystemTrayAvailable()
             repeatRunSwitch.checked = Backend.getRepeatRun()
@@ -1084,6 +1144,13 @@ FluentPage {
             spacing: 4
             visible: currentCategory === "minecraft"
 
+            // 进入分类时自动检测 SSH 状态
+            onVisibleChanged: {
+                if (visible && gitProtocolCombo && gitProtocolCombo.currentValue === "ssh") {
+                    settingsPage.checkSsh()
+                }
+            }
+
             SettingCard {
                 Layout.fillWidth: true
                 title: _javaTitle
@@ -1107,8 +1174,16 @@ FluentPage {
                             Layout.preferredWidth: 170
                             onActivated: {
                                 javaSelectionMode = currentIndex === 1 ? "fixed" : "auto"
-                                if (Backend && javaSelectionMode === "auto")
-                                    Backend.setJavaSelection("auto", "")
+                                if (Backend) {
+                                    if (javaSelectionMode === "auto") {
+                                        Backend.setJavaSelection("auto", "")
+                                    } else if (currentJavaPath) {
+                                        Backend.setJavaSelection("fixed", currentJavaPath)
+                                    } else {
+                                        // 切换到固定模式但还没选路径，先只保存模式
+                                        Backend.setJavaModeOnly("fixed")
+                                    }
+                                }
                             }
                         }
 
@@ -1125,9 +1200,10 @@ FluentPage {
                                 var selected = Backend.browseJavaExecutable()
                                 if (!selected) return
                                 currentJavaPath = selected
-                                rescanJavas()
-                                refreshJavaComboSelection()
-                                Backend.setJavaSelection("fixed", selected)
+                                if (Backend.setJavaSelection("fixed", selected)) {
+                                    refreshJavaComboSelection()
+                                    rescanJavas()
+                                }
                             }
                         }
                     }
@@ -1225,6 +1301,93 @@ FluentPage {
                     }
                 }
             }
+
+            SettingCard {
+                Layout.fillWidth: true
+                title: Backend ? Backend.tr("下载线程数") : "下载线程数"
+                description: Backend ? Backend.tr("同时下载库/资源的并发数。建议 8–32；过高可能触发限流。") : "同时下载库/资源的并发数。建议 8–32；过高可能触发限流。"
+                icon.name: "ic_fluent_arrow_download_20_regular"
+                SpinBox {
+                    id: maxThreadSpin
+                    from: 1
+                    to: 64
+                    value: Backend && Backend.getMaxThread ? Backend.getMaxThread() : 16
+                    editable: true
+                    onValueModified: {
+                        if (Backend && Backend.setMaxThread)
+                            Backend.setMaxThread(value)
+                    }
+                }
+            }
+
+            // ── Git 连接方式 ──
+            SettingCard {
+                Layout.fillWidth: true
+                title: _gitProtocolTitle
+                description: _gitProtocolDesc
+                icon.name: "ic_fluent_branch_20_regular"
+                ColumnLayout {
+                    spacing: 6
+                    Layout.preferredWidth: 400
+
+                    RowLayout {
+                        spacing: 8
+                        ComboBox {
+                            id: gitProtocolCombo
+                            Layout.fillWidth: true
+                            model: [
+                                { text: qsTr("HTTPS"), value: "https" },
+                                { text: qsTr("SSH"), value: "ssh" }
+                            ]
+                            textRole: "text"
+                            valueRole: "value"
+                            currentIndex: {
+                                if (!Backend) return 0
+                                var proto = Backend.getGitProtocol()
+                                for (var i = 0; i < gitProtocolCombo.model.length; i++) {
+                                    if (gitProtocolCombo.model[i].value === proto)
+                                        return i
+                                }
+                                return 0
+                            }
+                            onCurrentValueChanged: {
+                                if (!Backend) return
+                                Backend.setGitProtocol(currentValue)
+                                // 切换到 SSH 时自动检测
+                                if (currentValue === "ssh") {
+                                    settingsPage.checkSsh()
+                                }
+                            }
+                        }
+
+                        // SSH 状态指示
+                        Rectangle {
+                            id: sshStatusIndicator
+                            width: 10
+                            height: 10
+                            radius: 5
+                            visible: gitProtocolCombo.currentValue === "ssh"
+                            color: "#9E9E9E"  // 默认灰色（未检测）
+                        }
+
+                        Button {
+                            id: gitSshTestBtn
+                            text: _gitSshTestBtn
+                            enabled: gitProtocolCombo.currentValue === "ssh" && !settingsPage.sshCheckRunning
+                            onClicked: settingsPage.checkSsh()
+                        }
+                    }
+
+                    // SSH 状态提示文字
+                    Label {
+                        id: sshStatusLabel
+                        visible: gitProtocolCombo.currentValue === "ssh"
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+                }
+            }
         }
 
         // --- Home ---
@@ -1248,9 +1411,12 @@ FluentPage {
                     textRole: "text"
                     valueRole: "value"
                     Layout.preferredWidth: 150
-                    onActivated: {
-                        if (Backend)
-                            Backend.setShowAccountOnHome(currentValue)
+                    onActivated: function(index) {
+                        if (Backend) {
+                            Backend.setShowAccountOnHome(valueAt(index))
+                            // 强制同步显示，确保设置立即生效且不回落
+                            currentIndex = index
+                        }
                     }
                 }
             }
@@ -1282,6 +1448,117 @@ FluentPage {
                     onCheckedChanged: {
                         if (Backend)
                             Backend.setRepeatRun(checked)
+                    }
+                }
+            }
+        }
+
+        // --- System ---
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 4
+            visible: currentCategory === "system"
+
+            SettingCard {
+                Layout.fillWidth: true
+                title: _shutdownTitle
+                description: _shutdownDesc
+                icon.name: "ic_fluent_power_20_regular"
+                Button {
+                    text: _shutdownBtn
+                    highlighted: true
+                    onClicked: systemShutdownDialog.open()
+                }
+            }
+
+            SettingCard {
+                Layout.fillWidth: true
+                title: _restartTitle
+                description: _restartDesc
+                icon.name: "ic_fluent_arrow_sync_20_regular"
+                Button {
+                    text: _restartBtn
+                    highlighted: true
+                    onClicked: systemRestartDialog.open()
+                }
+            }
+        }
+
+        // ── System confirmation dialogs ──
+
+        Dialog {
+            id: systemShutdownDialog
+            title: _shutdownTitle
+            modal: true
+            anchors.centerIn: parent
+            width: 360
+            implicitHeight: 280
+            closePolicy: Popup.CloseOnEscape
+
+            ColumnLayout {
+                spacing: 16
+                Label {
+                    text: Backend ? Backend.tr("确定要关闭 Bloret Launcher 吗？") : "确定要关闭 Bloret Launcher 吗？"
+                    font.pixelSize: 14
+                    color: Theme.currentTheme.colors.textColor
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    Button {
+                        text: _cancelBtn
+                        flat: true
+                        onClicked: systemShutdownDialog.close()
+                    }
+                    Button {
+                        text: _shutdownBtn
+                        highlighted: true
+                        onClicked: {
+                            systemShutdownDialog.close()
+                            if (Backend)
+                                Backend.shutdownApp()
+                        }
+                    }
+                }
+            }
+        }
+
+        Dialog {
+            id: systemRestartDialog
+            title: _restartTitle
+            modal: true
+            anchors.centerIn: parent
+            width: 360
+            implicitHeight: 280
+            closePolicy: Popup.CloseOnEscape
+
+            ColumnLayout {
+                spacing: 16
+                Label {
+                    text: Backend ? Backend.tr("确定要重启 Bloret Launcher 吗？") : "确定要重启 Bloret Launcher 吗？"
+                    font.pixelSize: 14
+                    color: Theme.currentTheme.colors.textColor
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    Button {
+                        text: _cancelBtn
+                        flat: true
+                        onClicked: systemRestartDialog.close()
+                    }
+                    Button {
+                        text: _restartBtn
+                        highlighted: true
+                        onClicked: {
+                            systemRestartDialog.close()
+                            if (Backend)
+                                Backend.restartApp()
+                        }
                     }
                 }
             }
@@ -1483,6 +1760,8 @@ FluentPage {
                     }
                 }
             }
+
+            // 我想在这里加一个 帮助我们翻译 Bloret Launcher 的按钮，链接到 https://tr.bloret.net/app/o/bloret/p/bloret-launcher
 
             SettingCard {
                 Layout.fillWidth: true
@@ -1724,62 +2003,105 @@ FluentPage {
 
             Repeater {
                 model: pluginListModel
-                delegate: ColumnLayout {
+                // 整卡包含标题操作区 + 权限胶囊，避免胶囊跑到 SettingCard 外
+                delegate: Frame {
+                    id: pluginCard
                     Layout.fillWidth: true
-                    spacing: 0
+                    leftPadding: 18
+                    rightPadding: 18
+                    topPadding: 16
+                    bottomPadding: 16
+                    clip: true
 
-                    SettingCard {
-                        Layout.fillWidth: true
-                        title: model.name + (model.version ? ("  v" + model.version) : "")
-                        description: (model.author ? (model.author + " · ") : "")
-                            + (model.description || _pluginsNoDesc)
-                            + (model.error ? ("\n⚠ " + model.error) : "")
-                        icon.name: model.active ? "ic_fluent_checkmark_circle_20_regular" : "ic_fluent_puzzle_piece_20_regular"
+                    // 不用 anchors.fill，让 Frame 按 content 隐式高度撑开（与 SettingCard 同类）
+                    ColumnLayout {
+                        id: pluginCardBody
+                        width: parent.width
+                        spacing: 10
+
+                        // 与 SettingCard 一致的顶栏：图标 / 标题描述 / 操作
                         RowLayout {
-                            spacing: 4
-                            Switch {
-                                checked: model.enabled
-                                onToggled: {
-                                    if (typeof PluginHost === "undefined" || !PluginHost)
-                                        return
-                                    console.log("[Settings] toggle plugin", model.id, checked)
-                                    PluginHost.setPluginEnabled(model.id, checked)
-                                    loadPlugins()
+                            Layout.fillWidth: true
+                            spacing: 16
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.maximumWidth: parent.width * 0.62
+                                spacing: 18
+
+                                Icon {
+                                    size: 22
+                                    name: model.active
+                                           ? "ic_fluent_checkmark_circle_20_regular"
+                                           : "ic_fluent_puzzle_piece_20_regular"
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 0
+                                    Text {
+                                        Layout.fillWidth: true
+                                        typography: Typography.Body
+                                        text: model.name + (model.version ? ("  v" + model.version) : "")
+                                        maximumLineCount: 2
+                                        elide: Text.ElideRight
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        typography: Typography.Caption
+                                        text: (model.author ? (model.author + " · ") : "")
+                                              + (model.description || _pluginsNoDesc)
+                                              + (model.error ? ("\n⚠ " + model.error) : "")
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 3
+                                        elide: Text.ElideRight
+                                    }
                                 }
                             }
-                            Button {
-                                flat: true
-                                text: _openText
-                                onClicked: {
-                                    if (typeof PluginHost !== "undefined" && PluginHost)
-                                        PluginHost.openPluginFolder(model.id)
+
+                            RowLayout {
+                                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                spacing: 4
+                                Switch {
+                                    checked: model.enabled
+                                    onToggled: {
+                                        if (typeof PluginHost === "undefined" || !PluginHost)
+                                            return
+                                        console.log("[Settings] toggle plugin", model.id, checked)
+                                        PluginHost.setPluginEnabled(model.id, checked)
+                                        loadPlugins()
+                                    }
                                 }
-                            }
-                            Button {
-                                flat: true
-                                text: _pluginsUninstall
-                                onClicked: {
-                                    if (typeof PluginHost === "undefined" || !PluginHost)
-                                        return
-                                    console.log("[Settings] uninstall plugin", model.id)
-                                    PluginHost.uninstallPlugin(model.id)
-                                    loadPlugins()
+                                Button {
+                                    flat: true
+                                    text: _openText
+                                    onClicked: {
+                                        if (typeof PluginHost !== "undefined" && PluginHost)
+                                            PluginHost.openPluginFolder(model.id)
+                                    }
+                                }
+                                Button {
+                                    flat: true
+                                    text: _pluginsUninstall
+                                    onClicked: {
+                                        if (typeof PluginHost === "undefined" || !PluginHost)
+                                            return
+                                        console.log("[Settings] uninstall plugin", model.id)
+                                        PluginHost.uninstallPlugin(model.id)
+                                        loadPlugins()
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    // 权限胶囊：国际化标签 + 高/低风险配色
-                    PluginPermissionChips {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 48
-                        Layout.rightMargin: 12
-                        Layout.topMargin: 2
-                        Layout.bottomMargin: 10
-                        compact: true
-                        showTitle: true
-                        title: Backend ? Backend.tr("权限") : "权限"
-                        detailsJson: model.permissionDetailsJson || "[]"
+                        // 权限胶囊：限制在卡片宽度内换行
+                        PluginPermissionChips {
+                            Layout.fillWidth: true
+                            compact: true
+                            showTitle: true
+                            title: Backend ? Backend.tr("权限") : "权限"
+                            detailsJson: model.permissionDetailsJson || "[]"
+                        }
                     }
                 }
             }
@@ -2238,6 +2560,7 @@ FluentPage {
             title: (Backend ? Backend.tr("配置") : "配置") + " " + platformName
             anchors.centerIn: parent
             width: 400
+            implicitHeight: 350
             modal: true
             property string platformId: ""
             property string platformName: ""
@@ -2332,6 +2655,7 @@ FluentPage {
         title: _notifDialogTitle
         modal: true
         width: 520
+        implicitHeight: 500
         closePolicy: Popup.CloseOnEscape
 
         Flickable {
@@ -2457,6 +2781,7 @@ FluentPage {
         title: _addProviderDialogTitle
         modal: true
         width: 520
+        implicitHeight: 480
         closePolicy: Popup.CloseOnEscape
         // mode: "catalog" | "manual"
         property string mode: "catalog"
@@ -2807,6 +3132,7 @@ FluentPage {
         title: _editProviderTitle
         modal: true
         width: 520
+        implicitHeight: 480
         closePolicy: Popup.CloseOnEscape
         property string editKey: ""
 

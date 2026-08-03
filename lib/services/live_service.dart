@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:bloret_launcher/services/config_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 class LiveService {
@@ -76,47 +77,86 @@ class LiveService {
     }
   }
 
-  static Stream<Map<String, dynamic>> subscribeEvents(String spaceId) async* {
-    final request = http.Request('GET', Uri.parse('$_baseUrl/api/live/events/$spaceId'));
-    request.headers.addAll(_getHeaders());
-
+  static Stream<Map<String, dynamic>> subscribeEvents(String spaceId) {
     final client = http.Client();
+    final controller = StreamController<Map<String, dynamic>>();
+    
+    debugPrint("[LiveService] Starting SSE connection for space: $spaceId");
+    
+    _runSSE(client, controller, spaceId);
+    
+    return controller.stream;
+  }
+
+  static Future<void> _runSSE(http.Client client, StreamController<Map<String, dynamic>> controller, String spaceId) async {
+    bool isCancelled = false;
+    
+    controller.onCancel = () {
+      debugPrint("[LiveService] Stream cancelled by listener, closing SSE...");
+      isCancelled = true;
+      client.close();
+      if (!controller.isClosed) controller.close();
+    };
+
     try {
+      final request = http.Request('GET', Uri.parse('$_baseUrl/api/live/events/$spaceId'));
+      request.headers.addAll(_getHeaders());
+
       final response = await client.send(request);
-      if (response.statusCode != 200) return;
+      debugPrint("[LiveService] SSE response status: ${response.statusCode}");
+      
+      if (response.statusCode != 200) {
+        if (!controller.isClosed) controller.close();
+        client.close();
+        return;
+      }
 
       String buffer = "";
-      await for (var chunk in response.stream.transform(utf8.decoder)) {
-        buffer += chunk;
-        print("[LiveService] SSE chunk: $chunk");
-        while (buffer.contains('\n\n')) {
-          final parts = buffer.split('\n\n');
-          final eventString = parts.removeAt(0);
-          buffer = parts.join('\n\n');
+      String dataBuffer = "";
+      String? currentEventType;
 
-          Map<String, dynamic> payload = {};
-          String? eventType;
-          
-          for (var line in eventString.split('\n')) {
-            if (line.startsWith('event: ')) {
-              eventType = line.substring(7).trim();
-            } else if (line.startsWith('data: ')) {
-              final dataPart = line.substring(6).trim();
+      await for (var chunk in response.stream.transform(utf8.decoder)) {
+        if (isCancelled) break;
+        
+        buffer += chunk;
+        while (buffer.contains('\n')) {
+          int index = buffer.indexOf('\n');
+          String line = buffer.substring(0, index).trim();
+          buffer = buffer.substring(index + 1);
+
+          if (line.isEmpty) {
+            if (dataBuffer.isNotEmpty) {
               try {
-                payload = jsonDecode(dataPart);
+                final Map<String, dynamic> payload = jsonDecode(dataBuffer);
+                if (currentEventType != null) payload['type'] = currentEventType;
+                debugPrint("[LiveService] SSE Event Parsed: Type=$currentEventType, From=${payload['from'] ?? payload['user']}");
+                if (!controller.isClosed) controller.add(payload);
               } catch (e) {
-                print("[LiveService] JSON decode error: $e, Raw: $dataPart");
+                debugPrint("[LiveService] JSON解析失败: $e\n数据内容: $dataBuffer");
               }
+              dataBuffer = "";
+              currentEventType = null;
             }
+          } else if (line.startsWith('event: ')) {
+            currentEventType = line.substring(7).trim();
+          } else if (line.startsWith('data: ')) {
+            dataBuffer += line.substring(6);
+          } else if (line.startsWith(':')) {
+            // Heartbeat
+          } else {
+            if (dataBuffer.isNotEmpty) dataBuffer += line;
           }
-          if (eventType != null) payload['type'] = eventType;
-          yield payload;
         }
       }
     } catch (e) {
-      print("[LiveService] SSE error: $e");
+      if (!isCancelled) {
+        debugPrint("[LiveService] SSE 连接异常: $e");
+        if (!controller.isClosed) controller.addError(e);
+      }
     } finally {
       client.close();
+      if (!controller.isClosed) controller.close();
+      debugPrint("[LiveService] SSE 资源已回收/连接关闭");
     }
   }
 

@@ -239,6 +239,7 @@ FluentPage {
         modal: true
         title: t("输入密码")
         width: 360
+        implicitHeight: 280
 
         property string targetSpaceId: ""
 
@@ -292,6 +293,7 @@ FluentPage {
         modal: true
         title: t("创建 Live 空间")
         width: 360
+        implicitHeight: 280
 
         ColumnLayout {
             width: parent.width
@@ -332,6 +334,11 @@ FluentPage {
 
     content: ColumnLayout {
         spacing: 18
+
+        PluginPanelHost {
+            area: "live"
+            Layout.fillWidth: true
+        }
 
         RowLayout {
             Layout.fillWidth: true
@@ -422,7 +429,7 @@ FluentPage {
                     flat: true
                     onClicked: {
                         isLoading = true
-                        Backend.fetchLiveSpaceList()
+                        Backend.fetchLiveSpaceList(true)
                     }
                 }
 

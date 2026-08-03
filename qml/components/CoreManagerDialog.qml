@@ -5,11 +5,12 @@ import RinUI
 
 Dialog {
     id: coreManagerDialog
-    
+
     title: (Backend ? Backend.tr("核心管理") : "核心管理") + (versionName ? ": " + versionName : "")
     modal: true
     width: 650
     height: 550
+    implicitHeight: 550
     standardButtons: Dialog.Close
     
     property string versionName: ""
@@ -19,11 +20,38 @@ Dialog {
     property var mods: []
     property var resourcePacks: []
     property bool isOpening: false
+    property bool modsLoading: false
+    property bool resourcePacksLoading: false
+    property int modsRequestSerial: 0
+    property int resourcePacksRequestSerial: 0
+    property string activeModsRequestId: ""
+    property string activeResourcePacksRequestId: ""
+
+    Connections {
+        target: Backend
+        function onModsLoadFinished(requestId, loadedVersion, items, errorMessage) {
+            if (requestId !== activeModsRequestId || loadedVersion !== versionName) return
+            modsLoading = false
+            if (!errorMessage) mods = items
+            else console.error("[CoreManager] mods scan failed:", errorMessage)
+        }
+        function onResourcePacksLoadFinished(requestId, loadedVersion, items, errorMessage) {
+            if (requestId !== activeResourcePacksRequestId || loadedVersion !== versionName) return
+            resourcePacksLoading = false
+            if (!errorMessage) resourcePacks = items
+            else console.error("[CoreManager] resource pack scan failed:", errorMessage)
+        }
+    }
 
     ColumnLayout {
         width: parent.width
         height: parent.height
         spacing: 15
+
+        PluginPanelHost {
+            area: "cores"
+            Layout.fillWidth: true
+        }
         
         RowLayout {
             spacing: 5
@@ -649,6 +677,7 @@ Dialog {
         title: Backend ? Backend.tr("添加服务器") : "添加服务器"
         modal: true
         width: 350
+        implicitHeight: 320
         
         ColumnLayout {
             Layout.fillWidth: true
@@ -710,15 +739,21 @@ Dialog {
     }
     
     function loadMods() {
-        if (Backend) {
-            mods = Backend.getMods(versionName)
-        }
+        if (!Backend) return
+        modsRequestSerial++
+        activeModsRequestId = "mods:" + modsRequestSerial + ":" + versionName
+        modsLoading = true
+        if (!Backend.requestMods(versionName, activeModsRequestId))
+            modsLoading = false
     }
     
     function loadResourcePacks() {
-        if (Backend) {
-            resourcePacks = Backend.getResourcePacks(versionName)
-        }
+        if (!Backend) return
+        resourcePacksRequestSerial++
+        activeResourcePacksRequestId = "resourcepacks:" + resourcePacksRequestSerial + ":" + versionName
+        resourcePacksLoading = true
+        if (!Backend.requestResourcePacks(versionName, activeResourcePacksRequestId))
+            resourcePacksLoading = false
     }
     
     function openWithVersion(name) {

@@ -3,6 +3,7 @@ import QtQuick.Controls 2.15
 import QtQuick.Layouts 2.15
 import Qt5Compat.GraphicalEffects
 import RinUI
+import "../components"
 
 FluentPage {
     id: passportPage
@@ -16,6 +17,7 @@ FluentPage {
         // 延迟更新确保 Backend 完全初始化
         Qt.callLater(function() {
             updatePassportData()
+            if (Backend) Backend.refreshPassPortAvatarAsync()
         })
     }
 
@@ -33,6 +35,9 @@ FluentPage {
 
     Connections {
         target: Backend
+        function onPassportAvatarChanged(url) {
+            passportAvatar.source = url && url !== "" ? url : "../../icon/Grass_Block.png"
+        }
         function onMinecraftAccountsChanged(accounts) {
             if (Backend) {
                 try {
@@ -68,6 +73,11 @@ FluentPage {
             Layout.fillWidth: true
             visible: false
             timeout: 5000
+        }
+
+        PluginPanelHost {
+            area: "passport"
+            Layout.fillWidth: true
         }
 
         // --- Bloret PassPort Section ---

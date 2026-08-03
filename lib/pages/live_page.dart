@@ -4,6 +4,7 @@ import 'package:bloret_launcher/widgets/button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import '../core/i18n.dart';
 import '../services/bbbs.dart';
 import '../services/live_service.dart';
@@ -37,6 +38,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final Map<String, RTCVideoRenderer> _remoteRenderers = {};
   final Map<String, RTCPeerConnectionState> _peerStates = {};
+  final Set<String> _mutedUsers = {};
   bool _audioEnabled = false;
   bool _videoEnabled = false;
   bool _screenEnabled = false;
@@ -77,19 +79,32 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   }
 
   void _joinSpace(Map<String, dynamic> space, {String password = ""}) async {
+    final String? spaceId = (space['id'] ?? space['spaceId'])?.toString();
+    if (spaceId == null) {
+      if (mounted) {
+        noticeManager.show(context, message: "空间 ID 异常".tl, icon: Icons.error);
+        setState(() => _isLoading = false);
+      }
+      return;
+    }
+
     setState(() => _isLoading = true);
-    final res = await LiveService.verifyPassword(space['id'], password);
+    final res = await LiveService.verifyPassword(spaceId, password);
     if (res['success'] == true) {
       if (!mounted) return;
       setState(() {
         _inSpace = true;
-        _currentSpace = space;
+        _currentSpace = Map<String, dynamic>.from(space);
+        if (_currentSpace['id'] == null && _currentSpace['spaceId'] != null) {
+          _currentSpace['id'] = _currentSpace['spaceId'];
+        }
+
         _chatMessages = List.from(space['chatHistory'] ?? []);
         _onlineUsers = List.from(space['users'] ?? []);
         _easytierState = space['easytier'] ?? {};
       });
-      _initWebRTC(space['id']);
-      _startEventListener(space['id']);
+      _initWebRTC(spaceId);
+      _startEventListener(spaceId);
     } else {
       if (!mounted) return;
       noticeManager.show(context, message: res['message'] ?? "加入失败".tl, icon: Icons.error);
@@ -100,16 +115,24 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   void _initWebRTC(String spaceId) async {
     _rtcManager = WebRTCManager(
       spaceId: spaceId,
+      myUserId: ConfigService.get("Bloret_PassPort_UserName") ?? "",
       onAddRemoteStream: (userId, stream) async {
-        print("DEBUG [LivePage]: !!! Adding Remote Stream for $userId");
+        debugPrint("DEBUG [LivePage]: !!! Adding Remote Stream for $userId");
         final renderer = RTCVideoRenderer();
         await renderer.initialize();
         renderer.srcObject = stream;
+
+        if (_mutedUsers.contains(userId)) {
+          for (var track in stream.getAudioTracks()) {
+            track.enabled = false;
+          }
+        }
+
         final videoTracks = stream.getVideoTracks();
         if (videoTracks.isNotEmpty) {
-          print("DEBUG: Video track enabled: ${videoTracks.first.enabled}");
-          print("DEBUG: Video track muted: ${videoTracks.first.muted}");
-          print("DEBUG: Video track label: ${videoTracks.first.label}");
+          debugPrint("DEBUG: Video track enabled: ${videoTracks.first.enabled}");
+          debugPrint("DEBUG: Video track muted: ${videoTracks.first.muted}");
+          debugPrint("DEBUG: Video track label: ${videoTracks.first.label}");
         }
         setState(() {
           _remoteRenderers[userId] = renderer;
@@ -117,7 +140,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted) setState(() {});
         });
-        print("DEBUG: Renderer set. Is valid: ${renderer.textureId != null}");
+        debugPrint("DEBUG: Renderer set. Is valid: ${renderer.textureId != null}");
       },
       onRemoveRemoteStream: (userId) {
         setState(() {
@@ -127,7 +150,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
         });
       },
       onConnectionStateChanged: (userId, state) {
-        print("DEBUG [LivePage]: Connection State -> $state");
+        debugPrint("DEBUG [LivePage]: Connection State -> $state");
         setState(() => _peerStates[userId] = state);
       },
     );
@@ -190,13 +213,29 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           setState(() {
             _chatMessages = List.from(_chatMessages)..add(event);
           });
-          _scrollToBottom(animate: false);
+          _scrollToBottom();
         } else if (type == 'user-joined') {
-          _onlineUsers.add(event['user']);
+          if (event['user'] != null) {
+            _onlineUsers.add(event['user']);
+            _rtcManager?.handleSignal(event);
+          }
         } else if (type == 'user-left') {
-          _onlineUsers.removeWhere((u) => u['username'] == event['user']['username']);
-          _remoteRenderers[event['user']['username']]?.dispose();
-          _remoteRenderers.remove(event['user']['username']);
+          final leftUser = event['user'];
+          if (leftUser != null && leftUser['username'] != null) {
+            final username = leftUser['username'];
+            _onlineUsers.removeWhere((u) => u != null && u['username'] == username);
+            _remoteRenderers[username]?.dispose();
+            _remoteRenderers.remove(username);
+          }
+        } else if (type == 'state') {
+          final from = event['from'];
+          final payload = event['payload'];
+          if (from != null && payload != null) {
+            final userIdx = _onlineUsers.indexWhere((u) => u != null && u['username'] == from);
+            if (userIdx != -1) {
+              _onlineUsers[userIdx] = <String, dynamic>{..._onlineUsers[userIdx] as Map, ...payload as Map};
+            }
+          }
         } else if (type == 'easytier-status') {
           _easytierState = event['payload'] ?? {};
         }
@@ -232,7 +271,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
     setState(() {
       _chatMessages = List.from(_chatMessages)..add(message);
     });
-    _scrollToBottom(animate: false);
+    _scrollToBottom();
     
     LiveService.sendSignal(_currentSpace['id'], {
       "type": "chat",
@@ -244,9 +283,57 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   void _sendState() {
     LiveService.sendSignal(_currentSpace['id'], {
       "type": "state",
-      "payload": {"audio": _audioEnabled, "video": _videoEnabled}
+      "payload": {
+        "audio": _audioEnabled, 
+        "video": _videoEnabled,
+        "screen": _screenEnabled
+      }
     });
     _chatController.clear();
+  }
+
+  void _showImageDialog(BuildContext context, String imageUrl, String heroTag) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        barrierDismissible: true,
+        pageBuilder: (context, _, _) => Scaffold(
+          backgroundColor: Colors.black.withValues(alpha: 0.8),
+          body: Stack(
+            children: [
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Center(
+                  child: Hero(
+                    tag: heroTag,
+                    child: InteractiveViewer(
+                      minScale: 0.5,
+                      maxScale: 4.0,
+                      child: Image.network(
+                        imageUrl,
+                        errorBuilder: (c, e, s) => const Icon(Icons.broken_image, size: 64, color: Colors.white54),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              SafeArea(
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: IconButton(
+                      icon: const Icon(Icons.close_rounded, color: Colors.white, size: 32),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _showCreateSpaceDialog() {
@@ -317,8 +404,6 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   }
 
   Widget _buildVideoGrid() {
-    if (!_videoEnabled && !_screenEnabled && _remoteRenderers.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
-
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       sliver: SliverGrid(
@@ -329,7 +414,16 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           childAspectRatio: 4 / 3,
         ),
         delegate: SliverChildListDelegate([
-          ..._onlineUsers.where((u) => u != null).map((u) {
+          _buildVideoCard(
+            ConfigService.get("Bloret_PassPort_UserName") ?? "我".tl, 
+            _localRenderer, 
+            isLocal: true
+          ),
+
+          ..._onlineUsers.where((u) {
+            final username = u?['username'];
+            return u != null && username != ConfigService.get("Bloret_PassPort_UserName");
+          }).map((u) {
             final username = u['username'] ?? "未知";
             return _buildVideoCard(username, _remoteRenderers[username]);
           }),
@@ -339,60 +433,113 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   }
 
   Widget _buildVideoCard(String name, RTCVideoRenderer? renderer, {bool isLocal = false}) {
-    final userInfo = _currentSpace['users']?[name] ?? {};
+
+    final userInfo = isLocal 
+      ? {'audio': _audioEnabled, 'video': _videoEnabled, 'screen': _screenEnabled}
+      : (_onlineUsers.firstWhere((u) => u != null && u['username'] == name, orElse: () => {}));
+
     final audio = userInfo['audio'] == true;
     final video = userInfo['video'] == true;
     final screen = userInfo['screen'] == true;
+    final isMuted = _mutedUsers.contains(name);
 
-    return InkWell(
-      onTap: () {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (context) => FullScreenVideoPage(
-            renderer: renderer,
-            title: name,
+    final bool showStream = (renderer?.srcObject != null) && (video || screen);
+
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('video-anim-$name'),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOutCubic,
+      tween: Tween(begin: 0.0, end: 1.0),
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value.clamp(0.0, 1.0),
+          child: Align(
+            heightFactor: value,
+            alignment: Alignment.topCenter,
+            child: child,
           ),
-        ));
+        );
       },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white10),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          children: [
-            Hero(
-              tag: 'video-$name',
-              child: (renderer?.srcObject != null)
-                  ? RTCVideoView(
-                renderer!,
-                mirror: isLocal,
-                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-              )
-                  : const Center(
-                child: Icon(Icons.person, size: 48, color: Colors.white54),
-              ),
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (context) => FullScreenVideoPage(
+              renderer: renderer,
+              title: name,
             ),
-            Positioned(
-              bottom: 8,
-              left: 8,
-              right: 8,
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
-                    child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 10)),
-                  ),
-                  const Spacer(),
-                  if (audio) const Icon(Icons.mic, color: Colors.white, size: 12),
-                  if (video) const Icon(Icons.videocam, color: Colors.white, size: 12),
-                  if (screen) const Icon(Icons.screen_share, color: Colors.white, size: 12),
-                ],
+          ));
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.black,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white10),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            children: [
+              Hero(
+                tag: 'video-$name',
+                child: showStream
+                    ? RTCVideoView(
+                  renderer!,
+                  mirror: isLocal && _videoEnabled && !_screenEnabled,
+                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                )
+                    : const Center(
+                  child: Icon(Icons.person, size: 48, color: Colors.white54),
+                ),
               ),
-            )
-          ],
+              Positioned(
+                top: 8,
+                right: 8,
+                child: !isLocal ? IconButton(
+                  icon: Icon(
+                    isMuted ? Icons.volume_off : Icons.volume_up,
+                    color: isMuted ? Colors.red : Colors.white70,
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      if (isMuted) {
+                        _mutedUsers.remove(name);
+                      } else {
+                        _mutedUsers.add(name);
+                      }
+
+                      final r = _remoteRenderers[name];
+                      if (r?.srcObject != null) {
+                        for (var track in r!.srcObject!.getAudioTracks()) {
+                          track.enabled = isMuted;
+                        }
+                      }
+                    });
+                  },
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black45,
+                  ),
+                ) : const SizedBox.shrink(),
+              ),
+              Positioned(
+                bottom: 8,
+                left: 8,
+                right: 8,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
+                      child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 10)),
+                    ),
+                    const Spacer(),
+                    if (audio) Icon(isMuted ? Icons.mic_off : Icons.mic, color: isMuted ? Colors.red : Colors.white, size: 12),
+                    if (video) const Icon(Icons.videocam, color: Colors.white, size: 12),
+                    if (screen) const Icon(Icons.screen_share, color: Colors.white, size: 12),
+                  ],
+                ),
+              )
+            ],
+          ),
         ),
       ),
     );
@@ -452,22 +599,48 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           ),
           IconButton(
             icon: Icon(_videoEnabled ? Icons.videocam : Icons.videocam_off),
-            onPressed: () {
+            color: _videoEnabled ? Colors.green : null,
+            onPressed: () async {
               setState(() {
                 _videoEnabled = !_videoEnabled;
-                _rtcManager?.toggleVideo(_videoEnabled);
-                _sendState();
+                if (_videoEnabled) _screenEnabled = false;
               });
+              
+              if (_videoEnabled) {
+                await _rtcManager?.toggleScreen(false);
+              }
+              _rtcManager?.toggleVideo(_videoEnabled);
+
+              setState(() {
+                _localRenderer.srcObject = _rtcManager?.localStream;
+              });
+              
+              _sendState();
             },
           ),
           IconButton(
             icon: Icon(_screenEnabled ? Icons.desktop_windows : Icons.desktop_access_disabled),
-            onPressed: () {
+            color: _screenEnabled ? Colors.green : null,
+            onPressed: () async {
               setState(() {
                 _screenEnabled = !_screenEnabled;
-                _rtcManager?.toggleVideo(_videoEnabled);
-                _sendState();
+                if (_screenEnabled) _videoEnabled = false;
               });
+
+              if (_screenEnabled) {
+                _rtcManager?.toggleVideo(false);
+              }
+              await _rtcManager?.toggleScreen(_screenEnabled);
+
+              if (mounted) {
+                setState(() {
+                  _screenEnabled = _rtcManager?.localScreenStream != null;
+                  _localRenderer.srcObject = _screenEnabled 
+                      ? _rtcManager?.localScreenStream 
+                      : _rtcManager?.localStream;
+                });
+              }
+              _sendState();
             },
           ),
           TextButton.icon(
@@ -483,6 +656,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
               _eventSub = null;
               _rtcManager?.dispose();
               _rtcManager = null;
+              _localRenderer.srcObject = null;
 
               setState(() {
                 _inSpace = false;
@@ -574,17 +748,34 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate((context, index) {
           final space = _spaceList[index];
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            color: cardColor,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: borderColor)),
-            child: ListTile(
-              leading: CircleAvatar(child: Text(space['name']?[0]?.toUpperCase() ?? "L")),
-              title: Text(space['name'] ?? "", style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text("${"在线: ".tl} ${space['userCount'] ?? 0}"),
-              trailing: ElevatedButton(
-                onPressed: () => _showJoinDialog(space),
-                child: Text("加入".tl),
+          final spaceId = (space['id'] ?? space['spaceId'])?.toString() ?? index.toString();
+          
+          return TweenAnimationBuilder<double>(
+            key: ValueKey('space-item-$spaceId'),
+            duration: Duration(milliseconds: 400 + (index * 100).clamp(0, 600)),
+            curve: Curves.easeOutQuart,
+            tween: Tween(begin: 0.0, end: 1.0),
+            builder: (context, value, child) {
+              return Opacity(
+                opacity: value,
+                child: Transform.translate(
+                  offset: Offset(0, 30 * (1 - value)),
+                  child: child,
+                ),
+              );
+            },
+            child: Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              color: cardColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: borderColor)),
+              child: ListTile(
+                leading: CircleAvatar(child: Text(space['name']?[0]?.toUpperCase() ?? "L")),
+                title: Text(space['name'] ?? "", style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text("${"在线: ".tl} ${space['userCount'] ?? 0}"),
+                trailing: BloretButton(
+                  onPressed: () => _showJoinDialog(space),
+                  text: "加入".tl,
+                ),
               ),
             ),
           );
@@ -754,9 +945,12 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
               padding: const EdgeInsets.all(12),
               itemCount: _chatMessages.length,
               itemBuilder: (context, index) {
-                final msg = _chatMessages[index];
+                final dynamic msg = _chatMessages[index];
+                if (msg is! Map) return const SizedBox.shrink();
+
                 final isJoinRecord = (msg['type'] == 'user-joined' || msg['type'] == 'user-left');
 
+                Widget item;
                 if (isJoinRecord) {
                   final username = msg['user']?['username'] ?? msg['from'];
                   if (index > 0) {
@@ -764,27 +958,30 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                       final username = msg['user']?['username'] ?? msg['from'];
 
                       if (index + 1 < _chatMessages.length) {
-                        final next = _chatMessages[index + 1];
+                        final dynamic next = _chatMessages[index + 1];
 
-                        if (next['type'] == 'user-joined' &&
+                        if (next is Map && next['type'] == 'user-joined' &&
                             next['user']?['username'] == username) {
                           return const SizedBox.shrink();
                         }
                       }
                     }
-                    final prev = _chatMessages[index - 1];
-                    if (prev['type'] == 'user-left' && msg['type'] == 'user-joined' && prev['user']?['username'] == username) {
+                    final dynamic prev = _chatMessages[index - 1];
+                    if (prev is Map && prev['type'] == 'user-left' && msg['type'] == 'user-joined' && prev['user']?['username'] == username) {
                       int reEntryCount = 1;
                       for (int i = index + 1; i < _chatMessages.length - 1; i++) {
-                         if (_chatMessages[i]['type'] == 'user-left' && _chatMessages[i+1]['type'] == 'user-joined' &&
-                             _chatMessages[i]['user']?['username'] == username) {
+                         final m1 = _chatMessages[i];
+                         final m2 = _chatMessages[i+1];
+                         if (m1 is Map && m2 is Map && 
+                             m1['type'] == 'user-left' && m2['type'] == 'user-joined' &&
+                             m1['user']?['username'] == username) {
                            reEntryCount++;
                            i++;
                          } else {
                            break;
                          }
                       }
-                      return Padding(
+                      item = Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Text(
                           "$username ${"重进了空间".tl} ${reEntryCount > 1 ? ' x$reEntryCount' : ''}",
@@ -792,62 +989,122 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                           textAlign: TextAlign.center,
                         ),
                       );
-                    }
-                  }
-
-                  int count = 1;
-                  if (index > 0 && _chatMessages[index-1]['type'] == msg['type'] && _chatMessages[index-1]['user']?['username'] == username) {
-                     return const SizedBox.shrink();
-                  }
-                  for (int i = index + 1; i < _chatMessages.length; i++) {
-                    if (_chatMessages[i]['type'] == msg['type'] && _chatMessages[i]['user']?['username'] == username) {
-                      count++;
                     } else {
-                      break;
+                      int count = 1;
+                      if (index > 0) {
+                        final prevMsg = _chatMessages[index-1];
+                        if (prevMsg is Map && prevMsg['type'] == msg['type'] && prevMsg['user']?['username'] == username) {
+                          return const SizedBox.shrink();
+                        }
+                      }
+                      for (int i = index + 1; i < _chatMessages.length; i++) {
+                        final nextMsg = _chatMessages[i];
+                        if (nextMsg is Map && nextMsg['type'] == msg['type'] && nextMsg['user']?['username'] == username) {
+                          count++;
+                        } else {
+                          break;
+                        }
+                      }
+
+                      item = Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Text(
+                          "$username ${msg['type'] == 'user-joined' ? '加入了空间'.tl : '离开了空间'.tl} ${count > 1 ? ' x$count' : ''}",
+                          style: TextStyle(fontSize: 10, color: secondaryColor, fontStyle: FontStyle.italic),
+                          textAlign: TextAlign.center,
+                        ),
+                      );
                     }
+                  } else {
+                    item = Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text(
+                        "$username ${msg['type'] == 'user-joined' ? '加入了空间'.tl : '离开了空间'.tl}",
+                        style: TextStyle(fontSize: 10, color: secondaryColor, fontStyle: FontStyle.italic),
+                        textAlign: TextAlign.center,
+                      ),
+                    );
+                  }
+                } else {
+                  final sender = msg['from'] ?? msg['user'] ?? "?";
+                  
+                  // 安全解析消息内容：payload 可能是 Map 或是 String
+                  String text = "";
+                  final dynamic payload = msg['payload'];
+                  if (payload is Map) {
+                    text = payload['msg']?.toString() ?? payload['message']?.toString() ?? "";
+                  } else if (payload is String) {
+                    text = payload;
+                  } else {
+                    text = msg['msg']?.toString() ?? msg['message']?.toString() ?? "";
                   }
 
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Text(
-                      "$username ${msg['type'] == 'user-joined' ? '加入了空间'.tl : '离开了空间'.tl} ${count > 1 ? ' x$count' : ''}",
-                      style: TextStyle(fontSize: 10, color: secondaryColor, fontStyle: FontStyle.italic),
-                      textAlign: TextAlign.center,
+                  final isMe = sender == ConfigService.get("Bloret_PassPort_UserName");
+
+                  item = Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Align(
+                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                      child: Column(
+                        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                        children: [
+                          Text(sender, style: TextStyle(fontSize: 10, color: secondaryColor)),
+                          const SizedBox(height: 2),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isMe ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : cardColor,
+                              borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(isMe ? 12 : 0),
+                                topRight: Radius.circular(isMe ? 0 : 12),
+                                bottomLeft: const Radius.circular(12),
+                                bottomRight: const Radius.circular(12),
+                              ),
+                              border: Border.all(color: borderColor),
+                            ),
+                            child: text.startsWith("![") 
+                              ? InkWell(
+                                  onTap: () {
+                                    final regExp = RegExp(r'!\[.*?\]\((.*?)\)');
+                                    final match = regExp.firstMatch(text);
+                                    if (match != null) {
+                                      final url = match.group(1);
+                                      if (url != null) {
+                                        _showImageDialog(context, url, 'chat_img_${msg['time'] ?? index}');
+                                      }
+                                    }
+                                  },
+                                  child: Hero(
+                                    tag: 'chat_img_${msg['time'] ?? index}',
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(maxWidth: 300, maxHeight: 200),
+                                      child: GptMarkdown(text),
+                                    ),
+                                  ),
+                                )
+                              : Text(text, style: TextStyle(fontSize: 14, color: textColor)),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }
 
-                final sender = msg['from'] ?? msg['user'] ?? "?";
-                final text = msg['payload']?['msg'] ?? msg['msg'] ?? msg['message'] ?? "";
-                
-                final isMe = sender == ConfigService.get("Bloret_PassPort_UserName");
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: Align(
-                    alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                    child: Column(
-                      crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                      children: [
-                        Text(sender, style: TextStyle(fontSize: 10, color: secondaryColor)),
-                        const SizedBox(height: 2),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: isMe ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : cardColor,
-                            borderRadius: BorderRadius.only(
-                              topLeft: Radius.circular(isMe ? 12 : 0),
-                              topRight: Radius.circular(isMe ? 0 : 12),
-                              bottomLeft: const Radius.circular(12),
-                              bottomRight: const Radius.circular(12),
-                            ),
-                            border: Border.all(color: borderColor),
-                          ),
-                          child: Text(text, style: TextStyle(fontSize: 14, color: textColor)),
-                        ),
-                      ],
-                    ),
-                  ),
+                return TweenAnimationBuilder<double>(
+                  key: ValueKey(msg['time'] ?? index),
+                  duration: const Duration(milliseconds: 400),
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, value, child) {
+                    return Opacity(
+                      opacity: value,
+                      child: Transform.translate(
+                        offset: Offset(0, 20 * (1 - value)),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: item,
                 );
               },
             ),

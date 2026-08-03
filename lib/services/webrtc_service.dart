@@ -4,6 +4,7 @@ import 'live_service.dart';
 
 class WebRTCManager {
   final String spaceId;
+  final String myUserId;
   final Function(String userId, MediaStream stream) onAddRemoteStream;
   final Function(String userId) onRemoveRemoteStream;
   final Function(String userId, RTCPeerConnectionState state) onConnectionStateChanged;
@@ -12,21 +13,23 @@ class WebRTCManager {
   MediaStream? localScreenStream;
   Map<String, RTCPeerConnection> peers = {};
   Map<String,List<RTCIceCandidate>> pendingCandidates = {};
-  
-  bool _audioEnabled = false;
+
+  final Set<String> _processedSignalHashes = {};
+  final Set<String> _sentSignalHashes = {};
+
   bool _videoEnabled = false;
   bool _screenEnabled = false;
-  bool _screenAudioEnabled = false;
 
   WebRTCManager({
     required this.spaceId,
+    required this.myUserId,
     required this.onAddRemoteStream,
     required this.onRemoveRemoteStream,
     required this.onConnectionStateChanged,
   });
 
   Future<void> init() async {
-    final Map<String, dynamic> mediaConstraints = {
+    final constraints = {
       'audio': true,
       'video': {
         'facingMode': 'user',
@@ -36,51 +39,155 @@ class WebRTCManager {
     };
 
     try {
-      localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-      try {
-        localScreenStream = await navigator.mediaDevices.getDisplayMedia(
-          {
-            'audio': true,
-            'video': true
-          },
-        );
-        for (var track in localScreenStream!.getAudioTracks()) {
-          track.enabled = _screenAudioEnabled;
-        }
-        for (var track in localScreenStream!.getVideoTracks()) {
-          track.enabled = _screenEnabled;
-        }
-      } catch (_) {}
-      // Default disabled
+      localStream =
+      await navigator.mediaDevices.getUserMedia(constraints);
+
       for (var track in localStream!.getAudioTracks()) {
-        track.enabled = _audioEnabled;
+        track.enabled = false;
       }
+
       for (var track in localStream!.getVideoTracks()) {
-        track.enabled = _videoEnabled;
+        track.enabled = false;
       }
+
+      debugPrint("[WebRTC] Camera initialized");
+
     } catch (e) {
       debugPrint("[WebRTC] getUserMedia error: $e");
     }
   }
 
   void toggleAudio(bool enabled) {
-    _audioEnabled = enabled;
     localStream?.getAudioTracks().forEach((track) => track.enabled = enabled);
   }
 
   void toggleVideo(bool enabled) {
     _videoEnabled = enabled;
-    localStream?.getVideoTracks().forEach((track) => track.enabled = enabled);
+    final cameraTrack = localStream?.getVideoTracks().firstOrNull;
+    if (cameraTrack != null) {
+      cameraTrack.enabled = enabled;
+    }
+
+    if (!_screenEnabled) {
+      _updateAllPeersVideoTrack(cameraTrack);
+    }
   }
 
-  void toggleScreen(bool enabled) {
-    _screenEnabled = enabled;
-    localStream?.getVideoTracks().forEach((track) => track.enabled = enabled);
+  Future<void> toggleScreen(bool enabled) async {
+    if (!enabled) {
+      await stopScreenShare();
+      return;
+    }
+
+    try {
+      try {
+        final sources = await desktopCapturer.getSources(
+          types: [SourceType.Screen, SourceType.Window],
+        );
+        debugPrint("[WebRTC] Capture sources: ${sources.length}");
+      } catch (e) {
+        debugPrint("[WebRTC] enumerate source failed: $e");
+      }
+
+      localScreenStream = await navigator.mediaDevices.getDisplayMedia({
+        "video": {
+          "cursor": "always",
+          "width": {"ideal": 1920},
+          "height": {"ideal": 1080},
+          "frameRate": {"ideal": 30}
+        },
+        "audio": false,
+      });
+
+      if (localScreenStream == null || localScreenStream!.getVideoTracks().isEmpty) {
+        throw Exception("No screen video track");
+      }
+
+      final track = localScreenStream!.getVideoTracks().first;
+      track.enabled = true;
+      _screenEnabled = true;
+
+      track.onEnded = () {
+        debugPrint("[WebRTC] Screen ended by system");
+        stopScreenShare();
+      };
+
+      await _updateAllPeersVideoTrack(track);
+      debugPrint("[WebRTC] Screen sharing started: ${track.label}");
+
+    } catch (e) {
+      debugPrint("[WebRTC] Screen capture failed: $e");
+      _screenEnabled = false;
+      await stopScreenShare();
+    }
   }
 
-  void toggleScreenAudio(bool enabled) {
-    _screenAudioEnabled = enabled;
-    localScreenStream?.getAudioTracks().forEach((track) => track.enabled = enabled);
+  Future<void> stopScreenShare() async {
+    _screenEnabled = false;
+
+    // 先确定要回退到哪个轨道
+    MediaStreamTrack? fallbackTrack;
+    if (localStream != null && localStream!.getVideoTracks().isNotEmpty) {
+      fallbackTrack = localStream!.getVideoTracks().first;
+      fallbackTrack.enabled = _videoEnabled; 
+    }
+
+    // 1. 先执行替换轨道，确保 Sender 切换到存活的轨道上
+    await _updateAllPeersVideoTrack(fallbackTrack);
+
+    // 2. 然后再停止屏幕采集流
+    if (localScreenStream != null) {
+      for (final track in localScreenStream!.getTracks()) {
+        try {
+          track.onEnded = null; // 移除监听，防止递归
+          await track.stop();
+        } catch (_) {}
+      }
+      await localScreenStream!.dispose();
+      localScreenStream = null;
+    }
+
+    debugPrint("[WebRTC] Screen sharing stopped, fallback to ${_videoEnabled ? 'Camera' : 'Black Screen'}");
+  }
+
+  Future<void> _sendSignal(String target, String type, Map<String, dynamic> payload) async {
+    final String fingerprint = "$target-$type-${payload.toString().hashCode}";
+    
+    if (_sentSignalHashes.contains(fingerprint)) {
+      debugPrint("[WebRTC] Sent duplicate signal prevented: $type to $target");
+      return;
+    }
+    _sentSignalHashes.add(fingerprint);
+    if (_sentSignalHashes.length > 100) _sentSignalHashes.remove(_sentSignalHashes.first);
+
+    await LiveService.sendSignal(spaceId, {
+      "target": target,
+      "type": type,
+      "payload": payload
+    });
+  }
+
+  Future<void> _updateAllPeersVideoTrack(MediaStreamTrack? track) async {
+    for (final pc in peers.values) {
+      try {
+        final senders = await pc.getSenders();
+        RTCRtpSender? videoSender;
+
+        for (final s in senders) {
+          if (s.track?.kind == "video") {
+            videoSender = s;
+            break;
+          }
+        }
+
+        if (videoSender != null) {
+          debugPrint("[WebRTC] replaceTrack -> ${track?.label ?? 'NULL (Black Screen)'}");
+          await videoSender.replaceTrack(track);
+        }
+      } catch (e) {
+        debugPrint("[WebRTC] update video error: $e");
+      }
+    }
   }
 
   Future<RTCPeerConnection> _createPeerConnection(String userId) async {
@@ -95,14 +202,11 @@ class WebRTCManager {
 
     pc.onIceCandidate = (candidate) {
       debugPrint("[WebRTC] Sending ICE candidate to $userId");
-      LiveService.sendSignal(spaceId, {
-        "target": userId,
+      _sendSignal(userId, "ice", {
         "type": "ice",
-        "payload": {
-          "candidate": candidate.candidate,
-          "sdpMid": candidate.sdpMid,
-          "sdpMLineIndex": candidate.sdpMLineIndex,
-        }
+        "candidate": candidate.candidate,
+        "sdpMid": candidate.sdpMid,
+        "sdpMLineIndex": candidate.sdpMLineIndex,
       });
     };
 
@@ -132,7 +236,12 @@ class WebRTCManager {
 
     if (localStream != null) {
       for (var track in localStream!.getTracks()) {
-        await pc.addTrack(track, localStream!);
+        MediaStreamTrack initialTrack = track;
+        if (track.kind == 'video' && _screenEnabled && localScreenStream != null) {
+          initialTrack = localScreenStream!.getVideoTracks().firstOrNull ?? track;
+        }
+        
+        await pc.addTrack(initialTrack, localStream!);
       }
     }
 
@@ -146,19 +255,34 @@ class WebRTCManager {
   }
 
   Future<void> handleSignal(Map<String, dynamic> event) async {
-    final String type = event['type'];
+    final String type = event['type'] ?? "";
     final String from = event['from'] ?? event['user'] ?? '';
-    print("[WebRTC] Received signal from $from: $type, length: ${event['payload']?.length}");
+    final dynamic payload = event['payload'] ?? {};
 
-    if (from.isEmpty) return;
+    if (from.isEmpty || type.isEmpty) return;
 
-    final payload = event['payload'] ?? {};
+    if (from == myUserId) return;
+
+    final String signalFingerprint = "$from-$type-${payload.toString().hashCode}";
+    if (_processedSignalHashes.contains(signalFingerprint)) {
+      debugPrint("[WebRTC] Ignored duplicate signal: $type from $from");
+      return;
+    }
+    _processedSignalHashes.add(signalFingerprint);
+
+    if (_processedSignalHashes.length > 100) {
+      _processedSignalHashes.remove(_processedSignalHashes.first);
+    }
+
+    debugPrint("[WebRTC] Received signal from $from: $type");
 
     switch (type) {
       case 'offer':
         debugPrint("[WebRTC] Received offer from $from, length: ${payload['sdp']?.length}");
-        final pc = await _createPeerConnection(from);
+
+        RTCPeerConnection pc = peers[from] ?? await _createPeerConnection(from);
         peers[from] = pc;
+
         try {
           await pc.setRemoteDescription(RTCSessionDescription(payload['sdp'], 'offer'));
           debugPrint("[WebRTC] Remote description set successfully.");
@@ -171,11 +295,7 @@ class WebRTCManager {
           final answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
 
-          await LiveService.sendSignal(spaceId, {
-            "target": from,
-            "type": "answer",
-            "payload": {"sdp": answer.sdp, "type": "answer",}
-          });
+          await _sendSignal(from, "answer", {"sdp": answer.sdp, "type": "answer",});
         } catch (e) {
           debugPrint("[WebRTC] Error setting remote description or creating answer: $e");
         }
@@ -184,13 +304,15 @@ class WebRTCManager {
       case 'answer':
         final pc = peers[from];
         if (pc != null) {
+          debugPrint("[WebRTC] Applying answer from $from to PeerConnection");
           await pc.setRemoteDescription(RTCSessionDescription(payload['sdp'], 'answer'));
+        } else {
+          debugPrint("[WebRTC] ERROR: Received answer from $from but no PeerConnection found!");
         }
         break;
 
       case 'ice':
       case 'ice-candidate':
-
         final candidate = RTCIceCandidate(
           payload['candidate'],
           payload['sdpMid'],
@@ -198,15 +320,13 @@ class WebRTCManager {
         );
 
         final pc = peers[from];
-
         if(pc != null){
           await pc.addCandidate(candidate);
+          debugPrint("[WebRTC] Successfully added ICE candidate from $from (Frag: ${payload['usernameFragment'] ?? 'N/A'})");
         }else{
-          pendingCandidates
-              .putIfAbsent(from,()=>[])
-              .add(candidate);
+          pendingCandidates.putIfAbsent(from, () => []).add(candidate);
+          debugPrint("[WebRTC] Cached pending ICE candidate from $from (Connection not ready)");
         }
-
         break;
         
       case 'user-joined':
@@ -215,20 +335,25 @@ class WebRTCManager {
         peers[from] = pc;
         final offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        await LiveService.sendSignal(spaceId, {
-          "target": from,
-          "type": "offer",
-          "payload": {"sdp": offer.sdp}
-        });
+        await _sendSignal(from, "offer", {"sdp": offer.sdp, "type": "offer"});
         break;
     }
   }
 
   void dispose() {
+    localStream?.getTracks().forEach((track) => track.stop());
     localStream?.dispose();
+    localStream = null;
+
+    localScreenStream?.getTracks().forEach((track) => track.stop());
+    localScreenStream?.dispose();
+    localScreenStream = null;
+
     for (var pc in peers.values) {
+      pc.close();
       pc.dispose();
     }
     peers.clear();
+    pendingCandidates.clear();
   }
 }

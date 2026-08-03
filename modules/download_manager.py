@@ -5,7 +5,10 @@ and a global semaphore limiting total concurrent file downloads
 across all tasks.
 """
 
+from __future__ import annotations
+
 import threading
+import time
 import uuid
 import modules.globals as BLglobals
 from modules.log import log
@@ -19,7 +22,8 @@ class DownloadTask:
         "status", "progress", "status_text", "speed", "eta",
         "downloaded", "total", "error_message",
         "cancel_event", "pause_event", "backend",
-        "thread", "result",
+        "thread", "result", "finished_at",
+        "_last_emit_ts", "_last_emit_progress",
     )
 
     def __init__(self, task_id, version, version_name, loader, backend):
@@ -40,6 +44,9 @@ class DownloadTask:
         self.backend = backend
         self.thread = None
         self.result = None
+        self.finished_at = 0.0
+        self._last_emit_ts = 0.0
+        self._last_emit_progress = -1.0
 
 
 class DownloadManager:
@@ -48,6 +55,8 @@ class DownloadManager:
     Thread-safe: all task list mutations are guarded by a Lock.
     """
 
+    MAX_FINISHED_TASKS = 50
+    FINISHED_TASK_TTL = 30 * 60
     _instance = None
     _init_lock = threading.Lock()
 
@@ -65,14 +74,10 @@ class DownloadManager:
         self._initialized = True
         self.tasks: dict[str, DownloadTask] = {}
         self.tasks_lock = threading.Lock()
-        self._rebuild_semaphore()
-        log("[DownloadManager] initialized")
-
-    def _rebuild_semaphore(self):
-        """(Re)create the global semaphore with current MaxThread."""
+        from modules.download import set_global_download_limit
         max_thread = self._get_max_thread_config()
-        self.global_semaphore = threading.BoundedSemaphore(max_thread)
-        log(f"[DownloadManager] semaphore set to {max_thread}")
+        set_global_download_limit(max_thread)
+        log(f"[DownloadManager] initialized with global limit={max_thread}")
 
     def _get_max_thread_config(self):
         """Read MaxThread from config, clamped [1, 64]."""
@@ -147,9 +152,21 @@ class DownloadManager:
                 task.error_message = str(exc)
                 log(f"[DownloadManager] task {task_id} exception: {exc}", exc_info=True)
             finally:
+                if task.status == "failed" and backend:
+                    backend.downloadErrorOccurred.emit(
+                        "Minecraft 下载失败",
+                        task.error_message or "下载任务未完成",
+                        version,
+                        version_name,
+                        loader,
+                    )
                 completed_ev.set()
                 if backend:
                     backend.downloadTaskRemoved.emit(task_id)
+                task.finished_at = time.monotonic()
+                task.thread = None
+                task.backend = None
+                self._prune_finished_tasks()
                 log(f"[DownloadManager] task {task_id} finished, status={task.status}")
 
         thread = threading.Thread(target=run, daemon=True, name=f"dl-{task_id}")
@@ -198,15 +215,44 @@ class DownloadManager:
             self.tasks.pop(task_id, None)
         log(f"[DownloadManager] removed task {task_id}")
 
+    def _prune_finished_tasks(self):
+        """Bound retained history and release stale completed task objects."""
+        now = time.monotonic()
+        with self.tasks_lock:
+            finished = [
+                task for task in self.tasks.values()
+                if task.status in ("completed", "failed", "cancelled")
+                and task.finished_at > 0
+            ]
+            expired_ids = {
+                task.task_id for task in finished
+                if now - task.finished_at >= self.FINISHED_TASK_TTL
+            }
+            retained = sorted(
+                (task for task in finished if task.task_id not in expired_ids),
+                key=lambda task: task.finished_at,
+                reverse=True,
+            )
+            expired_ids.update(
+                task.task_id for task in retained[self.MAX_FINISHED_TASKS:]
+            )
+            for task_id in expired_ids:
+                self.tasks.pop(task_id, None)
+        if expired_ids:
+            log(f"[DownloadManager] pruned {len(expired_ids)} finished tasks")
+
     def update_progress(self, task_id, progress, status_text, speed="", downloaded="", total=""):
-        """Called from install.py's progress callback to update task state."""
+        """Called from install.py's progress callback to update task state.
+
+        UI 信号节流：最多约 5 次/秒，或进度变化 ≥1%，避免切页时主线程被进度洪水卡死。
+        任务字典字段仍每次更新，轮询 getDownloadTasks 总能读到最新值。
+        """
         with self.tasks_lock:
             task = self.tasks.get(task_id)
         if task is None:
             return
         task.progress = progress
         task.status_text = status_text
-        task.speed = speed
         # Parse speed field for ETA if present
         if speed and "·" in speed:
             parts = speed.split("·")
@@ -214,17 +260,36 @@ class DownloadManager:
         task.speed = speed
         task.downloaded = downloaded
         task.total = total
-        # Forward to Backend signal for QML
-        if task.backend:
-            task.backend.downloadProgressUpdated.emit(
-                task_id, progress, status_text, speed, downloaded, total
-            )
+        if not task.backend:
+            return
+        now = time.monotonic()
+        try:
+            prog = float(progress or 0)
+        except (TypeError, ValueError):
+            prog = 0.0
+        if prog > 0 and prog <= 1.0:
+            prog *= 100.0
+        last_ts = task._last_emit_ts or 0.0
+        last_prog = task._last_emit_progress if task._last_emit_progress is not None else -1.0
+        if (now - last_ts) < 0.2 and abs(prog - last_prog) < 1.0:
+            return
+        task._last_emit_ts = now
+        task._last_emit_progress = prog
+        task.backend.downloadTaskProgressUpdated.emit(
+            task_id, progress, status_text, speed, downloaded, total
+        )
 
     # ── queries ──
 
     def get_tasks(self) -> list:
-        """Return snapshot of all tasks."""
+        """Return snapshot of all tasks (cheap; prune only occasionally)."""
         self._init()
+        # 避免每次 UI 轮询都做 prune（持锁扫表），降低切页卡顿概率
+        now = time.monotonic()
+        last = getattr(self, "_last_prune_ts", 0.0)
+        if now - last >= 5.0:
+            self._last_prune_ts = now
+            self._prune_finished_tasks()
         with self.tasks_lock:
             return list(self.tasks.values())
 

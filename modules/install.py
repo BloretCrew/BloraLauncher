@@ -248,10 +248,14 @@ def bloret_git_clone_download(version, minecraft_dir, backend=None, cancel_event
     candidate_urls = []
     if BLglobals.git_protocol == "ssh":
         if BLglobals.git_ssh_available is False:
-            log("SSH 检测不可用（未配置密钥或认证失败），跳过 SSH 尝试", logging.INFO)
+            log("SSH 模式已启用，但检测结果为不可用（未配置密钥或认证失败），跳过 SSH 尝试，直接使用 HTTPS", logging.WARNING)
         else:
             ssh_url = _https_to_ssh_url(orig_url)
             candidate_urls.append(("ssh", ssh_url))
+            if BLglobals.git_ssh_available is None:
+                log("SSH 模式已启用，尚未进行 SSH 可用性检测，先尝试 SSH，失败将自动降级 HTTPS", logging.INFO)
+            else:
+                log(f"SSH 模式已启用，检测可用，优先使用 SSH 地址: {ssh_url}", logging.INFO)
     candidate_urls.append(("https", orig_url))
 
     def update_progress(progress, status):
@@ -298,6 +302,8 @@ def bloret_git_clone_download(version, minecraft_dir, backend=None, cancel_event
         except Exception as e:
             last_error = e
             log(f"{protocol_label} clone 失败: {e}", logging.WARNING)
+            if protocol_label == "ssh":
+                log("SSH clone 失败，降级使用 HTTPS 重试", logging.WARNING)
         finally:
             if tmp_dir and os.path.exists(tmp_dir):
                 shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -1713,14 +1719,15 @@ def _install_minecraft_version_threaded(version, minecraft_dir=None, Fabric_Load
     def update_progress_ui(progress, status, speed="", downloaded="", total=""):
         if backend:
             backend.updateDownloadProgress(progress, status, speed, downloaded, total)
-        # 同步更新 DownloadManager（多任务支持）
+        # 同步更新 DownloadManager（多任务支持）。必须使用明确 task_id，
+        # 多个任务共享同一个 Backend，按 backend 查找会把进度串到首个任务。
         try:
             from modules.download_manager import DownloadManager
-            dm = DownloadManager()
-            for t in dm.get_tasks():
-                if t.backend is backend and t.status in ("downloading", "paused"):
-                    dm.update_progress(t.task_id, progress, status, speed, downloaded, total)
-                    break
+            task_id = task_state.get("task_id") if task_state else None
+            if task_id:
+                DownloadManager().update_progress(
+                    task_id, progress, status, speed, downloaded, total
+                )
         except Exception:
             pass
         # 插件 download.progress：每 5% 或 500ms 节流
