@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:bloret_launcher/main.dart';
-import 'package:bloret_launcher/pages/bloriko_page.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/update_manager.dart';
 import 'package:bloret_launcher/widgets/button.dart';

@@ -374,8 +374,9 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
                           PopupMenuButton<String>(
                             icon: const Icon(Icons.more_vert, color: Colors.white, size: 28, shadows: shadow),
                             onSelected: (value) {
-                              if (value == 'rotate') _toggleOrientation();
-                              else if (value == 'fit') {
+                              if (value == 'rotate') {
+                                _toggleOrientation();
+                              } else if (value == 'fit') {
                                 setState(() => _objectFit = _objectFit == RTCVideoViewObjectFit.RTCVideoViewObjectFitContain ? RTCVideoViewObjectFit.RTCVideoViewObjectFitCover : RTCVideoViewObjectFit.RTCVideoViewObjectFitContain);
                               } else if (value == 'chat') {
                                 setState(() {

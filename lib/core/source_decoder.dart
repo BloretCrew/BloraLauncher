@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'package:dio/dio.dart';
-import '../main.dart';
 import 'logger.dart';
 
 class SourceDecoder {
@@ -225,7 +224,7 @@ class SourceDecoder {
     }
     String str = value.toString();
     if (str.contains('*') || str.contains(r'$') || str.contains('@') || str.contains('&')) {
-      return str.replaceAllMapped(RegExp(r'(\*|&|\$|@)([a-zA-Z0-9_]+)'), (match) {
+      return str.replaceAllMapped(RegExp(r'([*&$@])([a-zA-Z0-9_]+)'), (match) {
         final prefix = match.group(1);
         final key = match.group(2)!;
         if (prefix == '@' && key == "input") return input.toString();

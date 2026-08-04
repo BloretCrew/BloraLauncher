@@ -132,7 +132,7 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
                 child: SizeTransition(
                   sizeFactor: _expandAnimation,
 
-                  axisAlignment: 0,
+                  alignment: Alignment.center,
 
                   child: Container(
                     width: size.width,

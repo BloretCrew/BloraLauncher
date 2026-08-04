@@ -115,7 +115,7 @@ class PromptThreatScanner {
 
     (
     RegExp(
-      r'(假装|扮演)(?:\w\s*){0,8}(你|是)',
+      r'(假装|扮演)(?:\w\s*){0,8}([你是])',
     ),
     "role_pretend_zh"
     ),
