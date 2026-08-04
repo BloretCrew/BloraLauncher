@@ -24,8 +24,6 @@ import '../main.dart';
 import '../pages/passport_page.dart';
 import '../pages/settings_page.dart';
 
-// 此处粘贴你原 main.dart 中的 MainShell, _MainShellState, _NavTile, _AccountTile, _NavDestination, _getEmotionIcon
-
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -37,6 +35,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int selectedIndex = 0;
   bool _isExtended = true;
   Timer? _timer;
+  final Set<int> _renderedIndices = {0};
 
   final _trayChannel = const BasicMessageChannel('bloret/tray', StandardMessageCodec());
 
@@ -104,22 +103,58 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   final List<dynamic> _pages = [
-    (const _NavDestination("主页", Icons.home_outlined, Icons.home), const HomePage()),
-    (const _NavDestination("助手", Icons.smart_toy_outlined, Icons.smart_toy), const BloraChatPage()),
+    (const _NavDestination("主页", Icons.home_outlined, Icons.home,), () => const HomePage()),
+    (const _NavDestination("助手", Icons.smart_toy_outlined, Icons.smart_toy, keepAlive: true), () => const BloraChatPage()),
     "divider",
-    (const _NavDestination("下载", Icons.file_download_outlined, Icons.file_download), const DownloadPage()),
-    (const _NavDestination("核心", Icons.view_in_ar_outlined, Icons.view_in_ar), const CoresPage()),
-    (const _NavDestination("小工具", Icons.handyman_outlined, Icons.handyman), const ToolsPage()),
-    (const _NavDestination("统计", Icons.bar_chart_outlined, Icons.bar_chart), const StatsPage()),
-    (const _NavDestination("Mods", Icons.extension_outlined, Icons.extension), const ModsPage()),
-    (const _NavDestination("BBBS", Icons.forum_outlined, Icons.forum), const BbbsPage()),
-    (const _NavDestination("Live", Icons.live_tv_outlined, Icons.live_tv), const LivePage()),
+    (const _NavDestination("下载", Icons.file_download_outlined, Icons.file_download, keepAlive: true), () => const DownloadPage()),
+    (const _NavDestination("核心", Icons.view_in_ar_outlined, Icons.view_in_ar), () => const CoresPage()),
+    (const _NavDestination("小工具", Icons.handyman_outlined, Icons.handyman), () => const ToolsPage()),
+    (const _NavDestination("统计", Icons.bar_chart_outlined, Icons.bar_chart), () => const StatsPage()),
+    (const _NavDestination("Mods", Icons.extension_outlined, Icons.extension), () => const ModsPage()),
+    (const _NavDestination("BBBS", Icons.forum_outlined, Icons.forum, keepAlive: true), () => const BbbsPage()),
+    (const _NavDestination("Live", Icons.live_tv_outlined, Icons.live_tv, keepAlive: true), () => const LivePage()),
 
     "divider",
-    (const _NavDestination("通行证", Icons.person_outline, Icons.person), const PassPortPage()),
-    (const _NavDestination("设置", Icons.settings_outlined, Icons.settings), const SettingsPage()),
-    (const _NavDestination("关于", Icons.info_outline, Icons.info), const AboutPage()),
+    (const _NavDestination("通行证", Icons.person_outline, Icons.person), () => const PassPortPage()),
+    (const _NavDestination("设置", Icons.settings_outlined, Icons.settings), () => const SettingsPage()),
+    (const _NavDestination("关于", Icons.info_outline, Icons.info), () => const AboutPage()),
   ];
+
+  void _onPageChanged(int index) {
+    if (selectedIndex == index) return;
+    final oldIndex = selectedIndex;
+
+    if (!_renderedIndices.contains(index)) {
+      setState(() {
+        _renderedIndices.add(index);
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _doPageChange(index, oldIndex);
+      });
+    } else {
+      _doPageChange(index, oldIndex);
+    }
+  }
+
+  void _doPageChange(int index, int oldIndex) {
+    setState(() {
+      selectedIndex = index;
+      _renderedIndices.add(index);
+    });
+
+    if (_pages[oldIndex] is! String) {
+      final dest = _pages[oldIndex].$1;
+      if (!dest.keepAlive) {
+        Future.delayed(const Duration(milliseconds: 450), () {
+          if (mounted && selectedIndex != oldIndex) {
+            setState(() {
+              _renderedIndices.remove(oldIndex);
+            });
+          }
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -178,7 +213,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                             title: dest.title,
                                             isExtended: _isExtended,
                                             isSelected: selectedIndex == index,
-                                            onTap: () => setState(() => selectedIndex = index),
+                                            onTap: () => _onPageChanged(index),
                                           );
                                         },
                                       ),
@@ -193,21 +228,21 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                             isSelected: selectedIndex == 11,
                                             userName: userName,
                                             avatar: avatar,
-                                            onTap: () => setState(() => selectedIndex = 11),
+                                            onTap: () => _onPageChanged(11),
                                           ),
                                           _NavTile(
                                             icon: _pages[12].$1.icon,
                                             title: _pages[12].$1.title,
                                             isExtended: _isExtended,
                                             isSelected: selectedIndex == 12,
-                                            onTap: () => setState(() => selectedIndex = 12),
+                                            onTap: () => _onPageChanged(12),
                                           ),
                                           _NavTile(
                                             icon: _pages[13].$1.icon,
                                             title: _pages[13].$1.title,
                                             isExtended: _isExtended,
                                             isSelected: selectedIndex == 13,
-                                            onTap: () => setState(() => selectedIndex = 13),
+                                            onTap: () => _onPageChanged(13),
                                           ),
                                         ],
                                       ),
@@ -223,21 +258,38 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     ),
                   ),
                   Expanded(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 400),
-                      transitionBuilder: (child, animation) {
-                        return FadeTransition(
-                          opacity: animation,
-                          child: SlideTransition(
-                            position: Tween<Offset>(
-                              begin: isPortrait ? const Offset(0, 0.05) : const Offset(0.02, 0),
-                              end: Offset.zero,
-                            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-                            child: child,
-                          ),
+                    child: ListenableBuilder(
+                      listenable: Listenable.merge([Bloriko.instance, Bloriko.typeNotifier, Bloriko.modeNotifier]),
+                      builder: (context, child) {
+                        return Stack(
+                          children: _pages.asMap().entries.map((entry) {
+                            final index = entry.key;
+                            final item = entry.value;
+                            if (item is String) return const SizedBox.shrink();
+
+                            final isSelected = selectedIndex == index;
+                            if (!_renderedIndices.contains(index)) return const SizedBox.shrink();
+
+                            return AnimatedOpacity(
+                              key: ValueKey(index),
+                              duration: const Duration(milliseconds: 400),
+                              curve: Curves.easeOutCubic,
+                              opacity: isSelected ? 1.0 : 0.0,
+                              child: IgnorePointer(
+                                ignoring: !isSelected,
+                                child: AnimatedSlide(
+                                  duration: const Duration(milliseconds: 400),
+                                  curve: Curves.easeOutCubic,
+                                  offset: isSelected
+                                      ? Offset.zero
+                                      : (isPortrait ? const Offset(0, 0.05) : const Offset(0.02, 0)),
+                                  child: (item.$2 as Widget Function())(),
+                                ),
+                              ),
+                            );
+                          }).toList(),
                         );
                       },
-                      child: _pages[selectedIndex] is String ? const SizedBox.shrink() : _pages[selectedIndex].$2,
                     ),
                   ),
                 ],
@@ -259,7 +311,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                       child: MouseRegion(
                         cursor: SystemMouseCursors.click,
                         child: GestureDetector(
-                          onTap: () => setState(() => selectedIndex = 1),
+                          onTap: () => _onPageChanged(1),
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                             decoration: BoxDecoration(
@@ -349,7 +401,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                       child: InkWell(
-                        onTap: () => setState(() => selectedIndex = index),
+                        onTap: () => _onPageChanged(index),
                         borderRadius: BorderRadius.circular(12),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
@@ -562,5 +614,6 @@ class _NavDestination {
   final String title;
   final IconData icon;
   final IconData selectedIcon;
-  const _NavDestination(this.title, this.icon, this.selectedIcon);
+  final bool keepAlive;
+  const _NavDestination(this.title, this.icon, this.selectedIcon, {this.keepAlive = false});
 }

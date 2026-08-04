@@ -132,19 +132,31 @@ class Bloriko extends ChangeNotifier {
     notifyListeners();
   }
 
-  static String type = ConfigService.get("bloriko_type") ?? "default";
-  static String mode = ConfigService.get("bloriko_mode") ?? "auto";
+  static final ValueNotifier<String> typeNotifier = ValueNotifier(ConfigService.get("bloriko_type") ?? "default");
+  static final ValueNotifier<String> modeNotifier = ValueNotifier(ConfigService.get("bloriko_mode") ?? "auto");
+
+  static String get type => typeNotifier.value;
+  static set type(String value) {
+    if (typeNotifier.value == value) return;
+    typeNotifier.value = value;
+    ConfigService.set("bloriko_type", value);
+    instance.notifyListeners();
+  }
+
+  static String get mode => modeNotifier.value;
+  static set mode(String value) {
+    if (modeNotifier.value == value) return;
+    modeNotifier.value = value;
+    ConfigService.set("bloriko_mode", value);
+    instance.notifyListeners();
+  }
 
   static Future<void> setType(String newType) async {
     type = newType;
-    await ConfigService.set("bloriko_type", newType);
-    instance.notifyListeners();
   }
 
   static Future<void> setMode(String newMode) async {
     mode = newMode;
-    await ConfigService.set("bloriko_mode", newMode);
-    instance.notifyListeners();
   }
 
   static String key = "";

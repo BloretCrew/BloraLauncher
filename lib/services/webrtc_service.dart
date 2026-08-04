@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'live_service.dart';
@@ -13,6 +15,7 @@ class WebRTCManager {
   MediaStream? localScreenStream;
   Map<String, RTCPeerConnection> peers = {};
   Map<String,List<RTCIceCandidate>> pendingCandidates = {};
+  final Completer<void> _initCompleter = Completer<void>();
 
   final Set<String> _processedSignalHashes = {};
   final Set<String> _sentSignalHashes = {};
@@ -54,6 +57,8 @@ class WebRTCManager {
 
     } catch (e) {
       debugPrint("[WebRTC] getUserMedia error: $e");
+    } finally {
+      if (!_initCompleter.isCompleted) _initCompleter.complete();
     }
   }
 
@@ -113,6 +118,7 @@ class WebRTCManager {
       };
 
       await _updateAllPeersVideoTrack(track);
+      await _triggerRenegotiation(forceIceRestart: true);
       debugPrint("[WebRTC] Screen sharing started: ${track.label}");
 
     } catch (e) {
@@ -125,21 +131,18 @@ class WebRTCManager {
   Future<void> stopScreenShare() async {
     _screenEnabled = false;
 
-    // 先确定要回退到哪个轨道
     MediaStreamTrack? fallbackTrack;
     if (localStream != null && localStream!.getVideoTracks().isNotEmpty) {
       fallbackTrack = localStream!.getVideoTracks().first;
       fallbackTrack.enabled = _videoEnabled; 
     }
 
-    // 1. 先执行替换轨道，确保 Sender 切换到存活的轨道上
     await _updateAllPeersVideoTrack(fallbackTrack);
 
-    // 2. 然后再停止屏幕采集流
     if (localScreenStream != null) {
       for (final track in localScreenStream!.getTracks()) {
         try {
-          track.onEnded = null; // 移除监听，防止递归
+          track.onEnded = null;
           await track.stop();
         } catch (_) {}
       }
@@ -151,7 +154,7 @@ class WebRTCManager {
   }
 
   Future<void> _sendSignal(String target, String type, Map<String, dynamic> payload) async {
-    final String fingerprint = "$target-$type-${payload.toString().hashCode}";
+    final String fingerprint = "$target-$type-${jsonEncode(payload).hashCode}";
     
     if (_sentSignalHashes.contains(fingerprint)) {
       debugPrint("[WebRTC] Sent duplicate signal prevented: $type to $target");
@@ -165,6 +168,26 @@ class WebRTCManager {
       "type": type,
       "payload": payload
     });
+  }
+
+  Future<void> _triggerRenegotiation({bool forceIceRestart = false}) async {
+    for (final userId in peers.keys) {
+      final pc = peers[userId];
+      if (pc != null) {
+        try {
+          final offer = await pc.createOffer({
+            'offerToReceiveVideo': 1,
+            'offerToReceiveAudio': 1,
+            'iceRestart': forceIceRestart
+          });
+          await pc.setLocalDescription(offer);
+          await _sendSignal(userId, "offer", {"sdp": offer.sdp, "type": "offer"});
+          debugPrint("[WebRTC] Renegotiation offer sent to $userId (iceRestart: $forceIceRestart)");
+        } catch (e) {
+          debugPrint("[WebRTC] Renegotiation error for $userId: $e");
+        }
+      }
+    }
   }
 
   Future<void> _updateAllPeersVideoTrack(MediaStreamTrack? track) async {
@@ -191,11 +214,15 @@ class WebRTCManager {
   }
 
   Future<RTCPeerConnection> _createPeerConnection(String userId) async {
+    await _initCompleter.future;
+
     final Map<String, dynamic> config = {
       'iceServers': [
         {'urls': 'stun:stun.l.google.com:19302'},
+        {'urls': 'stun:stun1.l.google.com:19302'},
       ],
       'sdpSemantics': 'unified-plan',
+      'iceCandidatePoolSize': 10,
     };
 
     final pc = await createPeerConnection(config);
@@ -306,6 +333,13 @@ class WebRTCManager {
         if (pc != null) {
           debugPrint("[WebRTC] Applying answer from $from to PeerConnection");
           await pc.setRemoteDescription(RTCSessionDescription(payload['sdp'], 'answer'));
+          
+          final pending = pendingCandidates.remove(from);
+          if (pending != null) {
+            for (final candidate in pending) {
+              await pc.addCandidate(candidate).catchError((e) => debugPrint("[WebRTC] Pending ICE error: $e"));
+            }
+          }
         } else {
           debugPrint("[WebRTC] ERROR: Received answer from $from but no PeerConnection found!");
         }
@@ -320,12 +354,20 @@ class WebRTCManager {
         );
 
         final pc = peers[from];
-        if(pc != null){
-          await pc.addCandidate(candidate);
-          debugPrint("[WebRTC] Successfully added ICE candidate from $from (Frag: ${payload['usernameFragment'] ?? 'N/A'})");
+        bool canAdd = false;
+        if (pc != null) {
+          final remoteDesc = await pc.getRemoteDescription();
+          if (remoteDesc != null) {
+            canAdd = true;
+          }
+        }
+
+        if(canAdd){
+          await pc!.addCandidate(candidate).catchError((e) => debugPrint("[WebRTC] ICE error: $e"));
+          debugPrint("[WebRTC] Successfully added ICE candidate from $from");
         }else{
           pendingCandidates.putIfAbsent(from, () => []).add(candidate);
-          debugPrint("[WebRTC] Cached pending ICE candidate from $from (Connection not ready)");
+          debugPrint("[WebRTC] Cached pending ICE candidate from $from (PC or RemoteDesc not ready)");
         }
         break;
         

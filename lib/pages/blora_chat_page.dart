@@ -68,7 +68,8 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
         _sendMessage();
       } else {
         _loadHistoryList().then((_) {
-          if (_agent.messages.isEmpty && _historyList.isNotEmpty) {
+          bool isNewSessionState = ConfigService.get('blora_is_new_session_state') ?? false;
+          if (!isNewSessionState && _agent.messages.isEmpty && _historyList.isNotEmpty) {
             _loadSession(_historyList.first['filename']);
           }
         });
@@ -304,6 +305,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
   void _clearHistory() {
     if (_agent.busy) return;
     _agent.clearSession();
+    ConfigService.set('blora_is_new_session_state', true);
     setState(() {});
   }
 
@@ -351,10 +353,12 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       final data = {
         'title': _agent.conversationTitle,
         'messages': _agent.messages,
+        'agentType': Bloriko.type,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       };
 
       await file.writeAsString(jsonEncode(data));
+      ConfigService.set('blora_is_new_session_state', false);
       if (shouldRefreshList) {
         _loadHistoryList();
       }
@@ -406,6 +410,30 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       if (await file.exists()) {
         final content = await file.readAsString();
         final data = jsonDecode(content);
+
+        final String? savedType = data['agentType'];
+        if (savedType != null && savedType != Bloriko.type) {
+          final bool? result = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text(_tr("角色类型不匹配")),
+              content: Text(_tr("此对话上次使用的角色是「$savedType」，而当前是「${Bloriko.type}」。直接加载可能会导致上下文紊乱。")),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: Text(_tr("忽略并加载"))),
+                TextButton(onPressed: () {
+                  Bloriko.setType(savedType);
+                  Navigator.pop(context, true);
+                }, child: Text(_tr("切换为 $savedType"))),
+                FilledButton(onPressed: () {
+                  Navigator.pop(context, null);
+                  _clearHistory();
+                }, child: Text(_tr("开启新对话"))),
+              ],
+            ),
+          );
+          if (result == null) return;
+        }
+
         setState(() {
           _agent.messages.clear();
           _agent.messages.addAll(List<Map<String, dynamic>>.from(data['messages']));
@@ -413,6 +441,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
           _agent.currentSessionFile = filePath;
           _historyPanelOpen = false;
         });
+        ConfigService.set('blora_is_new_session_state', false);
         if (_agent.messages.isNotEmpty) _scrollToBottom();
       }
     } catch (e) {

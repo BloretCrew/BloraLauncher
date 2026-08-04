@@ -8,6 +8,9 @@ import 'package:http/http.dart' as http;
 class LiveService {
   static String get _baseUrl => "http://bloret.net:21111";
 
+  // 全局用户信息缓存
+  static final Map<String, Map<String, dynamic>> _userProfileCache = {};
+
   static Map<String, String> _getHeaders() {
     final session = ConfigService.get('Bloret_PassPort_BBBS_Session') ?? '';
     final sig = ConfigService.get('Bloret_PassPort_BBBS_Session.sig') ?? '';
@@ -65,13 +68,27 @@ class LiveService {
     }
   }
 
+  static Future<void> publishAiStats(String spaceId) async {
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/api/live/ai/$spaceId/stats'),
+        headers: _getHeaders(),
+        body: jsonEncode({"extractCount": 0, "messageCount": 0, "recordCount": 0, "hasSummary": false}),
+      );
+    } catch (e) {
+      // Ignore 304 or other errors for stats
+    }
+  }
+
   static Future<void> sendSignal(String spaceId, Map<String, dynamic> signalData) async {
     try {
-      print("[LiveService] sendSignal: $signalData");
-      await http.post(
-        Uri.parse('$_baseUrl/api/live/signal/$spaceId'),
-        headers: _getHeaders(),
-        body: jsonEncode(signalData),
+      print("[LiveService] sendSignal: ${signalData.toString().substring(0, 50)}");
+      await dio.Dio().post(
+        '$_baseUrl/api/live/signal/$spaceId',
+        options: dio.Options(
+          headers: _getHeaders(),
+        ),
+        data: jsonEncode(signalData),
       );
     } catch (e) {
       print("[LiveService] sendSignal error: $e");
@@ -159,6 +176,27 @@ class LiveService {
       if (!controller.isClosed) controller.close();
       debugPrint("[LiveService] SSE 资源已回收/连接关闭");
     }
+  }
+
+  static Future<Map<String, dynamic>?> fetchUserProfile(String username) async {
+    // 优先返回缓存
+    if (_userProfileCache.containsKey(username)) {
+      return _userProfileCache[username];
+    }
+    try {
+      final response = await http.get(
+        Uri.parse('https://bbs.bloret.net/api/user/profile/$username'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        _userProfileCache[username] = data; // 存入缓存
+        return data;
+      }
+    } catch (e) {
+      debugPrint("[LiveService] fetchUserProfile error: $e");
+    }
+    return null;
   }
 
   static Future<Map<String, dynamic>?> uploadImage(Uint8List bytes, String filename) async {

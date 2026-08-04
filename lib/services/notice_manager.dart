@@ -25,31 +25,36 @@ class NoticeManager {
     required String message,
     required IconData icon,
   }) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      bool isFirstTime = false;
-      if (_overlayEntry == null) {
-        isFirstTime = true;
-        
-        OverlayState? overlayState = overlay ?? (context != null ? Overlay.maybeOf(context) : null);
-        
-        if (overlayState == null) return;
+    bool isFirstTime = false;
+    if (_overlayEntry == null) {
+      isFirstTime = true;
+      OverlayState? overlayState = overlay ?? (context != null ? Overlay.maybeOf(context) : null);
+      if (overlayState == null) return;
 
-        _overlayEntry = OverlayEntry(
-          builder: (context) => NoticeOverlay(key: noticeOverlayKey),
-        );
-        overlayState.insert(_overlayEntry!);
-      }
+      _overlayEntry = OverlayEntry(
+        builder: (context) => NoticeOverlay(key: noticeOverlayKey),
+      );
+      overlayState.insert(_overlayEntry!);
+    }
 
-      final notice = Notice(message: message, icon: icon);
+    final notice = Notice(message: message, icon: icon);
 
-      if (isFirstTime) {
+    if (isFirstTime) {
+      // Need one frame to ensure NoticeOverlay is mounted
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        noticeOverlayKey.currentState?.addNotice(notice);
+      });
+    } else {
+      // If already exists, try to add immediately. 
+      // If it fails (e.g. called during build), fallback to post frame.
+      if (noticeOverlayKey.currentState != null) {
+        noticeOverlayKey.currentState!.addNotice(notice);
+      } else {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           noticeOverlayKey.currentState?.addNotice(notice);
         });
-      } else {
-        noticeOverlayKey.currentState?.addNotice(notice);
       }
-    });
+    }
   }
 
 

@@ -31,7 +31,9 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   Map<String, dynamic> _currentSpace = {};
   List<dynamic> _chatMessages = [];
   List<dynamic> _onlineUsers = [];
+  List<dynamic> _memberHistory = [];
   StreamSubscription? _eventSub;
+  Timer? _heartbeatTimer;
   final TextEditingController _chatController = TextEditingController();
   final ScrollController _chatScrollController = ScrollController();
 
@@ -48,6 +50,9 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   // EasyTier State
   Map<String, dynamic> _easytierState = {};
   bool _isStartingEasyTier = false;
+  bool _isUploadingImage = false;
+
+  final Map<String, Map<String, dynamic>> _userProfiles = {};
 
   @override
   void initState() {
@@ -63,6 +68,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   @override
   void dispose() {
     _eventSub?.cancel();
+    _heartbeatTimer?.cancel();
     _chatController.dispose();
     _chatScrollController.dispose();
     _rtcManager?.dispose();
@@ -105,8 +111,10 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
         _onlineUsers = List.from(space['users'] ?? []);
         _easytierState = space['easytier'] ?? {};
       });
+      _fetchAndStoreUserProfile(ConfigService.get("Bloret_PassPort_UserName") ?? "");
       _initWebRTC(spaceId);
       _startEventListener(spaceId);
+      _startHeartbeat(spaceId);
     } else {
       if (!mounted) return;
       noticeManager.show(context, message: res['message'] ?? "加入失败".tl, icon: Icons.error);
@@ -162,11 +170,23 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
     });
   }
 
+  Future<void> _fetchAndStoreUserProfile(String username) async {
+    if (_userProfiles.containsKey(username)) return;
+    final profile = await LiveService.fetchUserProfile(username);
+    if (profile != null && mounted) {
+      setState(() {
+        _userProfiles[username] = profile;
+      });
+    }
+  }
+
   void _startEventListener(String spaceId) {
     _eventSub?.cancel();
     _eventSub = LiveService.subscribeEvents(spaceId).listen((event) {
       if (!mounted) return;
       final type = event['type'];
+      
+      if (type == 'ping') return; // Ignore ping events
       
       // Handle WebRTC Signaling
       if (['offer', 'answer', 'ice-candidate', 'ice'].contains(type)) {
@@ -209,6 +229,21 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           _onlineUsers = event['users'] != null 
             ? event['users'].entries.map((e) => {'username': e.key, ...e.value}).toList()
             : [];
+          
+          _memberHistory = List.from(memberHistory);
+
+          for (var u in _onlineUsers) {
+            if (u != null && u['username'] != null) {
+              _fetchAndStoreUserProfile(u['username']);
+            }
+          }
+          
+          for (var m in _memberHistory) {
+            if (m != null && m['username'] != null) {
+              _fetchAndStoreUserProfile(m['username']);
+            }
+          }
+
           _easytierState = event['easytier'] ?? {};
           _scrollToBottom();
         } else if (type == 'chat') {
@@ -217,8 +252,26 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           });
           _scrollToBottom();
         } else if (type == 'user-joined') {
-          if (event['user'] != null) {
-            _onlineUsers.add(event['user']);
+          final username = event['from'] ?? event['user']?['username'];
+          if (username != null) {
+            final existingIdx = _onlineUsers.indexWhere((u) => u?['username'] == username);
+            final userData = {
+              'username': username,
+              ...(event['user'] is Map ? event['user'] : {}),
+              ...(event['state'] is Map ? event['state'] : {}),
+            };
+            
+            if (existingIdx == -1) {
+              _onlineUsers.add(userData);
+            } else {
+              _onlineUsers[existingIdx] = {...(_onlineUsers[existingIdx] as Map), ...userData};
+            }
+
+            if (!_memberHistory.any((m) => m['username'] == username)) {
+              _memberHistory.add({'username': username, 'joinTime': DateTime.now().millisecondsSinceEpoch});
+            }
+            
+            _fetchAndStoreUserProfile(username);
             _rtcManager?.handleSignal(event);
           }
         } else if (type == 'user-left') {
@@ -242,6 +295,18 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           _easytierState = event['payload'] ?? {};
         }
       });
+    });
+  }
+
+  void _startHeartbeat(String spaceId) {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (!_inSpace || !mounted) {
+        timer.cancel();
+        return;
+      }
+      LiveService.sendSignal(spaceId, {"target": null, "type": "ping"});
+      LiveService.publishAiStats(spaceId);
     });
   }
 
@@ -280,7 +345,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       "payload": {"msg": text}
     });
     _chatController.clear();
-    setState(() {}); // 强制刷新以更新发送按钮状态
+    setState(() {});
   }
 
   Future<void> _pickImage() async {
@@ -291,6 +356,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   }
 
   Future<void> _handlePaste() async {
+    if (_isUploadingImage) return;
     final image = await Pasteboard.image;
     if (image != null) {
       _uploadAndSendImage(image, "pasted_image.png");
@@ -298,28 +364,33 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   }
 
   Future<void> _uploadAndSendImage(Uint8List bytes, String filename) async {
-    final res = await LiveService.uploadImage(bytes, filename);
-    if (res != null && res['success'] == true) {
-      final url = "https://img.bloret.net${res['data']['url']}";
-      final markdown = "![image]($url)";
-      
-      final message = {
-        "from": ConfigService.get("Bloret_PassPort_UserName"),
-        "payload": {"msg": markdown},
-        "time": DateTime.now().millisecondsSinceEpoch
-      };
-      
-      setState(() {
-        _chatMessages = List.from(_chatMessages)..add(message);
-      });
-      _scrollToBottom();
-      
-      LiveService.sendSignal(_currentSpace['id'], {
-        "type": "chat",
-        "payload": {"msg": markdown}
-      });
-    } else {
-      if (mounted) noticeManager.show(context, message: "图片上传失败".tl, icon: Icons.error);
+    setState(() => _isUploadingImage = true);
+    try {
+      final res = await LiveService.uploadImage(bytes, filename);
+      if (res != null && res['success'] == true) {
+        final url = "https://img.bloret.net${res['data']['url']}";
+        final markdown = "![image]($url)";
+
+        final message = {
+          "from": ConfigService.get("Bloret_PassPort_UserName"),
+          "payload": {"msg": markdown},
+          "time": DateTime.now().millisecondsSinceEpoch
+        };
+
+        setState(() {
+          _chatMessages = List.from(_chatMessages)..add(message);
+        });
+        _scrollToBottom();
+
+        LiveService.sendSignal(_currentSpace['id'], {
+          "type": "chat",
+          "payload": {"msg": markdown}
+        });
+      } else {
+        if (mounted) noticeManager.show(context, message: "图片上传失败".tl, icon: Icons.error);
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingImage = false);
     }
   }
 
@@ -333,6 +404,89 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       }
     });
     _chatController.clear();
+  }
+
+  Widget _buildChatAvatar(String username, {double radius = 16}) {
+    final avatarUrl = _userProfiles[username]?['avatar'];
+    return GestureDetector(
+      onTap: () => _showUserProfileDialog(username),
+      child: Hero(
+        tag: 'avatar-$username',
+        child: CircleAvatar(
+          radius: radius,
+          backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+          child: avatarUrl == null ? Text(username[0].toUpperCase(), style: TextStyle(fontSize: radius * 0.75)) : null,
+        ),
+      ),
+    );
+  }
+
+  void _showUserProfileDialog(String username) {
+    final profile = _userProfiles[username];
+    showDialog(
+      context: context,
+      builder: (context) => Center(
+        child: Hero(
+          tag: 'avatar-$username',
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: const Offset(0, 4))],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 50,
+                    backgroundImage: profile?['avatar'] != null ? NetworkImage(profile!['avatar']) : null,
+                    child: profile?['avatar'] == null ? Text(username[0].toUpperCase(), style: const TextStyle(fontSize: 40)) : null,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(username, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  if (profile?['title'] != null) ...[
+                    const SizedBox(height: 4),
+                    _buildBadge(profile!['title'], Colors.blue),
+                  ],
+                  const SizedBox(height: 12),
+                  Text(profile?['bio']?.toString().isNotEmpty == true ? profile!['bio'] : "这个用户很懒，什么都没写".tl,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildProfileStat("帖子".tl, profile?['postCount'] ?? 0),
+                      _buildProfileStat("获赞".tl, profile?['receivedLikes'] ?? 0),
+                      _buildProfileStat("浏览".tl, profile?['totalViews'] ?? 0),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  BloretButton(
+                    text: "确定".tl,
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileStat(String label, dynamic count) {
+    return Column(
+      children: [
+        Text(count.toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      ],
+    );
   }
 
   void _showImageDialog(BuildContext context, String imageUrl, String heroTag) {
@@ -529,16 +683,25 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           child: Stack(
             children: [
               Hero(
-                tag: 'video-$name',
+                tag: 'avatar-$name',
                 child: showStream
                     ? RTCVideoView(
                   renderer!,
                   mirror: isLocal && _videoEnabled && !_screenEnabled,
                   objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                 )
-                    : Center(
-                  child: Icon(Icons.person, size: 48, color: Colors.white54, shadows: shadows),
-                ),
+                    : GestureDetector(
+                        onTap: () => _showUserProfileDialog(name),
+                        child: Center(
+                          child: _userProfiles[name]?['avatar'] != null 
+                            ? CircleAvatar(
+                                radius: 40,
+                                backgroundImage: NetworkImage(_userProfiles[name]!['avatar']),
+                                backgroundColor: Colors.white10,
+                              )
+                            : Icon(Icons.person, size: 48, color: Colors.white54, shadows: shadows),
+                        ),
+                      ),
               ),
               Positioned(
                 top: 8,
@@ -723,6 +886,8 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
 
               _eventSub?.cancel();
               _eventSub = null;
+              _heartbeatTimer?.cancel();
+              _heartbeatTimer = null;
               _rtcManager?.dispose();
               _rtcManager = null;
               _localRenderer.srcObject = null;
@@ -884,6 +1049,8 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           const SizedBox(height: 16),
           _buildOnlineUsersCard(cardColor, borderColor, secondaryColor),
           const SizedBox(height: 16),
+          _buildPastUsersCard(cardColor, borderColor, secondaryColor),
+          const SizedBox(height: 16),
           _buildChatCard(cardColor, borderColor, textColor, secondaryColor),
         ]),
       ),
@@ -985,15 +1152,54 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: borderColor)),
       child: Row(
         children: [
-          Text("${"在线: ".tl} ", style: TextStyle(color: secondaryColor, fontSize: 12)),
+          Text("${"在线".tl}: ", style: TextStyle(color: secondaryColor, fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(width: 8),
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: _onlineUsers.map((u) => Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Chip(label: Text(u?['username'] ?? "", style: const TextStyle(fontSize: 11)), padding: EdgeInsets.zero),
-                )).toList(),
+                children: _onlineUsers.map((u) {
+                  final username = u?['username'] ?? "";
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _buildChatAvatar(username, radius: 14),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPastUsersCard(Color cardColor, Color borderColor, Color secondaryColor) {
+    final onlineNames = _onlineUsers.map((u) => u?['username']).toSet();
+    final pastUsers = _memberHistory.where((m) => !onlineNames.contains(m['username'])).toList();
+    
+    if (pastUsers.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: borderColor)),
+      child: Row(
+        children: [
+          Text("${"往期".tl}: ", style: TextStyle(color: secondaryColor, fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: pastUsers.map((u) {
+                  final username = u?['username'] ?? "";
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Opacity(
+                      opacity: 0.5,
+                      child: _buildChatAvatar(username, radius: 14),
+                    ),
+                  );
+                }).toList(),
               ),
             ),
           ),
@@ -1114,45 +1320,61 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     child: Align(
                       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Column(
-                        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(sender, style: TextStyle(fontSize: 10, color: secondaryColor)),
-                          const SizedBox(height: 2),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: isMe ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : cardColor,
-                              borderRadius: BorderRadius.only(
-                                topLeft: Radius.circular(isMe ? 12 : 0),
-                                topRight: Radius.circular(isMe ? 0 : 12),
-                                bottomLeft: const Radius.circular(12),
-                                bottomRight: const Radius.circular(12),
-                              ),
-                              border: Border.all(color: borderColor),
-                            ),
-                            child: text.startsWith("![") 
-                              ? InkWell(
-                                  onTap: () {
-                                    final regExp = RegExp(r'!\[.*?\]\((.*?)\)');
-                                    final match = regExp.firstMatch(text);
-                                    if (match != null) {
-                                      final url = match.group(1);
-                                      if (url != null) {
-                                        _showImageDialog(context, url, 'chat_img_${msg['time'] ?? index}');
-                                      }
-                                    }
-                                  },
-                                  child: Hero(
-                                    tag: 'chat_img_${msg['time'] ?? index}',
-                                    child: ConstrainedBox(
-                                      constraints: const BoxConstraints(maxWidth: 300, maxHeight: 200),
-                                      child: GptMarkdown(text),
+                          if (!isMe) ...[
+                            _buildChatAvatar(sender),
+                            const SizedBox(width: 8),
+                          ],
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                              children: [
+                                Text(sender, style: TextStyle(fontSize: 10, color: secondaryColor)),
+                                const SizedBox(height: 2),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isMe ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : cardColor,
+                                    borderRadius: BorderRadius.only(
+                                      topLeft: Radius.circular(isMe ? 12 : 0),
+                                      topRight: Radius.circular(isMe ? 0 : 12),
+                                      bottomLeft: const Radius.circular(12),
+                                      bottomRight: const Radius.circular(12),
                                     ),
+                                    border: Border.all(color: borderColor),
                                   ),
-                                )
-                              : Text(text, style: TextStyle(fontSize: 14, color: textColor)),
+                                  child: text.startsWith("![") 
+                                    ? InkWell(
+                                        onTap: () {
+                                          final regExp = RegExp(r'!\[.*?\]\((.*?)\)');
+                                          final match = regExp.firstMatch(text);
+                                          if (match != null) {
+                                            final url = match.group(1);
+                                            if (url != null) {
+                                              _showImageDialog(context, url, 'chat_img_${msg['time'] ?? index}');
+                                            }
+                                          }
+                                        },
+                                        child: Hero(
+                                          tag: 'chat_img_${msg['time'] ?? index}',
+                                          child: ConstrainedBox(
+                                            constraints: const BoxConstraints(maxWidth: 300, maxHeight: 200),
+                                            child: GptMarkdown(text),
+                                          ),
+                                        ),
+                                      )
+                                    : Text(text, style: TextStyle(fontSize: 14, color: textColor)),
+                                ),
+                              ],
+                            ),
                           ),
+                          if (isMe) ...[
+                            const SizedBox(width: 8),
+                            _buildChatAvatar(sender),
+                          ],
                         ],
                       ),
                     ),
@@ -1205,29 +1427,34 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                             if (!isShift) { _sendMessage(); return KeyEventResult.handled; }
                           } else if (event.logicalKey == LogicalKeyboardKey.keyV) {
                             final isCtrl = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlRight) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.metaLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.metaRight);
-                            if (isCtrl) { _handlePaste(); return KeyEventResult.handled; }
+                            if (isCtrl) {
+                              _handlePaste();
+                              // return ignored to allow normal text paste if it's text
+                              return KeyEventResult.ignored;
+                            }
                           }
                         }
                         return KeyEventResult.ignored;
                       },
                       child: TextField(
                         controller: _chatController,
+                        enabled: !_isUploadingImage,
                         maxLines: null,
                         keyboardType: TextInputType.multiline,
                         textAlignVertical: TextAlignVertical.center,
                         decoration: InputDecoration(
-                          hintText: "输入消息...".tl,
+                          hintText: _isUploadingImage ? "正在上传图片...".tl : "输入消息...".tl,
                           border: InputBorder.none,
                           isDense: true,
                           contentPadding: const EdgeInsets.symmetric(vertical: 0),
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.image_outlined, size: 20),
-                            onPressed: _pickImage,
+                            onPressed: _isUploadingImage ? null : _pickImage,
                             tooltip: "发送图片".tl,
                           ),
                         ),
                         onChanged: (_) => setState(() {}),
-                        onSubmitted: (_) => _sendMessage(),
+                        onSubmitted: (_) => _isUploadingImage ? null : _sendMessage(),
                         textInputAction: TextInputAction.newline,
                         style: TextStyle(fontSize: 14, color: textColor),
                       ),
@@ -1237,8 +1464,10 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 const SizedBox(width: 10),
                 IconButton.filled(
                   padding: const EdgeInsets.all(12),
-                  icon: const Icon(Icons.send, size: 20, shadows: [Shadow(color: Colors.black26, offset: Offset(0, 1), blurRadius: 4)]),
-                  onPressed: _sendMessage,
+                  icon: _isUploadingImage 
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.send, size: 20, shadows: [Shadow(color: Colors.black26, offset: Offset(0, 1), blurRadius: 4)]),
+                  onPressed: _isUploadingImage ? null : _sendMessage,
                 ),
               ],
             ),

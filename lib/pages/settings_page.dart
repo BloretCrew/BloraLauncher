@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:bloret_launcher/main.dart';
+import 'package:bloret_launcher/pages/bloriko_page.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/update_manager.dart';
+import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/google_widgets.dart';
 import 'package:bloret_launcher/widgets/log_viewer.dart';
 import 'package:bloret_launcher/widgets/windows_widgets.dart';
@@ -172,7 +174,7 @@ class _SettingsPageState extends State<SettingsPage> {
             "检查并安装热更新补丁 (当前: $_hotfixVersion)", 
             Icons.update, 
             trailing: _isCheckingUpdate 
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const Padding(padding: EdgeInsets.only(right: 6), child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2)))
               : IconButton(
                 icon: const Icon(Icons.refresh),
                 onPressed: () async {
@@ -217,7 +219,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                     children: [
                                       const SizedBox(height: 8),
                                       if (isIndeterminate)
-                                        const LinearProgressIndicator() // 不定进度条
+                                        const LinearProgressIndicator()
                                       else
                                         GoogleSquigglySlider(value: p * 100, max: 100,),
                                       const SizedBox(height: 12),
@@ -274,6 +276,9 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             )
           ),
+          _buildSettingItem("通知", "显示一个测试通知", Icons.notifications_active, trailing: BloretButton(text: "显示", onPressed: () {
+            noticeManager.show(context, message: "这是一个测试通知", icon: Icons.info);
+          })),
         ],
         const SizedBox(height: 24),
         const Text("设置界面大部分内容需要重启程序后生效。", style: TextStyle(fontSize: 12, color: Colors.grey)),
