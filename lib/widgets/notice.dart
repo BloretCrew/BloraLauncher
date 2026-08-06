@@ -6,10 +6,14 @@ class Notice {
   final String id;
   final String message;
   final IconData icon;
+  final bool continueOnHover;
+  final int durationMs;
 
   Notice({
     required this.message,
     required this.icon,
+    this.continueOnHover = false,
+    this.durationMs = 5000,
   }) : id = UniqueKey().toString();
 
   @override
@@ -38,7 +42,6 @@ class NoticeOverlayState extends State<NoticeOverlay> {
   bool _isHovered = false;
   Timer? _ticker;
 
-  static const int _totalDurationMs = 5000;
   static const double _cardHeight = 64.0;
   static const double _stackOffset = 6.0;
 
@@ -46,13 +49,16 @@ class NoticeOverlayState extends State<NoticeOverlay> {
   void initState() {
     super.initState();
     _ticker = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-      if (_isHovered || _notices.isEmpty) return;
+      if (_notices.isEmpty) return;
+
+      final activeNotice = _notices.first;
+      if (_isHovered && !activeNotice.continueOnHover) return;
 
       setState(() {
         // Only the bottom-most (first in list) notice's timer counts down
-        final activeId = _notices.first.id;
+        final activeId = activeNotice.id;
         if (!_enteringIds.contains(activeId)) {
-          _remainingMs[activeId] = (_remainingMs[activeId] ?? _totalDurationMs) - 100;
+          _remainingMs[activeId] = (_remainingMs[activeId] ?? activeNotice.durationMs) - 100;
           if (_remainingMs[activeId]! <= 0) {
             _removeWithAnimation(activeId);
           }
@@ -65,7 +71,7 @@ class NoticeOverlayState extends State<NoticeOverlay> {
     if (!mounted) return;
     setState(() {
       _notices.add(notice); 
-      _remainingMs[notice.id] = _totalDurationMs;
+      _remainingMs[notice.id] = notice.durationMs;
       _enteringIds.add(notice.id);
     });
     

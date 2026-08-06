@@ -24,6 +24,8 @@ class NoticeManager {
     OverlayState? overlay,
     required String message,
     required IconData icon,
+    bool continueOnHover = false,
+    int duration = 5000,
   }) {
     bool isFirstTime = false;
     if (_overlayEntry == null) {
@@ -37,7 +39,7 @@ class NoticeManager {
       overlayState.insert(_overlayEntry!);
     }
 
-    final notice = Notice(message: message, icon: icon);
+    final notice = Notice(message: message, icon: icon, continueOnHover: continueOnHover, durationMs: duration);
 
     if (isFirstTime) {
       // Need one frame to ensure NoticeOverlay is mounted

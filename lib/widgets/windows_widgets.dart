@@ -3,7 +3,14 @@ import 'package:flutter/material.dart';
 class Win11DropdownItem {
   final String label;
   final String value;
-  const Win11DropdownItem({required this.label, required this.value});
+  final IconData? icon;
+  final List<Win11DropdownItem>? children;
+  const Win11DropdownItem({
+    required this.label,
+    required this.value,
+    this.icon,
+    this.children,
+  });
 }
 
 class Win11Dropdown extends StatefulWidget {
@@ -12,6 +19,14 @@ class Win11Dropdown extends StatefulWidget {
   final ValueChanged<String?>? onChanged;
   final Color? themeColor;
   final double height;
+  final double? width;
+  final EdgeInsetsGeometry? padding;
+  final BorderRadius? borderRadius;
+  final BoxDecoration? decoration;
+  final BoxDecoration? overlayDecoration;
+  final TextStyle? textStyle;
+  final TextStyle? overlayTextStyle;
+  final Widget? dropdownIcon;
 
   const Win11Dropdown({
     super.key,
@@ -20,6 +35,14 @@ class Win11Dropdown extends StatefulWidget {
     required this.onChanged,
     this.themeColor,
     this.height = 32,
+    this.width,
+    this.padding,
+    this.borderRadius,
+    this.decoration,
+    this.overlayDecoration,
+    this.textStyle,
+    this.overlayTextStyle,
+    this.dropdownIcon,
   });
 
   @override
@@ -33,7 +56,6 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
   late AnimationController _animController;
   late Animation<double> _expandAnimation;
   final LayerLink _layerLink = LayerLink();
-  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -50,8 +72,15 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
   }
 
   @override
+  void didUpdateWidget(Win11Dropdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialValue != oldWidget.initialValue) {
+      _selectedValue = widget.initialValue;
+    }
+  }
+
+  @override
   void dispose() {
-    _scrollController.dispose();
     _animController.dispose();
     super.dispose();
   }
@@ -72,6 +101,7 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
   }
 
   void _closeMenu() {
+    if (!_isOpen) return;
     _animController.reverse().then((_) {
       _overlayEntry?.remove();
       _overlayEntry = null;
@@ -84,186 +114,48 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
   }
 
   OverlayEntry _createOverlayEntry() {
-    final renderBox = context.findRenderObject() as RenderBox;
+    final RenderBox renderBox = context.findRenderObject() as RenderBox;
     final size = renderBox.size;
-
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final themeColor = _getThemeColor(context);
-
-    final renderBoxOverlay =
-    Overlay.of(context).context.findRenderObject() as RenderBox;
-
+    final RenderBox overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox;
     final globalPosition = renderBox.localToGlobal(Offset.zero);
 
-    final double spaceBelow =
-        renderBoxOverlay.size.height -
-            (globalPosition.dy + size.height);
-
+    final double spaceBelow = overlayBox.size.height - (globalPosition.dy + size.height);
     final double spaceAbove = globalPosition.dy;
-
-    final bool showAbove = spaceBelow < 230 && spaceAbove > spaceBelow;
+    final bool showAbove = spaceBelow < 280 && spaceAbove > spaceBelow;
 
     return OverlayEntry(
       builder: (context) {
         return Stack(
           children: [
-            ModalBarrier(
-              color: Colors.transparent,
-              dismissible: true,
-              onDismiss: _closeMenu,
+            GestureDetector(
+              onTap: _closeMenu,
+              behavior: HitTestBehavior.translucent,
+              child: Container(color: Colors.transparent),
             ),
-
             CompositedTransformFollower(
               link: _layerLink,
               showWhenUnlinked: false,
-
-              targetAnchor: showAbove
-                  ? Alignment.topLeft
-                  : Alignment.bottomLeft,
-
-              followerAnchor: showAbove
-                  ? Alignment.bottomLeft
-                  : Alignment.topLeft,
-
-              offset: const Offset(0, 4),
-
+              targetAnchor: showAbove ? Alignment.topLeft : Alignment.bottomLeft,
+              followerAnchor: showAbove ? Alignment.bottomLeft : Alignment.topLeft,
+              offset: Offset(0, showAbove ? -4 : 4),
               child: Material(
                 color: Colors.transparent,
-                child: SizeTransition(
-                  sizeFactor: _expandAnimation,
-
-                  alignment: Alignment.center,
-
-                  child: Container(
-                    width: size.width,
-
-                    constraints: const BoxConstraints(
-                      maxHeight: 220,
-                    ),
-
-                    decoration: BoxDecoration(
-                      color: isDarkMode
-                          ? Color.alphaBlend(
-                        themeColor.withValues(alpha: 0.03),
-                        const Color(0xFF2C2C2C),
-                      )
-                          : Color.alphaBlend(
-                        themeColor.withValues(alpha: 0.05),
-                        Colors.white.withValues(alpha: 0.95),
-                      ),
-
-                      border: Border.all(
-                        color: themeColor.withValues(
-                          alpha: 0.35,
-                        ),
-                        width: 1,
-                      ),
-
-                      borderRadius: BorderRadius.circular(8),
-
-                      boxShadow: [
-                        BoxShadow(
-                          color: themeColor.withValues(
-                            alpha: isDarkMode ? 0.25 : 0.15,
-                          ),
-                          blurRadius: 15,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-
-                    child: Scrollbar(
-                      controller: _scrollController,
-                      thumbVisibility: true,
-
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        shrinkWrap: true,
-
-                        itemCount: widget.items.length,
-
-                        itemBuilder: (context, index) {
-                          final item = widget.items[index];
-                          final isSelected =
-                              item.value == _selectedValue;
-
-                          bool isHovered = false;
-
-                          return StatefulBuilder(
-                            builder: (context, setState) {
-                              return MouseRegion(
-                                onEnter: (_) =>
-                                    setState(() => isHovered = true),
-                                onExit: (_) =>
-                                    setState(() => isHovered = false),
-
-                                child: GestureDetector(
-                                  onTap: () {
-                                    setState(() =>
-                                    _selectedValue = item.value);
-
-                                    widget.onChanged
-                                        ?.call(item.value);
-
-                                    _closeMenu();
-                                  },
-
-                                  child: Container(
-                                    height: 32,
-                                    margin:
-                                    const EdgeInsets.symmetric(
-                                      horizontal: 4,
-                                      vertical: 1,
-                                    ),
-
-                                    decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? themeColor.withValues(
-                                          alpha: 0.2)
-                                          : isHovered
-                                          ? Colors.black12
-                                          : Colors.transparent,
-
-                                      borderRadius:
-                                      BorderRadius.circular(4),
-                                    ),
-
-                                    alignment:
-                                    Alignment.centerLeft,
-
-                                    padding:
-                                    const EdgeInsets.only(
-                                      left: 16,
-                                      right: 12,
-                                    ),
-
-                                    child: Text(
-                                      item.label,
-
-                                      overflow:
-                                      TextOverflow.ellipsis,
-
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: isDarkMode
-                                            ? const Color(
-                                            0xFFF3F3F3)
-                                            : const Color(
-                                            0xFF1A1A1A),
-
-                                        fontWeight: isSelected
-                                            ? FontWeight.w600
-                                            : FontWeight.normal,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
+                child: IntrinsicWidth(
+                  child: SizeTransition(
+                    sizeFactor: _expandAnimation,
+                    alignment: showAbove ? Alignment.bottomCenter : Alignment.topCenter,
+                    child: _Win11MenuContent(
+                      items: widget.items,
+                      width: widget.width, // 为null时将由子项宽度决定
+                      selectedValue: _selectedValue,
+                      themeColor: _getThemeColor(context),
+                      onChanged: (val) {
+                        setState(() => _selectedValue = val);
+                        widget.onChanged?.call(val);
+                        _closeMenu();
+                      },
+                      decoration: widget.overlayDecoration,
+                      textStyle: widget.overlayTextStyle,
                     ),
                   ),
                 ),
@@ -277,79 +169,342 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
     final themeColor = _getThemeColor(context);
-    final selectedItem = widget.items.firstWhere(
-          (item) => item.value == _selectedValue,
-      orElse: () => Win11DropdownItem(label: '请选择', value: ''),
-    );
+    
+    Win11DropdownItem? findSelected(List<Win11DropdownItem> items) {
+      for (var item in items) {
+        if (item.value == _selectedValue) return item;
+        if (item.children != null) {
+          var found = findSelected(item.children!);
+          if (found != null) return found;
+        }
+      }
+      return null;
+    }
 
-    // ccb----, ccb---- cccb cc ccb
-    return CompositedTransformTarget(
-      link: _layerLink,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: _toggleMenu,
+    final selectedItem = findSelected(widget.items);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: _toggleMenu,
+        child: CompositedTransformTarget(
+          link: _layerLink,
           child: Container(
             height: widget.height,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
+            width: widget.width,
+            padding: widget.padding ?? const EdgeInsets.symmetric(horizontal: 12),
+            decoration: widget.decoration ?? BoxDecoration(
               color: isDarkMode
-                  ? Color.alphaBlend(
-                themeColor.withValues(alpha: 0.04),
-                const Color(0xFF202020),
-              )
-                  : Colors.white.withValues(alpha: 0.8),
-
+                  ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6)
+                  : Colors.white.withValues(alpha: 0.95),
               border: Border.all(
-                color: _isOpen
-                    ? themeColor
-                    : themeColor.withValues(
-                  alpha: isDarkMode ? 0.45 : 0.35,
-                ),
-                width: _isOpen ? 2 : 1,
+                color: _isOpen 
+                    ? themeColor 
+                    : (isDarkMode ? Colors.white.withValues(alpha: 0.4) : Colors.black.withValues(alpha: 0.25)),
+                width: _isOpen ? 1.5 : 1.0,
               ),
-
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: widget.borderRadius ?? BorderRadius.circular(6),
             ),
-
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(
+                Flexible(
                   child: Text(
-                    selectedItem.value.isEmpty
-                        ? '请选择'
-                        : selectedItem.label,
-
-                    style: TextStyle(
+                    selectedItem?.label ?? '请选择',
+                    style: widget.textStyle ?? TextStyle(
                       fontSize: 13,
-                      color: isDarkMode
-                          ? const Color(0xFFF3F3F3)
-                          : const Color(0xFF1A1A1A),
+                      fontWeight: FontWeight.w500,
+                      color: isDarkMode ? const Color(0xFFF3F3F3) : const Color(0xFF1A1A1A),
                     ),
-
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-
+                const SizedBox(width: 6),
                 RotationTransition(
-                  turns: Tween(
-                    begin: 0.0,
-                    end: 0.5,
-                  ).animate(_animController),
-
-                  child: Icon(
+                  turns: Tween(begin: 0.0, end: 0.5).animate(_animController),
+                  child: widget.dropdownIcon ?? Icon(
                     Icons.keyboard_arrow_down,
                     size: 16,
-                    color: isDarkMode
-                        ? const Color(0xFFA0A0A0)
-                        : themeColor,
+                    color: isDarkMode ? Colors.white70 : themeColor,
                   ),
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Win11MenuContent extends StatelessWidget {
+  final List<Win11DropdownItem> items;
+  final double? width;
+  final String? selectedValue;
+  final Color themeColor;
+  final ValueChanged<String?> onChanged;
+  final BoxDecoration? decoration;
+  final TextStyle? textStyle;
+
+  const _Win11MenuContent({
+    required this.items,
+    this.width,
+    this.selectedValue,
+    required this.themeColor,
+    required this.onChanged,
+    this.decoration,
+    this.textStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+    
+    return Container(
+      width: width,
+      constraints: const BoxConstraints(maxHeight: 400, minWidth: 120),
+      decoration: decoration ?? BoxDecoration(
+        color: isDarkMode ? const Color(0xFF2C2C2C) : Colors.white,
+        border: Border.all(
+          color: isDarkMode ? Colors.white.withValues(alpha: 0.3) : Colors.black.withValues(alpha: 0.15),
+          width: 1,
+        ),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Material(
+          color: Colors.transparent,
+          child: Scrollbar(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: items.map((item) {
+                  if (item.children != null && item.children!.isNotEmpty) {
+                    return _Win11SubmenuItem(
+                      item: item,
+                      themeColor: themeColor,
+                      selectedValue: selectedValue,
+                      onChanged: onChanged,
+                      textStyle: textStyle,
+                    );
+                  }
+                  return _Win11MenuItem(
+                    item: item,
+                    isSelected: item.value == selectedValue,
+                    themeColor: themeColor,
+                    onTap: () => onChanged(item.value),
+                    textStyle: textStyle,
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Win11MenuItem extends StatefulWidget {
+  final Win11DropdownItem item;
+  final bool isSelected;
+  final Color themeColor;
+  final VoidCallback onTap;
+  final TextStyle? textStyle;
+
+  const _Win11MenuItem({
+    required this.item,
+    required this.isSelected,
+    required this.themeColor,
+    required this.onTap,
+    this.textStyle,
+  });
+
+  @override
+  State<_Win11MenuItem> createState() => _Win11MenuItemState();
+}
+
+class _Win11MenuItemState extends State<_Win11MenuItem> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          height: 32,
+          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          decoration: BoxDecoration(
+            color: widget.isSelected
+                ? widget.themeColor.withValues(alpha: 0.15)
+                : _isHovered ? (isDarkMode ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05)) : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              if (widget.item.icon != null) ...[
+                Icon(widget.item.icon, size: 16, color: isDarkMode ? Colors.white70 : Colors.black54),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  widget.item.label,
+                  style: widget.textStyle ?? TextStyle(
+                    fontSize: 13,
+                    color: isDarkMode ? const Color(0xFFF3F3F3) : const Color(0xFF1A1A1A),
+                    fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (widget.isSelected)
+                Icon(Icons.check, size: 14, color: widget.themeColor),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Win11SubmenuItem extends StatefulWidget {
+  final Win11DropdownItem item;
+  final Color themeColor;
+  final String? selectedValue;
+  final ValueChanged<String?> onChanged;
+  final TextStyle? textStyle;
+
+  const _Win11SubmenuItem({
+    required this.item,
+    required this.themeColor,
+    this.selectedValue,
+    required this.onChanged,
+    this.textStyle,
+  });
+
+  @override
+  State<_Win11SubmenuItem> createState() => _Win11SubmenuItemState();
+}
+
+class _Win11SubmenuItemState extends State<_Win11SubmenuItem> {
+  OverlayEntry? _submenuEntry;
+  bool _isHovered = false;
+  final LayerLink _submenuLink = LayerLink();
+
+  void _showSubmenu() {
+    if (_submenuEntry != null) return;
+    
+    final RenderBox renderBox = context.findRenderObject() as RenderBox;
+    final size = renderBox.size;
+    final RenderBox overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final globalPosition = renderBox.localToGlobal(Offset.zero);
+
+    // 探测空间，宽度假设为160
+    final bool canShowRight = globalPosition.dx + size.width + 160 < overlayBox.size.width - 10;
+
+    _submenuEntry = OverlayEntry(
+      builder: (context) {
+        return Stack(
+          children: [
+            GestureDetector(
+              onTap: _hideSubmenu,
+              behavior: HitTestBehavior.translucent,
+              child: Container(color: Colors.transparent),
+            ),
+            CompositedTransformFollower(
+              link: _submenuLink,
+              showWhenUnlinked: false,
+              targetAnchor: canShowRight ? Alignment.topRight : Alignment.topLeft,
+              followerAnchor: canShowRight ? Alignment.topLeft : Alignment.topRight,
+              offset: Offset(canShowRight ? 4 : -4, -4),
+              child: IntrinsicWidth(
+                child: _Win11MenuContent(
+                  items: widget.item.children!,
+                  selectedValue: widget.selectedValue,
+                  themeColor: widget.themeColor,
+                  onChanged: (val) {
+                    widget.onChanged(val);
+                    _hideSubmenu();
+                  },
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    Overlay.of(context).insert(_submenuEntry!);
+  }
+
+  void _hideSubmenu() {
+    _submenuEntry?.remove();
+    _submenuEntry = null;
+  }
+
+  @override
+  void dispose() {
+    _hideSubmenu();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    return CompositedTransformTarget(
+      link: _submenuLink,
+      child: MouseRegion(
+        onEnter: (_) {
+          setState(() => _isHovered = true);
+          _showSubmenu();
+        },
+        onExit: (event) {
+          setState(() => _isHovered = false);
+        },
+        child: Container(
+          height: 32,
+          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          decoration: BoxDecoration(
+            color: _isHovered ? (isDarkMode ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05)) : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              if (widget.item.icon != null) ...[
+                Icon(widget.item.icon, size: 16, color: isDarkMode ? Colors.white70 : Colors.black54),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  widget.item.label,
+                  style: widget.textStyle ?? TextStyle(
+                    fontSize: 13,
+                    color: isDarkMode ? const Color(0xFFF3F3F3) : const Color(0xFF1A1A1A),
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Icon(Icons.keyboard_arrow_right, size: 16, color: isDarkMode ? Colors.white38 : Colors.black38),
+            ],
           ),
         ),
       ),

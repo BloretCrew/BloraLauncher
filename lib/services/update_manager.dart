@@ -12,7 +12,7 @@ import 'package:path/path.dart' as p;
 import '../tools/isolate.dart';
 import 'config_service.dart';
 
-const currentVersion = "0.0.5";
+const currentVersion = "0.0.6";
 
 class UpdateInfo {
   final String version;

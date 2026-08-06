@@ -15,6 +15,7 @@ import 'package:image/image.dart' hide Image, Color;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pasteboard/pasteboard.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 import '../main.dart';
 import '../services/config_service.dart';
@@ -26,7 +27,7 @@ class BloraChatPage extends StatefulWidget {
   State<BloraChatPage> createState() => _BloraChatPageState();
 }
 
-class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveClientMixin {
+class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   bool _historyPanelOpen = false;
   final TextEditingController _inputController = TextEditingController();
   final TextEditingController _inputAnswerController = TextEditingController();
@@ -44,8 +45,24 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
   final List<File> _attachments = [];
   final GlobalKey<AnimatedListState> _listKey = GlobalKey<AnimatedListState>();
   bool _isDocumentMode = false;
+  bool _isRecording = false;
+  String _textBeforeSpeech = "";
+
+  final SpeechToText _speechToText = SpeechToText();
+  bool _speechEnabled = false;
+  static const int _maxTotalAttachmentSize = 5 * 1024 * 1024;
 
   Bloriko get _agent => Bloriko.instance;
+
+  Future<int> _calculateTotalAttachmentSize() async {
+    int total = 0;
+    for (var file in _attachments) {
+      if (await file.exists()) {
+        total += await file.length();
+      }
+    }
+    return total;
+  }
 
   @override
   bool get wantKeepAlive => true;
@@ -57,6 +74,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       if (mounted) setState(() => _isFocused = _focusNode.hasFocus);
     });
     _loadModels();
+    _initSpeech();
 
     _agent.addListener(_onAgentStateChanged);
 
@@ -87,7 +105,18 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
   }
 
   @override
+  void deactivate() {
+    if (_isRecording) {
+      _stopRecording();
+    }
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
+    if (_isRecording) {
+      _speechToText.cancel();
+    }
     _inputController.dispose();
     _inputAnswerController.dispose();
     _msgScrollController.dispose();
@@ -200,6 +229,9 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
   }
 
   Future<void> _sendMessage() async {
+    if (_isRecording) {
+      await _stopRecording();
+    }
     final text = _inputController.text.trim();
     if (text.isEmpty && _attachments.isEmpty) {
       _inputController.clear();
@@ -413,6 +445,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
 
         final String? savedType = data['agentType'];
         if (savedType != null && savedType != Bloriko.type) {
+          if (!mounted) return;
           final bool? result = await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
@@ -434,6 +467,7 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
           if (result == null) return;
         }
 
+        if (!mounted) return;
         setState(() {
           _agent.messages.clear();
           _agent.messages.addAll(List<Map<String, dynamic>>.from(data['messages']));
@@ -672,16 +706,18 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       ],
     );
     if (result != null) {
+      int currentTotal = await _calculateTotalAttachmentSize();
       for (var path in result.paths) {
         if (path != null) {
           final file = File(path);
           final bytes = await file.length();
-          if (bytes > 3 * 1024 * 1024) {
+          if (currentTotal + bytes > _maxTotalAttachmentSize) {
             if (mounted) {
-              noticeManager.show(context, message: "${_tr("文件")} ${p.basename(file.path)} ${_tr("超过 3MB，无法添加")}", icon: Icons.warning);
+              noticeManager.show(context, message: _tr("附件总大小超过 5MB，无法添加更多文件"), icon: Icons.warning);
             }
-            continue;
+            break;
           }
+          currentTotal += bytes;
           _attachments.add(file);
           _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
         }
@@ -698,10 +734,98 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       (context, animation) => _buildAttachmentItem(removedFile, animation, -1),
       duration: const Duration(milliseconds: 250),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  Future<void> _initSpeech() async {
+    try {
+      _speechEnabled = await _speechToText.initialize(
+        onError: (val) => debugPrint('Speech error: $val'),
+        onStatus: _onSpeechStatus,
+      );
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Speech init failed: $e');
+    }
+  }
+
+  void _onSpeechStatus(String status) {
+    debugPrint('Speech status: $status');
+    if (status == 'done' || status == 'notListening') {
+      if (mounted && _isRecording) {
+        setState(() => _isRecording = false);
+      }
+    }
+  }
+
+  void _toggleRecording() async {
+    if (_agent.busy) return;
+    if (!_speechEnabled) {
+      await _initSpeech();
+      if (!_speechEnabled) {
+        if (mounted) noticeManager.show(context, message: _tr("语音权限未授予或不可用"), icon: Icons.warning);
+        return;
+      }
+    }
+
+    if (_isRecording) {
+      _stopRecording();
+    } else {
+      _startListening();
+    }
+  }
+
+  void _startListening() async {
+    _textBeforeSpeech = _inputController.text;
+
+    setState(() {
+      _isRecording = true;
+    });
+
+    try {
+      await _speechToText.listen(
+        onResult: (result) {
+          setState(() {
+            final newText = _textBeforeSpeech + result.recognizedWords;
+            _inputController.value = TextEditingValue(
+              text: newText,
+              selection: TextSelection.collapsed(offset: newText.length),
+            );
+          });
+          if (result.finalResult) {
+            _stopRecording();
+          }
+        },
+        listenOptions: SpeechListenOptions(
+          localeId: 'zh_CN',
+          partialResults: true,
+          cancelOnError: false,
+          listenMode: ListenMode.dictation,
+        ),
+      );
+      if (mounted) noticeManager.show(context, message: _tr("正在聆听..."), icon: Icons.mic, continueOnHover: true, duration: 2000);
+    } catch (e) {
+      debugPrint("Speech listen error: $e");
+      setState(() {
+        _isRecording = false;
+      });
+      if (mounted) noticeManager.show(context, message: _tr("语音识别启动失败"), icon: Icons.error);
+    }
+    _focusNode.requestFocus();
+  }
+
+  Future<void> _stopRecording() async {
+    _isRecording = false;
     setState(() {});
+    await _speechToText.stop();
+    if (!mounted) return;
+    _focusNode.requestFocus();
   }
 
   Future<void> _handlePaste() async {
+    final isInputInitiallyEmpty = _inputController.text.trim().isEmpty;
     try {
       final List<String> files = await Pasteboard.files();
       if (files.isNotEmpty) {
@@ -711,17 +835,21 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
           '.jpg', '.jpeg', '.png', '.gif', '.webp'
         };
 
+        int currentTotal = await _calculateTotalAttachmentSize();
         for (var path in files) {
           final file = File(path);
           final ext = p.extension(path).toLowerCase();
           final bytes = await file.length();
-          if (bytes > 3 * 1024 * 1024) {
+
+          if (currentTotal + bytes > _maxTotalAttachmentSize) {
              if (mounted) {
-               noticeManager.show(context, message: "${_tr("文件")} ${p.basename(file.path)} ${_tr("超过 3MB，无法添加")}", icon: Icons.warning);
+               noticeManager.show(context, message: _tr("附件总大小超过 5MB，无法继续通过粘贴添加文件"), icon: Icons.warning);
              }
-             continue;
+             break;
           }
+
           if (file.existsSync() && allowedExts.contains(ext) && !_attachments.any((a) => a.path == path)) {
+            currentTotal += bytes;
             _attachments.add(file);
             _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
           }
@@ -733,21 +861,23 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       final imageBytes = await Pasteboard.image;
       if (imageBytes != null) {
         Uint8List? compBytes;
-        if (imageBytes.length > 3 * 1024 * 1024) {
+        if (imageBytes.length > 2 * 1024 * 1024) {
           final img = decodeImage(imageBytes);
           final comp = encodeJpg(img!, quality: 50);
           compBytes = Uint8List.fromList(comp);
-          if (imageBytes.length > 3 * 1024 * 1024) {
-            if (mounted) {
-              noticeManager.show(context, message: _tr("图片超过 3MB，无法添加"), icon: Icons.warning);
-            }
-            return;
-          }
         }
+
+        final finalBytes = compBytes ?? imageBytes;
+        int currentTotal = await _calculateTotalAttachmentSize();
+        if (currentTotal + finalBytes.length > _maxTotalAttachmentSize) {
+          if (mounted) noticeManager.show(context, message: _tr("附件总大小超过 5MB，无法粘贴此图片"), icon: Icons.warning);
+          return;
+        }
+
         final tempDir = await getTemporaryDirectory();
         final fileName = 'pasted_img_${DateTime.now().millisecondsSinceEpoch}.png';
         final file = File(p.join(tempDir.path, fileName));
-        await file.writeAsBytes(compBytes ?? imageBytes);
+        await file.writeAsBytes(finalBytes);
         _attachments.add(file);
         _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
         setState(() {});
@@ -757,8 +887,14 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
       final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
       final plainText = clipboardData?.text;
       if (plainText != null) {
-        final hasExistingText = _inputController.text.trim().isNotEmpty;
-        if (plainText.length > 4000 || hasExistingText) {
+        if (plainText.length > 4000 && isInputInitiallyEmpty) {
+          final utf8Bytes = utf8.encode(plainText);
+          int currentTotal = await _calculateTotalAttachmentSize();
+          if (currentTotal + utf8Bytes.length > _maxTotalAttachmentSize) {
+            if (mounted) noticeManager.show(context, message: _tr("粘贴文本过长且附件总额已超 5MB"), icon: Icons.warning);
+            return;
+          }
+
           final tempDir = await getTemporaryDirectory();
           final fileName = 'pasted_text_${DateTime.now().millisecondsSinceEpoch}.txt';
           final file = File(p.join(tempDir.path, fileName));
@@ -771,7 +907,28 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
             _isDocumentMode = false;
           });
         } else {
-          _inputController.text = plainText;
+          final text = _inputController.text;
+          final selection = _inputController.selection;
+          
+          String newText;
+          int newOffset;
+          
+          if (selection.isValid) {
+            newText = text.replaceRange(selection.start, selection.end, plainText);
+            newOffset = selection.start + plainText.length;
+          } else {
+            newText = text + plainText;
+            newOffset = newText.length;
+          }
+
+          _inputController.value = TextEditingValue(
+            text: newText,
+            selection: TextSelection.collapsed(offset: newOffset),
+          );
+          
+          if (newText.length > 500) {
+            setState(() => _isDocumentMode = true);
+          }
         }
       }
     } catch (e) {
@@ -783,78 +940,92 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
     final isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].any((ext) => file.path.toLowerCase().endsWith(ext));
     final heroTag = 'attachment_${file.path}_${DateTime.now().millisecondsSinceEpoch}_$index';
 
-    return ScaleTransition(
-      scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+    final bounceAnimation = CurvedAnimation(
+      parent: animation,
+      curve: Curves.linearToEaseOut,
+    );
+
+    return SizeTransition(
+      sizeFactor: bounceAnimation,
+      axis: Axis.horizontal,
+      alignment: Alignment.centerLeft,
       child: FadeTransition(
         opacity: animation,
-        child: Container(
-          width: 70,
-          margin: const EdgeInsets.only(right: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.5)),
-            color: Theme.of(context).colorScheme.surface,
-          ),
-          child: Stack(
-            children: [
-              Center(
-                child: isImage
-                  ? GestureDetector(
-                      onTap: () => _showImageDialog(context, file, heroTag),
-                      child: Hero(
-                        tag: heroTag,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(7),
-                          child: Image.file(
-                            file,
-                            width: 70, height: 70,
-                            fit: BoxFit.cover,
-                            gaplessPlayback: true,
-                            key: ValueKey(file.path),
-                          )
-                        ),
-                      ),
-                    )
-                  : Column(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.insert_drive_file_outlined, size: 24),
-                      const SizedBox(height: 4),
-                      Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: Text(p.basename(file.path), style: const TextStyle(fontSize: 8), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                      if (file.path.contains('pasted_text_') && file.path.endsWith('.txt'))
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: IconButton(
-                            icon: const Icon(Icons.keyboard_return_rounded, size: 14, color: Colors.blue),
-                            onPressed: () async {
-                              try {
-                                final text = await file.readAsString();
-                                setState(() {
-                                  _inputController.text = text;
-                                  _removeAttachment(index);
-                                });
-                                _focusNode.requestFocus();
-                              } catch (_) {}
-                            },
-                            tooltip: _tr("还原到输入框"),
-                            constraints: const BoxConstraints(),
-                            padding: EdgeInsets.zero,
-                            visualDensity: VisualDensity.compact,
+        child: ScaleTransition(
+          scale: bounceAnimation,
+          child: Container(
+            width: 70,
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.5)),
+              color: Theme.of(context).colorScheme.surface,
+            ),
+            child: Stack(
+              children: [
+                Center(
+                  child: isImage
+                    ? GestureDetector(
+                        onTap: () => _showImageDialog(context, file, heroTag),
+                        child: Hero(
+                          tag: heroTag,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(7),
+                            child: Image.file(
+                              file,
+                              width: 70, height: 70,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                              key: ValueKey(file.path),
+                            )
                           ),
                         ),
-                    ]),
-              ),
-              if (index != -1)
-                Positioned(
-                  top: 2, right: 2,
-                  child: GestureDetector(
-                    onTap: () => _removeAttachment(index),
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                      child: const Icon(Icons.close, size: 12, color: Colors.white),
+                      )
+                    : Column(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.insert_drive_file_outlined, size: 24),
+                        const SizedBox(height: 4),
+                        Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: Text(p.basename(file.path), style: const TextStyle(fontSize: 8), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                        if (file.path.contains('pasted_text_') && file.path.endsWith('.txt'))
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: IconButton(
+                              icon: const Icon(Icons.keyboard_return_rounded, size: 14, color: Colors.blue),
+                              onPressed: () async {
+                                try {
+                                  final text = await file.readAsString();
+                                  if (text.length > 7500) {
+                                    if (mounted) noticeManager.show(context, message: _tr("粘贴文本过长，无法还原"), icon: Icons.warning, duration: 2000, continueOnHover: true);
+                                    return;
+                                  }
+                                  setState(() {
+                                    _inputController.text = text;
+                                    _removeAttachment(index);
+                                  });
+                                  _focusNode.requestFocus();
+                                } catch (_) {}
+                              },
+                              tooltip: _tr("还原到输入框"),
+                              constraints: const BoxConstraints(minHeight: 20, minWidth: 20),
+                              padding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                      ]),
+                ),
+                if (index != -1)
+                  Positioned(
+                    top: 2, right: 2,
+                    child: GestureDetector(
+                      onTap: () => _removeAttachment(index),
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                        child: const Icon(Icons.close, size: 12, color: Colors.white),
+                      ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -862,19 +1033,29 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
   }
 
   Widget _buildAttachmentBar() {
-    if (_attachments.isEmpty) return const SizedBox.shrink();
-    return Container(
-      height: 80,
-      margin: const EdgeInsets.only(bottom: 8),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      height: _attachments.isEmpty ? 0 : 90,
+      margin: EdgeInsets.only(
+        top: _attachments.isEmpty ? 0 : 8,
+        bottom: _attachments.isEmpty ? 0 : 4
+      ),
       child: AnimatedList(
         key: _listKey,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
         scrollDirection: Axis.horizontal,
         initialItemCount: _attachments.length,
         itemBuilder: (context, index, animation) {
-          return _buildAttachmentItem(_attachments[index], animation, index);
+          if (index >= _attachments.length) return const SizedBox.shrink();
+          return _buildAttachmentBarItem(_attachments[index], animation, index);
         },
       ),
     );
+  }
+
+  Widget _buildAttachmentBarItem(File file, Animation<double> animation, int index) {
+     return _buildAttachmentItem(file, animation, index);
   }
 
   IconData getEmotionIcon(String emotion) {
@@ -1053,12 +1234,236 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
     );
   }
 
+  Widget _buildModelSelectorButton(ThemeData theme) {
+    final Map<String, String> providers = {
+      "bloret_passport": "Bloret PassPort",
+      "opencode_zen": "OpenCode Zen",
+      "google_ai_studio": "Google AI Studio",
+      "custom_api": "自定义 API",
+    };
+
+    final List<Win11DropdownItem> menuItems = [
+      Win11DropdownItem(
+        label: _tr("切换提供商"),
+        value: "switch_provider",
+        icon: Icons.hub_outlined,
+        children: providers.entries.map((e) => Win11DropdownItem(
+          label: e.value,
+          value: "provider:${e.key}",
+          icon: e.key == _currentProviderKey ? Icons.radio_button_checked : Icons.radio_button_off,
+        )).toList(),
+      ),
+      ..._currentModels.map((m) => Win11DropdownItem(
+        label: m['name'] ?? "",
+        value: m['id'],
+        icon: m['id'] == _currentModelId ? Icons.check : null,
+      )),
+      if (_currentProviderKey == 'custom_api' || _currentProviderKey == 'google_ai_studio')
+        Win11DropdownItem(
+          label: _tr("配置 API"),
+          value: "config_api",
+          icon: Icons.settings_outlined,
+        ),
+    ];
+
+    return Win11Dropdown(
+      items: menuItems,
+      initialValue: _currentModelId,
+      height: 32,
+      onChanged: (value) async {
+        if (value == null) return;
+        if (value == "config_api") {
+          _showCustomApiDialog();
+        } else if (value.startsWith('provider:')) {
+          final p = value.replaceFirst('provider:', '');
+          await ConfigService.set('ai_provider', p);
+          setState(() {
+            _currentProviderKey = p;
+            _loadModels();
+          });
+          if (p == 'custom_api' || p == 'google_ai_studio') {
+            final key = p == 'google_ai_studio' ? 'google_ai_key' : 'custom_ai_key';
+            if (ConfigService.get(key) == null || ConfigService.get(key).isEmpty) {
+              _showCustomApiDialog();
+            }
+          }
+        } else if (value != "switch_provider") {
+          await ConfigService.set('ai_model', value);
+          await ConfigService.set('ai_model_last_$_currentProviderKey', value);
+          setState(() => _currentModelId = value);
+        }
+      },
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.surfaceContainerHighest),
+      ),
+    );
+  }
+
+  Widget _buildInputCapsule(ThemeData theme, Color altColor, Color borderColor, Color textColor, Color secondaryTextColor) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOutCubic,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(
+            color: _isFocused ? theme.colorScheme.primary.withValues(alpha: 0.5) : borderColor,
+            width: _isFocused ? 1.5 : 1.0
+        ),
+        boxShadow: [
+          if (_isFocused) BoxShadow(color: theme.colorScheme.primary.withValues(alpha: 0.05), blurRadius: 10, spreadRadius: 1),
+          if (_isDocumentMode) BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 20, spreadRadius: 5),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildAttachmentBar(),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: _isDocumentMode ? MediaQuery.of(context).size.height * 0.5 : 200,
+              ),
+              child: Scrollbar(
+                thumbVisibility: true,
+                controller: _inputScrollController,
+                child: SingleChildScrollView(
+                  controller: _inputScrollController,
+                  child: Focus(
+                    onKeyEvent: (node, event) {
+                      if (Platform.isAndroid) return KeyEventResult.ignored;
+
+                      final isV = event.logicalKey == LogicalKeyboardKey.keyV;
+                      final isControl = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlLeft) ||
+                          HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlRight);
+
+                      if (isV && isControl && event is KeyDownEvent) {
+                        _handlePaste();
+                        return KeyEventResult.handled;
+                      }
+
+                      if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
+                        final isShift = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftRight);
+                        if (!isShift) { _sendMessage(); return KeyEventResult.handled; }
+                      }
+                      return KeyEventResult.ignored;
+                    },
+                    child: TextField(
+                      controller: _inputController,
+                      focusNode: _focusNode,
+                      maxLines: null,
+                      onChanged: (val) {
+                        setState(() {});
+                        if (val.length > 500 && !_isDocumentMode) {
+                          setState(() => _isDocumentMode = true);
+                        } else if (val.length <= 500 && _isDocumentMode) {
+                          setState(() => _isDocumentMode = false);
+                        }
+                      },
+                      keyboardType: TextInputType.multiline,
+                      enabled: !_agent.busy,
+                      decoration: InputDecoration(
+                          hintText: _tr("向 ${Bloriko.type == "bloriko" ? _tr("络可") : _tr("Blora Agent")} 说些什么..."),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 8)
+                      ),
+                      style: TextStyle(fontSize: 15, color: textColor),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.add_circle_outline_rounded, size: 22),
+                  onPressed: _pickFiles,
+                  visualDensity: VisualDensity.compact,
+                  tooltip: _tr("添加图片或文件"),
+                ),
+                const SizedBox(width: 8),
+                _buildModelSelectorButton(theme),
+                const Spacer(),
+                if (_isDocumentMode)
+                  IconButton(
+                    icon: const Icon(Icons.edit_note_rounded, size: 22),
+                    onPressed: () async {
+                      final result = await showDialog<String>(
+                        context: context,
+                        builder: (context) => _LongTextEditorDialog(initialText: _inputController.text),
+                      );
+                      if (result != null) _inputController.text = result;
+                    },
+                    tooltip: _tr("全屏编辑"),
+                  ),
+                IconButton(
+                  icon: Icon(
+                    _isRecording ? Icons.mic_rounded : Icons.mic_none_rounded,
+                    color: _agent.busy ? secondaryTextColor.withValues(alpha: 0.3) : (_isRecording ? theme.colorScheme.error : secondaryTextColor),
+                    size: 22
+                  ),
+                  onPressed: _agent.busy ? null : _toggleRecording,
+                  tooltip: _tr("语音输入"),
+                ),
+                const SizedBox(width: 8),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutBack,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    switchOutCurve: Curves.easeOutBack,
+                    switchInCurve: Curves.easeOutBack,
+                    transitionBuilder: (child, animation) {
+                      return ScaleTransition(
+                        scale: animation,
+                        child: FadeTransition(opacity: animation, child: child),
+                      );
+                    },
+                    child: _agent.busy
+                        ? IconButton.filled(
+                      key: const ValueKey("stop"),
+                      icon: const Icon(Icons.stop_rounded, size: 20),
+                      onPressed: _agent.cancelAgent,
+                      style: IconButton.styleFrom(
+                        backgroundColor: theme.colorScheme.error,
+                        padding: const EdgeInsets.all(8),
+                        minimumSize: const Size(36, 36),
+                      ),
+                    )
+                        : (_inputController.text.trim().isNotEmpty || _attachments.isNotEmpty)
+                        ? IconButton.filled(
+                      key: const ValueKey("send"),
+                      icon: const Icon(Icons.arrow_upward_rounded, size: 20),
+                      onPressed: (_currentModelId == null) ? null : _sendMessage,
+                      style: IconButton.styleFrom(
+                        padding: const EdgeInsets.all(8),
+                        minimumSize: const Size(36, 36),
+                      ),
+                    ) : const SizedBox.shrink(key: ValueKey("none")),
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final theme = Theme.of(context);
     final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
-    final cardColor = theme.cardColor;
     final borderColor = theme.dividerColor;
     final altColor = theme.colorScheme.surfaceContainerHighest;
     final textColor = theme.colorScheme.onSurface;
@@ -2012,289 +2417,12 @@ class _BloraChatPageState extends State<BloraChatPage> with AutomaticKeepAliveCl
                   ),
 
                   Container(
-                    decoration: BoxDecoration(color: cardColor, border: Border(top: BorderSide(color: borderColor))),
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(left: 12, right: 12, top: 12),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 160,
-                                child: Win11Dropdown(
-                                  items: [
-                                    Win11DropdownItem(label: "Bloret PassPort", value: "bloret_passport"),
-                                    Win11DropdownItem(label: "OpenCode Zen", value: "opencode_zen"),
-                                    Win11DropdownItem(label: "Google AI Studio", value: "google_ai_studio"),
-                                    Win11DropdownItem(label: _tr("自定义 API"), value: "custom_api"),
-                                  ],
-                                  initialValue: _currentProviderKey,
-                                  onChanged: (value) async {
-                                    if (value != null) {
-                                      await ConfigService.set('ai_provider', value);
-                                      if (!mounted) return;
-                                      setState(() {
-                                        _currentProviderKey = value;
-                                        _loadModels();
-                                      });
-                                      if (value == 'custom_api' || value == 'google_ai_studio') {
-                                        final key = value == 'google_ai_studio' ? 'google_ai_key' : 'custom_ai_key';
-                                        if (ConfigService.get(key) == null || ConfigService.get(key).isEmpty) {
-                                          _showCustomApiDialog();
-                                        }
-                                      }
-                                    }
-                                  },
-                                ),
-                              ),
-                              AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 300),
-                                transitionBuilder: (Widget child, Animation<double> animation) {
-                                  return SizeTransition(
-                                    sizeFactor: animation,
-                                    axis: Axis.horizontal,
-                                    alignment: Alignment.centerLeft,
-                                    child: FadeTransition(
-                                      opacity: animation,
-                                      child: child,
-                                    ),
-                                  );
-                                },
-                                child: (_currentProviderKey == 'custom_api' || _currentProviderKey == 'google_ai_studio')
-                                    ? Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Padding(
-                                            padding: const EdgeInsets.only(left: 4),
-                                            child: IconButton(
-                                              icon: const Icon(Icons.settings_outlined, size: 18),
-                                              onPressed: _showCustomApiDialog,
-                                              tooltip: _tr("配置 API"),
-                                            ),
-                                          ),
-                                          Padding(
-                                            padding: const EdgeInsets.only(left: 4),
-                                            child: AnimatedSwitcher(
-                                              duration: const Duration(milliseconds: 200),
-                                              transitionBuilder: (child, animation) {
-                                                return ScaleTransition(
-                                                  scale: animation,
-                                                  child: FadeTransition(opacity: animation, child: child),
-                                                );
-                                              },
-                                              child: _isFetchingModels
-                                                  ? const SizedBox(key: ValueKey("loading"), width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                                                  : IconButton(
-                                                      key: const ValueKey("refresh"),
-                                                      icon: const Icon(Icons.refresh_rounded, size: 18),
-                                                      onPressed: _fetchRemoteModels,
-                                                      tooltip: _tr("同步云端模型"),
-                                                    ),
-                                            ),
-                                          ),
-                                        ],
-                                      )
-                                    : const SizedBox.shrink(),
-                              ),
-                              if (!isPortrait || (_currentProviderKey != 'custom_api' && _currentProviderKey != 'google_ai_studio')) ...[
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Win11Dropdown(
-                                    items: _currentModels.map((model) => Win11DropdownItem(label: model["name"] ?? "", value: model["id"])).toList(),
-                                    initialValue: _currentModelId,
-                                    onChanged: (value) async {
-                                      if (value != null) {
-                                        await ConfigService.set('ai_model', value);
-                                        await ConfigService.set('ai_model_last_$_currentProviderKey', value);
-                                        setState(() => _currentModelId = value);
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ]
-                            ],
-                          ),
-                        ),
-                        if (isPortrait && (_currentProviderKey == 'custom_api' || _currentProviderKey == 'google_ai_studio'))
-                          Padding(
-                            padding: const EdgeInsets.only(left: 12, right: 12, top: 12),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Win11Dropdown(
-                                    items: _currentModels.map((model) => Win11DropdownItem(label: model["name"] ?? "", value: model["id"])).toList(),
-                                    initialValue: _currentModelId,
-                                    onChanged: (value) async {
-                                      if (value != null) {
-                                        await ConfigService.set('ai_model', value);
-                                        await ConfigService.set('ai_model_last_$_currentProviderKey', value);
-                                        setState(() => _currentModelId = value);
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
-                            )
-                          ),
-                        Padding(
-                          padding: const EdgeInsets.all(12.0),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.add_circle_outline_rounded),
-                                onPressed: _pickFiles,
-                                tooltip: _tr("添加图片或文件"),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 300), curve: Curves.easeInOutCubic,
-                                  constraints: BoxConstraints(maxHeight: _isDocumentMode ? MediaQuery.of(context).size.height * 0.6 : 200),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: altColor,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: _isFocused ? theme.colorScheme.onSurface : borderColor, width: _isFocused ? 1.8 : 1.0),
-                                    boxShadow: _isDocumentMode ? [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 20, spreadRadius: 5)] : [],
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      // 图 文
-                                      AnimatedSize(
-                                        duration: const Duration(milliseconds: 300),
-                                        curve: Curves.easeOutQuart,
-                                        child: _buildAttachmentBar(),
-                                      ),
-                                      if (_attachments.isNotEmpty) const Divider(height: 1),
-                                      // 文
-                                      Flexible(
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Flexible(
-                                              child: Scrollbar(
-                                                thumbVisibility: true, controller: _inputScrollController, radius: const Radius.circular(8),
-                                                child: SingleChildScrollView(
-                                                  controller: _inputScrollController,
-                                                  child: Focus(
-                                                    onKeyEvent: (node, event) {
-                                                      if (Platform.isAndroid) return KeyEventResult.ignored;
-
-                                                      // 你复制个集贸 (Ctrl+V)
-                                                      final isV = event.logicalKey == LogicalKeyboardKey.keyV;
-                                                      final isControl = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlLeft) ||
-                                                                       HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlRight);
-
-                                                      if (isV && isControl && event is KeyDownEvent) {
-                                                        _handlePaste();
-                                                        return KeyEventResult.ignored;
-                                                      }
-
-                                                      if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-                                                        final isShift = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftRight);
-                                                        if (!isShift) { _sendMessage(); return KeyEventResult.handled; }
-                                                      }
-                                                      return KeyEventResult.ignored;
-                                                    },
-                                                    child: Builder(
-                                                      builder: (context) {
-                                                        final agentName = Bloriko.type == "bloriko" ? _tr("络可") : _tr("Blora Agent");
-                                                        final provider = ConfigService.get('ai_provider');
-                                                        final isGoogle = provider == 'google_ai_studio';
-
-                                                        String hint = isGoogle
-                                                          ? _tr("向 $agentName 说些什么 (纯文本模式)...")
-                                                          : _tr("向 $agentName 说些什么...");
-
-                                                        return TextField(
-                                                          controller: _inputController,
-                                                          focusNode: _focusNode,
-                                                          maxLines: null,
-                                                          onChanged: (val) {
-                                                            setState(() {});
-                                                            if (val.length > 500 && !_isDocumentMode) {
-                                                              setState(() => _isDocumentMode = true);
-                                                            } else if (val.length <= 500 && _isDocumentMode) {
-                                                              setState(() => _isDocumentMode = false);
-                                                            }
-                                                          },
-                                                          keyboardType: TextInputType.multiline,
-                                                          enabled: !_agent.busy,
-                                                          decoration: InputDecoration(
-                                                            hintText: hint,
-                                                            border: InputBorder.none,
-                                                            isDense: true,
-                                                            contentPadding: const EdgeInsets.symmetric(vertical: 6)
-                                                          ),
-                                                          style: TextStyle(fontSize: 14, color: textColor)
-                                                        );
-                                                      }
-                                                    ),
-                                                  ),
-                                                )
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      if (_isDocumentMode)
-                                        Align(
-                                          alignment: Alignment.centerRight,
-                                          child: TextButton.icon(
-                                            onPressed: () => setState(() => _isDocumentMode = false),
-                                            icon: const Icon(Icons.fullscreen_exit, size: 14),
-                                            label: Text(_tr("退出预览"), style: const TextStyle(fontSize: 11)),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Column(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  if (_isDocumentMode)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 8),
-                                      child: IconButton.filledTonal(
-                                        icon: const Icon(Icons.edit_note_rounded),
-                                        onPressed: () async {
-                                          final result = await showDialog<String>(
-                                            context: context,
-                                            builder: (context) => _LongTextEditorDialog(initialText: _inputController.text),
-                                          );
-                                          if (result != null) {
-                                            _inputController.text = result;
-                                          }
-                                        },
-                                        tooltip: _tr("全屏编辑"),
-                                      ),
-                                    ),
-                                  Tooltip(
-                                    message: _currentModelId == null ? _tr("请先选择 AI 模型") : "",
-                                    child: IconButton.filled(
-                                      padding: const EdgeInsets.all(2),
-                                      icon: Icon(_agent.busy ? Icons.stop : Icons.send, size: 20),
-                                      onPressed: (_currentModelId == null && !_agent.busy) ? null : () {
-                                        if (_agent.busy) {
-                                          _agent.cancelAgent();
-                                          return;
-                                        }
-                                        _sendMessage();
-                                      }
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                    decoration: BoxDecoration(
+                      color: theme.scaffoldBackgroundColor,
+                      border: Border(top: BorderSide(color: borderColor.withValues(alpha: 0.5))),
                     ),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    child: _buildInputCapsule(theme, altColor, borderColor, textColor, secondaryTextColor),
                   ),
                 ],
               ),

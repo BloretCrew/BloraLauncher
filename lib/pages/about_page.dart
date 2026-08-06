@@ -65,7 +65,7 @@ class AboutPageState extends State<AboutPage> {
                                       });
                                     }
                                   },
-                                  child: Row(mainAxisSize: MainAxisSize.min, children: [Text("Version: ${config?.latestVersion ?? ""}", style: ConfigService.get("develop_mode") == true ? theme.textTheme.bodyMedium!.copyWith(color: Colors.greenAccent) : theme.textTheme.bodyMedium), if (config?.latestVersion == null || config!.latestVersion.isEmpty) const SizedBox(width: 10, height: 10, child: Center(child: CircularProgressIndicator(strokeWidth: 2),))],),
+                                  child: Text("Version: 0.0.1", style: ConfigService.get("develop_mode") == true ? theme.textTheme.bodyMedium!.copyWith(color: Colors.greenAccent) : theme.textTheme.bodyMedium),
                                 ),
                               ),
                               if (!isPortrait)
