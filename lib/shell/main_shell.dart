@@ -21,6 +21,7 @@ import 'package:bloret_launcher/tools/server_info.dart';
 
 import '../core/global.dart';
 import '../main.dart';
+import '../pages/home_page.dart';
 import '../pages/passport_page.dart';
 import '../pages/settings_page.dart';
 

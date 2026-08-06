@@ -82,7 +82,10 @@ class LiveService {
 
   static Future<void> sendSignal(String spaceId, Map<String, dynamic> signalData) async {
     try {
-      print("[LiveService] sendSignal: ${signalData.toString().substring(0, 50)}");
+      final signalStr = signalData.toString();
+      final logLimit = signalStr.length < 50 ? signalStr.length : 50;
+      final logStr = signalStr.substring(0, logLimit);
+      print("[LiveService] sendSignal: $logStr");
       await dio.Dio().post(
         '$_baseUrl/api/live/signal/$spaceId',
         options: dio.Options(
@@ -108,6 +111,8 @@ class LiveService {
 
   static Future<void> _runSSE(http.Client client, StreamController<Map<String, dynamic>> controller, String spaceId) async {
     bool isCancelled = false;
+    int retryCount = 0;
+    const maxRetries = 3;
     
     controller.onCancel = () {
       debugPrint("[LiveService] Stream cancelled by listener, closing SSE...");
@@ -116,66 +121,91 @@ class LiveService {
       if (!controller.isClosed) controller.close();
     };
 
-    try {
-      final request = http.Request('GET', Uri.parse('$_baseUrl/api/live/events/$spaceId'));
-      request.headers.addAll(_getHeaders());
+    while (!isCancelled && retryCount < maxRetries) {
+      try {
+        final request = http.Request('GET', Uri.parse('$_baseUrl/api/live/events/$spaceId'));
+        request.headers.addAll(_getHeaders());
+        // Force keep-alive and other headers that might help with some proxies
+        request.headers['Connection'] = 'keep-alive';
+        request.headers['Accept'] = 'text/event-stream';
+        request.headers['Cache-Control'] = 'no-cache';
 
-      final response = await client.send(request);
-      debugPrint("[LiveService] SSE response status: ${response.statusCode}");
-      
-      if (response.statusCode != 200) {
-        if (!controller.isClosed) controller.close();
-        client.close();
-        return;
-      }
-
-      String buffer = "";
-      String dataBuffer = "";
-      String? currentEventType;
-
-      await for (var chunk in response.stream.transform(utf8.decoder)) {
-        if (isCancelled) break;
+        final response = await client.send(request).timeout(const Duration(seconds: 30));
+        debugPrint("[LiveService] SSE response status: ${response.statusCode}");
         
-        buffer += chunk;
-        while (buffer.contains('\n')) {
-          int index = buffer.indexOf('\n');
-          String line = buffer.substring(0, index).trim();
-          buffer = buffer.substring(index + 1);
+        if (response.statusCode != 200) {
+          debugPrint("[LiveService] SSE connection failed with status: ${response.statusCode}");
+          if (response.statusCode == 404 || response.statusCode == 403) {
+             // Permanent failures
+             break;
+          }
+          throw Exception("Status ${response.statusCode}");
+        }
 
-          if (line.isEmpty) {
-            if (dataBuffer.isNotEmpty) {
-              try {
-                final Map<String, dynamic> payload = jsonDecode(dataBuffer);
-                if (currentEventType != null) payload['type'] = currentEventType;
-                debugPrint("[LiveService] SSE Event Parsed: Type=$currentEventType, From=${payload['from'] ?? payload['user']}");
-                if (!controller.isClosed) controller.add(payload);
-              } catch (e) {
-                debugPrint("[LiveService] JSON解析失败: $e\n数据内容: $dataBuffer");
+        // Reset retry count on successful connection
+        retryCount = 0;
+
+        String buffer = "";
+        String dataBuffer = "";
+        String? currentEventType;
+
+        await for (var chunk in response.stream.transform(utf8.decoder)) {
+          if (isCancelled) break;
+          
+          buffer += chunk;
+          while (buffer.contains('\n')) {
+            int index = buffer.indexOf('\n');
+            String line = buffer.substring(0, index).trim();
+            buffer = buffer.substring(index + 1);
+
+            if (line.isEmpty) {
+              if (dataBuffer.isNotEmpty) {
+                try {
+                  final Map<String, dynamic> payload = jsonDecode(dataBuffer);
+                  if (currentEventType != null) payload['type'] = currentEventType;
+                  if (!controller.isClosed) controller.add(payload);
+                } catch (e) {
+                  debugPrint("[LiveService] JSON解析失败: $e\n数据内容: $dataBuffer");
+                }
+                dataBuffer = "";
+                currentEventType = null;
               }
-              dataBuffer = "";
-              currentEventType = null;
+            } else if (line.startsWith('event: ')) {
+              currentEventType = line.substring(7).trim();
+            } else if (line.startsWith('data: ')) {
+              dataBuffer += line.substring(6);
+            } else if (line.startsWith(':')) {
+              // Heartbeat
+            } else {
+              if (dataBuffer.isNotEmpty) dataBuffer += line;
             }
-          } else if (line.startsWith('event: ')) {
-            currentEventType = line.substring(7).trim();
-          } else if (line.startsWith('data: ')) {
-            dataBuffer += line.substring(6);
-          } else if (line.startsWith(':')) {
-            // Heartbeat
-          } else {
-            if (dataBuffer.isNotEmpty) dataBuffer += line;
           }
         }
+        
+        // If the stream ends naturally but not cancelled, it might be a timeout or server-side close
+        if (!isCancelled) {
+          debugPrint("[LiveService] SSE stream ended unexpectedly, retrying...");
+          throw Exception("Stream ended");
+        }
+
+      } catch (e) {
+        if (isCancelled) break;
+        retryCount++;
+        debugPrint("[LiveService] SSE 连接异常 (尝试 $retryCount/$maxRetries): $e");
+        
+        if (retryCount >= maxRetries) {
+          if (!controller.isClosed) controller.addError(e);
+          break;
+        }
+        
+        // Exponential backoff or simple delay
+        await Future.delayed(Duration(seconds: 2 * retryCount));
       }
-    } catch (e) {
-      if (!isCancelled) {
-        debugPrint("[LiveService] SSE 连接异常: $e");
-        if (!controller.isClosed) controller.addError(e);
-      }
-    } finally {
-      client.close();
-      if (!controller.isClosed) controller.close();
-      debugPrint("[LiveService] SSE 资源已回收/连接关闭");
     }
+
+    client.close();
+    if (!controller.isClosed) controller.close();
+    debugPrint("[LiveService] SSE 资源已回收/连接关闭");
   }
 
   static Future<Map<String, dynamic>?> fetchUserProfile(String username) async {

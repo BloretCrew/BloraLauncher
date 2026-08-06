@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:ai_flutter_agent/ai_flutter_agent.dart';
 import 'package:bloret_launcher/core/logger.dart';
 import 'package:bloret_launcher/services/config_service.dart';
+import 'package:bloret_launcher/services/mod_service.dart';
 import 'package:bloret_launcher/services/passport_service.dart';
 import 'package:bloret_launcher/services/system_prompt.dart';
 import 'package:flutter/foundation.dart';
@@ -658,6 +659,31 @@ class Bloriko extends ChangeNotifier {
         'required': ['command']
       },
     ),
+    Tool.function(
+      name: 'modrinth_search',
+      description: '在 Modrinth 上搜索 Minecraft 模组。支持按版本和加载器过滤。',
+      parameters: {
+        'type': 'object',
+        'properties': {
+          'query': {'type': 'string', 'description': '搜索关键词'},
+          'game_version': {'type': 'string', 'description': '游戏版本，如 1.20.1'},
+          'loader': {'type': 'string', 'description': '加载器类型，如 fabric, forge, quilt'},
+          'limit': {'type': 'integer', 'description': '返回结果数量，默认 8'},
+        },
+        'required': ['query']
+      },
+    ),
+    Tool.function(
+      name: 'modrinth_get_project',
+      description: '获取 Modrinth 项目的详细信息。',
+      parameters: {
+        'type': 'object',
+        'properties': {
+          'slug_or_id': {'type': 'string', 'description': '项目的 slug 或 ID'}
+        },
+        'required': ['slug_or_id']
+      },
+    ),
   ];
 
   Future<void> chatWithTools(
@@ -1087,6 +1113,8 @@ class Bloriko extends ChangeNotifier {
       case 'shizuku_init': return "初始化 Shizuku";
       case 'shizuku_check_permission': return "检查 Shizuku 权限";
       case 'shizuku_run_shell': return "Shizuku 权限命令";
+      case 'modrinth_search': return "搜索 Modrinth";
+      case 'modrinth_get_project': return "获取项目详情";
       default: return "未知工具";
     }
   }
@@ -1381,6 +1409,21 @@ class Bloriko extends ChangeNotifier {
           if (resultText.isEmpty) {
             resultText = await ShizukuService.runShell(shCommand);
           }
+          break;
+        case 'modrinth_search':
+          final modService = ModService();
+          final results = await modService.searchModsStructured(
+            args['query'],
+            gameVersion: args['game_version'],
+            loader: args['loader'],
+            limit: args['limit'] ?? 8,
+          );
+          resultText = jsonEncode(results);
+          break;
+        case 'modrinth_get_project':
+          final modService = ModService();
+          final project = await modService.getProject(args['slug_or_id']);
+          resultText = jsonEncode(project);
           break;
         default:
           resultText = "错误：未实现的工具 $name";

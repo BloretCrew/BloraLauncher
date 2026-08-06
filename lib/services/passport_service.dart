@@ -151,7 +151,7 @@ class PassportService {
         final result = jsonDecode(response.data);
         return result['success'] ?? false;
       }
-    } catch (e) {}
+    } catch (_) {}
     return false;
   }
 }

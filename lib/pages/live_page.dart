@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -410,62 +411,94 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
     final avatarUrl = _userProfiles[username]?['avatar'];
     return GestureDetector(
       onTap: () => _showUserProfileDialog(username),
-      child: Hero(
-        tag: 'avatar-$username',
-        child: CircleAvatar(
-          radius: radius,
-          backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-          child: avatarUrl == null ? Text(username[0].toUpperCase(), style: TextStyle(fontSize: radius * 0.75)) : null,
-        ),
+      child: ClipOval(
+        child: avatarUrl != null 
+          ? CachedNetworkImage(
+              imageUrl: avatarUrl,
+              width: radius * 2,
+              height: radius * 2,
+              fit: BoxFit.cover,
+              placeholder: (context, url) => Container(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: Center(child: Text(username[0].toUpperCase(), style: TextStyle(fontSize: radius * 0.75))),
+              ),
+              errorWidget: (context, url, error) => Container(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: Center(child: Text(username[0].toUpperCase(), style: TextStyle(fontSize: radius * 0.75))),
+              ),
+            )
+          : Container(
+              width: radius * 2,
+              height: radius * 2,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Center(child: Text(username[0].toUpperCase(), style: TextStyle(fontSize: radius * 0.75))),
+            ),
       ),
     );
   }
 
   void _showUserProfileDialog(String username) {
     final profile = _userProfiles[username];
+    final theme = Theme.of(context);
     showDialog(
       context: context,
       builder: (context) => Center(
-        child: Hero(
-          tag: 'avatar-$username',
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 300,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: const Offset(0, 4))],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircleAvatar(
-                    radius: 50,
-                    backgroundImage: profile?['avatar'] != null ? NetworkImage(profile!['avatar']) : null,
-                    child: profile?['avatar'] == null ? Text(username[0].toUpperCase(), style: const TextStyle(fontSize: 40)) : null,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(username, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                  if (profile?['title'] != null) ...[
-                    const SizedBox(height: 4),
-                    _buildBadge(profile!['title'], Colors.blue),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 300,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: theme.cardColor,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: const Offset(0, 4))],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClipOval(
+                  child: profile?['avatar'] != null 
+                    ? CachedNetworkImage(
+                        imageUrl: profile!['avatar'],
+                        width: 100,
+                        height: 100,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: Center(child: Text(username[0].toUpperCase(), style: const TextStyle(fontSize: 40))),
+                        ),
+                        errorWidget: (context, url, error) => Container(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: Center(child: Text(username[0].toUpperCase(), style: const TextStyle(fontSize: 40))),
+                        ),
+                      )
+                    : Container(
+                        width: 100,
+                        height: 100,
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        child: Center(child: Text(username[0].toUpperCase(), style: const TextStyle(fontSize: 40))),
+                      ),
+                ),
+                const SizedBox(height: 16),
+                Text(username, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                if (profile?['title'] != null) ...[
+                  const SizedBox(height: 4),
+                  _buildBadge(profile!['title'], Colors.blue),
+                ],
+                const SizedBox(height: 12),
+                Text(profile?['bio']?.toString().isNotEmpty == true ? profile!['bio'] : "该用户未填写个人简介".tl,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildProfileStat("帖子".tl, profile?['postCount'] ?? 0),
+                    _buildProfileStat("获赞".tl, profile?['receivedLikes'] ?? 0),
+                    _buildProfileStat("浏览".tl, profile?['totalViews'] ?? 0),
                   ],
-                  const SizedBox(height: 12),
-                  Text(profile?['bio']?.toString().isNotEmpty == true ? profile!['bio'] : "这个用户很懒，什么都没写".tl,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildProfileStat("帖子".tl, profile?['postCount'] ?? 0),
-                      _buildProfileStat("获赞".tl, profile?['receivedLikes'] ?? 0),
-                      _buildProfileStat("浏览".tl, profile?['totalViews'] ?? 0),
-                    ],
-                  ),
+                ),
                   const SizedBox(height: 20),
                   BloretButton(
                     text: "确定".tl,
@@ -476,7 +509,6 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
             ),
           ),
         ),
-      ),
     );
   }
 
@@ -683,7 +715,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           child: Stack(
             children: [
               Hero(
-                tag: 'avatar-$name',
+                tag: 'video-avatar-$name',
                 child: showStream
                     ? RTCVideoView(
                   renderer!,
@@ -694,10 +726,21 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                         onTap: () => _showUserProfileDialog(name),
                         child: Center(
                           child: _userProfiles[name]?['avatar'] != null 
-                            ? CircleAvatar(
-                                radius: 40,
-                                backgroundImage: NetworkImage(_userProfiles[name]!['avatar']),
-                                backgroundColor: Colors.white10,
+                            ? ClipOval(
+                                child: CachedNetworkImage(
+                                  imageUrl: _userProfiles[name]!['avatar'],
+                                  width: 80,
+                                  height: 80,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => Container(
+                                    color: Colors.white10,
+                                    child: const Icon(Icons.person, size: 48, color: Colors.white54),
+                                  ),
+                                  errorWidget: (context, url, error) => Container(
+                                    color: Colors.white10,
+                                    child: const Icon(Icons.person, size: 48, color: Colors.white54),
+                                  ),
+                                ),
                               )
                             : Icon(Icons.person, size: 48, color: Colors.white54, shadows: shadows),
                         ),

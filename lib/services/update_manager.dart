@@ -78,6 +78,8 @@ class UpdateManager {
         }
 
         if (name != null && name.endsWith('.zip')) {
+          if (Platform.isLinux && !name.startsWith('linux_patch_')) continue;
+          
           final info = _extractInfo(name);
           updates.add(UpdateInfo(
             version: info['version']!,
@@ -130,11 +132,27 @@ class UpdateManager {
     return actualHash.startsWith(expectedHash.toLowerCase());
   }
 
+  bool _isMajorUpdate(String local, String remote) {
+    final l = local.split('.').map(int.parse).toList();
+    final r = remote.split('.').map(int.parse).toList();
+    if (r[0] > l[0]) return true;
+    if (r[1] > l[1]) return true;
+    return false;
+  }
+
   Future<bool> checkAndApplyUpdate({BuildContext? context, Function(double)? onProgress}) async {
     final update = await checkUpdate();
     if (update == null) return false;
     
-    if (context?.mounted == true) noticeManager.show(context, message: "正在下载新版本 ${update.version}...", icon: Icons.download);
+    final localVersion = await getLocalVersion();
+    final isMajor = _isMajorUpdate(localVersion, update.version);
+
+    if (context?.mounted == true) {
+      noticeManager.show(context, 
+        message: "正在下载${isMajor ? '版本' : '补丁'}更新 ${update.version}...",
+        icon: Icons.download
+      );
+    }
 
     final decoder = SourceDecoder(_source, null);
     decoder.runtimeValues['shareId'] = update.id;
@@ -197,29 +215,225 @@ class UpdateManager {
         return false;
       }
 
-      final supportDir = await getSupportData();
-      final targetPath = p.join(supportDir.parent.path, 'data', 'app.so');
-      
-      final file = File(targetPath);
-      await file.parent.create(recursive: true);
+      if (isMajor) {
+        if (Platform.isWindows) {
+          if (!context!.mounted) return false;
+          return await _applyMajorUpdateWindows(bytes, update, context);
+        } else if (Platform.isLinux) {
+          if (!context!.mounted) return false;
+          return await _applyMajorUpdateLinux(bytes, update, context);
+        }
+      }
 
-      if (bytes.length > 4 && bytes[0] == 0x50 && bytes[1] == 0x4B) {
-        try {
-          final archive = ZipDecoder().decodeBytes(bytes);
-          final soFile = archive.findFile('app.so') ?? archive.files.first;
-          await file.writeAsBytes(soFile.content as List<int>);
-        } catch (e) {
-          if (context?.mounted == true) noticeManager.show(context, message: "解压失败: $e", icon: Icons.error);
-          return false;
+      final appExePath = Platform.resolvedExecutable;
+      final appDir = p.dirname(appExePath);
+
+      if (Platform.isLinux) {
+        // Linux 热更新逻辑
+        final targetPath = p.join(appDir, 'lib', 'libapp.so');
+        final file = File(targetPath);
+        await file.parent.create(recursive: true);
+
+        if (bytes.length > 4 && bytes[0] == 0x50 && bytes[1] == 0x4B) {
+          try {
+            final archive = ZipDecoder().decodeBytes(bytes);
+            final soFile = archive.findFile('libapp.so') ?? archive.files.first;
+            await file.writeAsBytes(soFile.content as List<int>);
+          } catch (e) {
+            if (context?.mounted == true) noticeManager.show(context, message: "解压失败: $e", icon: Icons.error);
+            return false;
+          }
+        } else {
+          await file.writeAsBytes(bytes);
         }
       } else {
-        await file.writeAsBytes(bytes);
+        // Android / Windows 热更新逻辑 (补丁)
+        final supportDir = await getSupportData();
+        final targetPath = p.join(supportDir.parent.path, 'data', 'app.so');
+        
+        final file = File(targetPath);
+        await file.parent.create(recursive: true);
+
+        if (bytes.length > 4 && bytes[0] == 0x50 && bytes[1] == 0x4B) {
+          try {
+            final archive = ZipDecoder().decodeBytes(bytes);
+            final soFile = archive.findFile('app.so') ?? archive.files.first;
+            await file.writeAsBytes(soFile.content as List<int>);
+          } catch (e) {
+            if (context?.mounted == true) noticeManager.show(context, message: "解压失败: $e", icon: Icons.error);
+            return false;
+          }
+        } else {
+          await file.writeAsBytes(bytes);
+        }
       }
       
       if (context?.mounted == true) noticeManager.show(context, message: "热更新补丁 ${update.version} 已应用，重启生效", icon: Icons.check_circle);
       return true;
     } catch (e) {
       if (context?.mounted == true) noticeManager.show(context, message: "执行更新失败: $e", icon: Icons.error);
+      return false;
+    }
+  }
+
+  Future<bool> _applyMajorUpdateWindows(List<int> bytes, UpdateInfo update, BuildContext? context) async {
+    try {
+      final appExePath = Platform.resolvedExecutable;
+      final appDir = p.dirname(appExePath);
+      final stagingDir = Directory(p.join(appDir, 'update_staging'));
+      
+      if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
+      await stagingDir.create(recursive: true);
+
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final List<String> filesToDelete = [];
+
+      for (final file in archive) {
+        final filename = file.name;
+        if (filename.endsWith('/')) {
+          await Directory(p.join(stagingDir.path, filename)).create(recursive: true);
+          continue;
+        }
+        
+        final data = file.content as List<int>;
+        if (filename.endsWith('.deleted')) {
+          final targetToRemove = filename.substring(0, filename.length - 8);
+          filesToDelete.add(targetToRemove);
+          continue; 
+        }
+
+        final outFile = File(p.join(stagingDir.path, filename));
+        await outFile.parent.create(recursive: true);
+        await outFile.writeAsBytes(data);
+      }
+
+      final batchFile = File(p.join(appDir, 'updater.bat'));
+      final exeName = p.basename(appExePath);
+      
+      final StringBuffer script = StringBuffer();
+      script.writeln('@echo off');
+      script.writeln('setlocal');
+      script.writeln('echo Waiting for application to exit...');
+      script.writeln(':wait_loop');
+      script.writeln('tasklist /FI "IMAGENAME eq $exeName" 2>NUL | find /I /N "$exeName">NUL');
+      script.writeln('if "%ERRORLEVEL%"=="0" (');
+      script.writeln('    timeout /t 1 /nobreak >nul');
+      script.writeln('    goto wait_loop');
+      script.writeln(')');
+
+      script.writeln('echo Applying updates...');
+      for (final f in filesToDelete) {
+        script.writeln('if exist "$f" del /f /q "$f"');
+      }
+
+      script.writeln('xcopy /s /e /y /q "update_staging\\*" "."');
+      script.writeln('rmdir /s /q "update_staging"');
+      script.writeln('start "" "$exeName"');
+      script.writeln('del "%~f0" & exit');
+
+      await batchFile.writeAsString(script.toString(), encoding: const Utf8Codec(allowMalformed: true));
+
+      if (context?.mounted == true) {
+        showDialog(
+          context: context!,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Text("更新就绪"),
+            content: Text("主程序更新 ${update.version} 已准备好。\n点击“立即重启”将关闭程序并完成安装。"),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Process.run('cmd', ['/c', 'start', '', batchFile.path], workingDirectory: appDir);
+                  exit(0);
+                }, 
+                child: const Text("立即重启")
+              ),
+            ],
+          ),
+        );
+      }
+      return true;
+    } catch (e) {
+      if (context?.mounted == true) noticeManager.show(context, message: "准备大版本更新失败: $e", icon: Icons.error);
+      return false;
+    }
+  }
+
+  Future<bool> _applyMajorUpdateLinux(List<int> bytes, UpdateInfo update, BuildContext? context) async {
+    try {
+      final appExePath = Platform.resolvedExecutable;
+      final appDir = p.dirname(appExePath);
+      final stagingDir = Directory(p.join(appDir, 'update_staging'));
+      
+      if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
+      await stagingDir.create(recursive: true);
+
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final List<String> filesToDelete = [];
+
+      for (final file in archive) {
+        final filename = file.name;
+        if (filename.endsWith('/')) {
+          await Directory(p.join(stagingDir.path, filename)).create(recursive: true);
+          continue;
+        }
+        
+        final data = file.content as List<int>;
+        if (filename.endsWith('.deleted')) {
+          final targetToRemove = filename.substring(0, filename.length - 8);
+          filesToDelete.add(targetToRemove);
+          continue; 
+        }
+
+        final outFile = File(p.join(stagingDir.path, filename));
+        await outFile.parent.create(recursive: true);
+        await outFile.writeAsBytes(data);
+      }
+
+      final shellScript = File(p.join(appDir, 'updater.sh'));
+      final exeName = p.basename(appExePath);
+      
+      final StringBuffer script = StringBuffer();
+      script.writeln('#!/bin/bash');
+      script.writeln('echo "Waiting for $exeName to exit..."');
+      script.writeln('while pgrep -x "$exeName" > /dev/null; do sleep 1; done');
+
+      script.writeln('echo "Applying updates..."');
+      for (final f in filesToDelete) {
+        script.writeln('rm -f "$f"');
+      }
+
+      script.writeln('cp -r update_staging/* .');
+      script.writeln('rm -rf update_staging');
+      script.writeln('chmod +x "$exeName"');
+      script.writeln('nohup "./$exeName" > /dev/null 2>&1 &');
+      script.writeln('rm -- "\$0"');
+
+      await shellScript.writeAsString(script.toString());
+      await Process.run('chmod', ['+x', shellScript.path]);
+
+      if (context?.mounted == true) {
+        showDialog(
+          context: context!,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Text("更新就绪"),
+            content: Text("Linux 主程序更新 ${update.version} 已准备好。\n点击“立即重启”将关闭程序并完成安装。"),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Process.start('sh', [shellScript.path], workingDirectory: appDir, mode: ProcessStartMode.detached);
+                  exit(0);
+                }, 
+                child: const Text("立即重启")
+              ),
+            ],
+          ),
+        );
+      }
+      return true;
+    } catch (e) {
+      if (context?.mounted == true) noticeManager.show(context, message: "准备 Linux 大版本更新失败: $e", icon: Icons.error);
       return false;
     }
   }
