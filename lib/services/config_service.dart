@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -57,6 +58,7 @@ class ConfigService {
   }
 
   static Future<void> setFirstRunCompleted() {
+    Bloriko.getInstance();
     return set("is_first_run", false);
   }
 
@@ -78,7 +80,7 @@ class ConfigService {
 }
 
 Future<Directory> getSupportData() async {
-  if (Platform.isAndroid || Platform.isIOS) {
+  if (Platform.isAndroid || Platform.isIOS || Platform.isLinux) {
     return await getApplicationSupportDirectory();
   }
 

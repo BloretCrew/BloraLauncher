@@ -9,6 +9,7 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:file_picker/file_picker.dart';
+import '../core/window_bridge.dart';
 import '../services/config_service.dart';
 import '../main.dart';
 import '../services/passport_service.dart';
@@ -33,7 +34,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   final List<String> _stepLabels = ['欢迎', '语言', '登录', '同步', 'Java', '目录'];
   
   String _selectedLanguage = 'zh-cn';
-  final List<String> _minecraftDirs = ['C:/Users/Administrator/AppData/Roaming/.minecraft'];
+  List<String> _minecraftDirs = [];
 
   bool _isWaitingForLogin = false;
   HttpServer? _authServer;
@@ -61,14 +62,53 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _initDefaults();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateAppIcon();
+      WindowBridge.init(context);
     });
     _checkJavaEnvironment();
     _getLocalIp();
   }
 
+  Future<void> _initDefaults() async {
+    String defaultPath = "";
+    if (Platform.isWindows) {
+      final appData = Platform.environment['APPDATA'];
+      if (appData != null) {
+        defaultPath = path.join(appData, '.minecraft');
+      } else {
+        defaultPath = 'C:/Users/Administrator/AppData/Roaming/.minecraft';
+      }
+    } else if (Platform.isLinux) {
+      final home = Platform.environment['HOME'];
+      if (home != null) {
+        defaultPath = path.join(home, '.minecraft');
+      }
+    } else if (Platform.isAndroid) {
+      final dir = await getExternalStorageDirectory();
+      if (dir != null) {
+        defaultPath = path.join(dir.path, '.minecraft');
+      }
+    }
+    
+    if (mounted && defaultPath.isNotEmpty) {
+      setState(() {
+        _minecraftDirs = [defaultPath];
+      });
+    }
+  }
+
   Future<void> _checkJavaEnvironment() async {
+    if (Platform.isAndroid) {
+      setState(() {
+        _javaInstalled = true;
+        _javaPath = "Internal Runtime";
+        _detectedJavaList = [{"version": "Android Runtime", "path": "internal"}];
+      });
+      return;
+    }
+
     final List<Map<String, String>> detected = [];
     if (_isCheckingJava) return;
     setState(() {
@@ -80,6 +120,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       final List<String> searchPaths = [];
 
       if (Platform.isWindows) {
+        // ... existing Windows logic ...
         for (int i = 67; i <= 90; i++) {
           final drive = "${String.fromCharCode(i)}:\\";
           try {
@@ -162,12 +203,17 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             }
           }
         }
-      } else {
-        searchPaths.addAll(['/usr/lib/jvm', '/usr/java', '/Library/Java/JavaVirtualMachines', '/opt']);
+      } else if (Platform.isLinux) {
+        searchPaths.addAll([
+          '/usr/lib/jvm',
+          '/usr/lib64/jvm',
+          '/usr/java',
+          '/opt',
+        ]);
         final home = Platform.environment['HOME'];
         if (home != null) {
-          searchPaths.add('$home/.jdks');
-          searchPaths.add('$home/.sdkman');
+          searchPaths.add(path.join(home, '.jdks'));
+          searchPaths.add(path.join(home, '.sdkman', 'candidates', 'java'));
         }
       }
 
@@ -338,6 +384,13 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   }
 
   Future<void> _installJava() async {
+    if (!Platform.isWindows) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("当前平台暂不支持自动安装 Java，请手动安装。"))
+      );
+      return;
+    }
+
     setState(() {
       _isInstallingJava = true;
       _installProgress = 0.0;
@@ -1233,76 +1286,88 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             const SizedBox(height: 24),
             Text("安装或更换 Java 版本", style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
-            Container(
-                height: 42,
-                width: isPortrait ? double.infinity : 300,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(8.0),
-                  border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
-                ),
-                child: Win11Dropdown(
-                  items: JavaConfig.versionList.map((String version) {
-                    return Win11DropdownItem(
-                      value: version,
-                      label: "Java $version",
-                    );
-                  }).toList(),
-                  initialValue: "21",
-                  onChanged: _isInstallingJava ? null : (val) => setState(() => _selectedJavaVersion = val!),
-                )
-            ),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 400),
-              curve: Curves.easeInOutCubic,
-              child: _isInstallingJava
-                  ? Padding(
-                padding: const EdgeInsets.only(top: 24),
-                child: SizedBox(
-                  width: isPortrait ? double.infinity : 400,
-                  child: Column(
-                    children: [
-                      IgnorePointer(
-                        child: GoogleSquigglySlider(
-                          value: _installProgress * 100, 
-                          max: 100,
-                          isPlaying: _installStatus.contains("下载"), // 安装阶段开启精子
-                          activeColor: Theme.of(context).colorScheme.primary,
-                          inactiveColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            if (Platform.isWindows) ...[
+              Container(
+                  height: 42,
+                  width: isPortrait ? double.infinity : 300,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(8.0),
+                    border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+                  ),
+                  child: Win11Dropdown(
+                    items: JavaConfig.versionList.map((String version) {
+                      return Win11DropdownItem(
+                        value: version,
+                        label: "Java $version",
+                      );
+                    }).toList(),
+                    initialValue: "21",
+                    onChanged: _isInstallingJava ? null : (val) => setState(() => _selectedJavaVersion = val!),
+                  )
+              ),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOutCubic,
+                child: _isInstallingJava
+                    ? Padding(
+                  padding: const EdgeInsets.only(top: 24),
+                  child: SizedBox(
+                    width: isPortrait ? double.infinity : 400,
+                    child: Column(
+                      children: [
+                        IgnorePointer(
+                          child: GoogleSquigglySlider(
+                            value: _installProgress * 100, 
+                            max: 100,
+                            isPlaying: _installStatus.contains("下载"), // 安装阶段开启精子
+                            activeColor: Theme.of(context).colorScheme.primary,
+                            inactiveColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(_installStatus, textAlign: TextAlign.center, style: hintStyle),
-                    ],
+                        const SizedBox(height: 12),
+                        Text(_installStatus, textAlign: TextAlign.center, style: hintStyle),
+                      ],
+                    ),
                   ),
-                ),
-              )
-                  : const SizedBox.shrink(),
-            ),
-            const SizedBox(height: 32),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                OutlinedButton(
-                  onPressed: _isCheckingJava || _isInstallingJava ? null : _checkJavaEnvironment,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    side: BorderSide(width: 1.5, color: theme.dividerColor),
+                )
+                    : const SizedBox.shrink(),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  OutlinedButton(
+                    onPressed: _isCheckingJava || _isInstallingJava ? null : _checkJavaEnvironment,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      side: BorderSide(width: 1.5, color: theme.dividerColor),
+                    ),
+                    child: const Text("重新检测"),
                   ),
-                  child: const Text("重新检测"),
-                ),
-                const SizedBox(width: 16),
-                FilledButton(
-                  onPressed: _isCheckingJava || _isInstallingJava ? null : _installJava,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  const SizedBox(width: 16),
+                  FilledButton(
+                    onPressed: _isCheckingJava || _isInstallingJava ? null : _installJava,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: Text(_isInstallingJava ? "正在安装..." : (_javaInstalled ? "更换为 Java $_selectedJavaVersion" : "安装 Java $_selectedJavaVersion")),
                   ),
-                  child: Text(_isInstallingJava ? "正在安装..." : (_javaInstalled ? "更换为 Java $_selectedJavaVersion" : "安装 Java $_selectedJavaVersion")),
+                ],
+              ),
+            ] else
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  Platform.isAndroid 
+                    ? "Android 版使用内置运行时，无需额外安装 Java。" 
+                    : "Linux 版暂不支持自动安装，请使用系统包管理器安装 Java 21。",
+                  textAlign: TextAlign.center,
+                  style: bodyStyle.copyWith(color: theme.colorScheme.primary),
                 ),
-              ],
-            ),
+              ),
             const SizedBox(height: 24),
             Text("推荐安装 Java 21，这是 Minecraft 最新版本的推荐版本。", textAlign: TextAlign.center, style: hintStyle),
           ],
@@ -1387,35 +1452,39 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       case 6:
         return Column(
           children: [
-            Text("手机遥控手柄", textAlign: TextAlign.center, style: headerStyle),
+            Text("多端联动", textAlign: TextAlign.center, style: headerStyle),
             const SizedBox(height: 16),
-            Text("您可以将手机作为 Minecraft 的遥控手柄使用！\n扫描下方二维码，或在浏览器打开以下地址访问遥控页面：",
+            Text(Platform.isAndroid 
+                ? "您可以在电脑上运行 Launcher，并使用此手机作为遥控手柄！\n在电脑版设置中开启此功能即可。" 
+                : "您可以将手机作为 Minecraft 的遥控手柄使用！\n扫描下方二维码，或在浏览器打开以下地址访问遥控页面：",
                 textAlign: TextAlign.center, style: bodyStyle),
-            const SizedBox(height: 32),
-            Container(
-              width: 160,
-              height: 160,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.dividerColor.withValues(alpha: 0.2)),
+            if (!Platform.isAndroid) ...[
+              const SizedBox(height: 32),
+              Container(
+                width: 160,
+                height: 160,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: theme.dividerColor.withValues(alpha: 0.2)),
+                ),
+                child: const Icon(Icons.qr_code_2, size: 140, color: Colors.black), // Mock QR code
               ),
-              child: const Icon(Icons.qr_code_2, size: 140, color: Colors.black), // Mock QR code
-            ),
-            const SizedBox(height: 24),
-            Text("扫码或在浏览器打开：", style: bodyStyle),
-            const SizedBox(height: 8),
-            SelectableText(
-              "http://$_localIp:25252/",
-              style: TextStyle(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
+              const SizedBox(height: 24),
+              Text("扫码或在浏览器打开：", style: bodyStyle),
+              const SizedBox(height: 8),
+              SelectableText(
+                "http://$_localIp:25252/",
+                style: TextStyle(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
               ),
-            ),
+            ],
             const SizedBox(height: 24),
-            Text("提示：确保手机和电脑在同一网络下。", textAlign: TextAlign.center, style: hintStyle),
+            Text("提示：确保设备在同一网络下。", textAlign: TextAlign.center, style: hintStyle),
           ],
         );
       default:

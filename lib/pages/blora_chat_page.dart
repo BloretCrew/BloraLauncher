@@ -1405,7 +1405,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                     },
                     tooltip: _tr("全屏编辑"),
                   ),
-                IconButton(
+                if (!Platform.isLinux) IconButton(
                   icon: Icon(
                     _isRecording ? Icons.mic_rounded : Icons.mic_none_rounded,
                     color: _agent.busy ? secondaryTextColor.withValues(alpha: 0.3) : (_isRecording ? theme.colorScheme.error : secondaryTextColor),

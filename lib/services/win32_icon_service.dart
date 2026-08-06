@@ -8,14 +8,12 @@ class Win32IconService {
   static late SetIconThemeDart _setIconTheme;
 
   static void init() {
-    if (!Platform.isWindows) return;
-
     final lib = DynamicLibrary.executable();
 
-    _setIconTheme = lib.lookupFunction<
+    _setIconTheme = (Platform.isWindows || Platform.isLinux) ? lib.lookupFunction<
         SetIconThemeNative,
         SetIconThemeDart
-    >('SetIconTheme');
+    >('SetIconTheme') : (_) => {};
   }
 
   static void switchIcon(bool dark) {

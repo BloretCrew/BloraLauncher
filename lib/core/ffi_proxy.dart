@@ -28,10 +28,10 @@ _executable.lookupFunction<
 );
 
 class WinTaskbar {
-  static final _setProgress = Platform.isWindows 
+  static final _setProgress = (Platform.isWindows || Platform.isLinux)
       ? _executable.lookupFunction<_SetProgress_Native, _SetProgress_Dart>('SetTaskbarProgress') 
       : null;
-  static final _setState = Platform.isWindows 
+  static final _setState = (Platform.isWindows || Platform.isLinux)
       ? _executable.lookupFunction<_SetState_Native, _SetState_Dart>('SetTaskbarState') 
       : null;
 

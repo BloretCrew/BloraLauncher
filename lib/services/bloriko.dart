@@ -72,14 +72,13 @@ class BlorikoLLMClient implements LLMClient {
 
       final stream = adapter.chat(
         messages: Bloriko.instance._convertToAgentMessages(chatMessages),
-        tools: [], // 不传递任何工具
+        tools: [],
       );
 
-      // 仅消耗流内容，不进行任何工具解析
       await for (final _ in stream) {}
       Bloriko.instance._updateConnectionStatus(BlorikoConnectionStatus.finished);
 
-      return []; // 明确返回空动作列表
+      return [];
     }
 
     l.log("Calling OpenAI chat.completions.create", level: LogLevel.info, source: LogSource.network, detail: "Model: ${ConfigService.get("ai_model") ?? 'default'}");
