@@ -1,6 +1,6 @@
 import 'dart:io';
-
 import 'package:flutter/material.dart';
+import '../core/i18n.dart';
 
 class CoresPage extends StatefulWidget {
   const CoresPage({super.key});
@@ -19,7 +19,6 @@ class _CoresPageState extends State<CoresPage> {
   }
 
   void refreshLaunchItems() {
-    // TODO: Backend.getLaunchItemsSortedByPlayTime()
     setState(() {
       launchItems = [];
     });
@@ -36,21 +35,21 @@ class _CoresPageState extends State<CoresPage> {
           bottom: 16,
         ),
         children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 8, top: 8),
+          Padding(
+            padding: const EdgeInsets.only(left: 8, top: 8),
             child: Text(
-              "核心",
-              style: TextStyle(
+              "Cores".tl,
+              style: const TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.only(left: 8, top: 8, bottom: 10),
+          Padding(
+            padding: const EdgeInsets.only(left: 8, top: 8, bottom: 10),
             child: Text(
-              "右键单击启动项可进行管理。",
-              style: TextStyle(
+              "Right-click on launch items to manage.".tl,
+              style: const TextStyle(
                 fontSize: 12,
                 color: Colors.grey,
               ),
@@ -63,14 +62,14 @@ class _CoresPageState extends State<CoresPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.inventory_2_outlined,
                       size: 64,
                       color: Colors.grey,
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      "暂无核心",
+                      "No cores found".tl,
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -79,7 +78,7 @@ class _CoresPageState extends State<CoresPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      "下载 Minecraft 核心或添加自定义启动项",
+                      "Download Minecraft cores or add custom launch items".tl,
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade500,
@@ -104,9 +103,8 @@ class _CoresPageState extends State<CoresPage> {
                     color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Row(
+                  child: const Row(
                     children: [
-                      // 原来的内容
                     ],
                   ),
                 ),

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import '../core/i18n.dart';
+import '../core/grammer_candy.dart';
+import '../main.dart';
 import '../services/bbbs.dart';
 import '../widgets/button.dart';
 
@@ -62,26 +64,36 @@ class _BlorikoPageState extends State<BlorikoPage> {
 
     final lastIndex = _messages.length - 1;
 
-    BbbsService.streamBlorikoChat(content: text).listen(
-      (chunk) {
-        if (!mounted) return;
-        setState(() {
-          _messages[lastIndex]["content"] = (_messages[lastIndex]["content"] ?? "") + chunk;
-        });
-        _scrollToBottom();
-      },
-      onDone: () {
-        if (!mounted) return;
+    try {
+      BbbsService.streamBlorikoChat(content: text, ).listen(
+        (chunk) {
+          if (!mounted) return;
+          setState(() {
+            _messages[lastIndex]["content"] = (_messages[lastIndex]["content"] ?? "") + chunk;
+          });
+          _scrollToBottom();
+        },
+        onDone: () {
+          if (!mounted) return;
+          setState(() => _isProcessing = false);
+        },
+        onError: (e) {
+          if (!mounted) return;
+          setState(() {
+            _isProcessing = false;
+            _messages[lastIndex]["content"] = "Error: $e";
+          });
+          showError("Bloriko chat error".tl);
+          logger.error("Bloriko chat error: $e", .network);
+        },
+      );
+    } catch (e) {
+      if (mounted) {
         setState(() => _isProcessing = false);
-      },
-      onError: (e) {
-        if (!mounted) return;
-        setState(() {
-          _isProcessing = false;
-          _messages[lastIndex]["content"] = "Error: $e";
-        });
-      },
-    );
+        showError("Failed to connect to Bloriko".tl);
+      }
+      logger.error("Bloriko connection failed: $e", .network);
+    }
   }
 
   @override
@@ -133,7 +145,7 @@ class _BlorikoPageState extends State<BlorikoPage> {
           Icon(Icons.forum_outlined, size: 64, color: secondaryColor.withValues(alpha: 0.3)),
           const SizedBox(height: 16),
           Text(
-            "和 Bloriko 聊聊天吧".tl,
+            "Chat with Bloriko".tl,
             style: TextStyle(color: secondaryColor, fontSize: 16),
           ),
         ],
@@ -214,7 +226,7 @@ class _BlorikoPageState extends State<BlorikoPage> {
                   color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: _isFocused ? theme.colorScheme.primary : borderColor,
+                    color: _isFocused ? theme.colorScheme.primary : theme.dividerColor.withValues(alpha: 0.1),
                     width: _isFocused ? 1.8 : 1.0,
                   ),
                 ),
@@ -226,7 +238,7 @@ class _BlorikoPageState extends State<BlorikoPage> {
                   onChanged: (v) => setState(() {}),
                   onSubmitted: (_) => _sendMessage(),
                   decoration: InputDecoration(
-                    hintText: "向 Bloriko 提问...".tl,
+                    hintText: "Ask Bloriko...".tl,
                     border: InputBorder.none,
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(vertical: 6),
@@ -244,7 +256,7 @@ class _BlorikoPageState extends State<BlorikoPage> {
                 : BloretIconButton(
                     onPressed: _controller.text.trim().isEmpty ? null : _sendMessage,
                     icon: Icons.send,
-                    tooltip: "发送".tl,
+                    tooltip: "Send".tl,
                   ),
           ],
         ),

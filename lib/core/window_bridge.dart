@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 
+import 'i18n.dart';
+
 class WindowBridge {
   static const _channel = BasicMessageChannel('bloret/window_event', StringCodec());
   
@@ -28,15 +30,15 @@ class WindowBridge {
                   children: [
                     const Icon(Icons.exit_to_app,),
                     const SizedBox(width: 12),
-                    const Text("关闭 Bloret Launcher"),
+                    Text("Close Bloret Launcher".tl),
                   ],
                 ),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      "确定要退出吗？\n隐藏到后台可以继续保持运行，方便下次快速启动。",
-                      style: TextStyle(height: 1.5),
+                    Text(
+                      "${"Are you sure you want to exit?".tl}\n${"Hiding to background will keep the launcher running for faster startup.".tl}",
+                      style: const TextStyle(height: 1.5),
                     ),
                     const SizedBox(height: 24),
                     Container(
@@ -47,7 +49,7 @@ class WindowBridge {
                       child: CheckboxListTile(
                         value: remember,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        title: const Text("不再询问，记住我的选择", style: TextStyle(fontSize: 14)),
+                        title: Text("Don't ask again, remember my choice".tl, style: const TextStyle(fontSize: 14)),
                         onChanged: (v) => setInnerState(() => remember = v!),
                       ),
                     ),
@@ -58,13 +60,13 @@ class WindowBridge {
                   BloretButton(
                     onPressed: () => Navigator.pop(context, false),
                     height: 42,
-                    text: "隐藏到后台",
+                    text: "Hide to background".tl,
                   ),
                   const SizedBox(width: 8),
                   BloretButton(
                     onPressed: () => Navigator.pop(context, true),
                     height: 42,
-                    text: "彻底退出",
+                    text: "Quit".tl,
                   ),
                 ],
               );

@@ -8,6 +8,7 @@ import 'package:pasteboard/pasteboard.dart';
 import 'package:path/path.dart' as p;
 import 'package:screen_capturer/screen_capturer.dart';
 
+import '../core/i18n.dart';
 import '../services/config_service.dart';
 
 class ToolsPage extends StatefulWidget {
@@ -24,10 +25,10 @@ class _ToolsPageState extends State<ToolsPage> {
   final nameController = TextEditingController();
   final skinController = TextEditingController();
 
-  String uuidResult = "查询的结果将显示在这里";
-  String nameResult = "查询的结果将显示在这里";
-  String skinResult = "皮肤的查询的结果";
-  String capeResult = "披风的查询的结果";
+  String uuidResult = "Query results will be displayed here".tl;
+  String nameResult = "Query results will be displayed here".tl;
+  String skinResult = "Skin query results".tl;
+  String capeResult = "Cape query results".tl;
 
   @override
   void initState() {
@@ -64,11 +65,11 @@ class _ToolsPageState extends State<ToolsPage> {
           bottom: 16,
         ),
         children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 8, bottom: 8),
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 8),
             child: Text(
-              "小工具",
-              style: TextStyle(
+              "Tools".tl,
+              style: const TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
               ),
@@ -76,45 +77,45 @@ class _ToolsPageState extends State<ToolsPage> {
           ),
 
           if (pluginToolCards.isNotEmpty) ...[
-            sectionTitle("插件工具"),
-            // TODO PluginHost Widget 加载
+            sectionTitle("Plugin Tools".tl),
+            // TODO PluginHost Widget
           ],
 
           if (Platform.isWindows) ...[
-            sectionTitle("资源包工具"),
+            sectionTitle("Resource Pack Tools".tl),
             const SizedBox(height: 4),
             ToolCard(
               icon: "assets/icons/resource_editor.png",
-              title: "Bloret Launcher 资源包编辑器",
-              subtitle: "创建和编辑 Minecraft 资源包，内置 Git 版本管理，无需编程基础",
-              button: "暂未兼容",
+              title: "Bloret Launcher Resource Pack Editor".tl,
+              subtitle: "Create and edit Minecraft resource packs with built-in Git, no coding needed.".tl,
+              button: "Incompatible".tl,
               onPressed: null,
             ),
 
-            sectionTitle("屏幕截图"),
+            sectionTitle("Screenshots".tl),
             const SizedBox(height: 4),
             ToolCard(
               icon: "assets/icons/screen_cap.png",
-              title: "Windows原生截图",
-              subtitle: "便捷地截取屏幕画面，包括 Minecraft 窗口",
-              button: "截图",
+              title: "Native Windows Screenshot".tl,
+              subtitle: "Easily capture screen content, including Minecraft windows.".tl,
+              button: "Capture".tl,
               onPressed: () async {
                 await takeScreenCut();
               },
             ),
           ],
 
-          sectionTitle("Minecraft 数据查询"),
+          sectionTitle("Minecraft Data Query".tl),
 
           const SizedBox(height: 4),
           QueryCard(
-            title: "查询玩家UUID",
-            hint: "玩家名称（正版）",
+            title: "Query Player UUID".tl,
+            hint: "Player Name (Official)".tl,
             controller: uuidController,
             result: uuidResult,
             onQuery: () {
               setState(() {
-                uuidResult = "查询中...";
+                uuidResult = "Querying...".tl;
               });
               // TODO Backend.queryUUID()
             },
@@ -124,13 +125,13 @@ class _ToolsPageState extends State<ToolsPage> {
           ),
 
           QueryCard(
-            title: "查询玩家名字",
-            hint: "玩家UUID",
+            title: "Query Player Name".tl,
+            hint: "Player UUID".tl,
             controller: nameController,
             result: nameResult,
             onQuery: () {
               setState(() {
-                nameResult = "查询中...";
+                nameResult = "Querying...".tl;
               });
               // TODO Backend.queryName()
             },
@@ -138,15 +139,15 @@ class _ToolsPageState extends State<ToolsPage> {
           ),
 
           QueryCard(
-            title: "获取玩家的皮肤和披风",
-            hint: "玩家UUID",
+            title: "Get Player Skin & Cape".tl,
+            hint: "Player UUID".tl,
             controller: skinController,
             result: skinResult,
             extraResult: capeResult,
             onQuery: () {
               setState(() {
-                skinResult = "查询中...";
-                capeResult = "查询中...";
+                skinResult = "Querying...".tl;
+                capeResult = "Querying...".tl;
               });
               // TODO Backend.querySkin()
             },
@@ -254,7 +255,7 @@ class QueryCard extends StatelessWidget {
               ),
             ),
             IconButton(
-              tooltip: "复制",
+              tooltip: "Copy".tl,
               icon: const Icon(
                 Icons.copy,
                 size: 16,
@@ -300,7 +301,7 @@ class QueryCard extends StatelessWidget {
 
               BloretButton(
                 onPressed: onQuery,
-                text: "查询",
+                text: "Query".tl,
               ),
             ],
           ),
@@ -309,7 +310,7 @@ class QueryCard extends StatelessWidget {
           const SizedBox(height: 8),
 
           resultRow(
-            "结果：",
+            "Result: ".tl,
             result,
           ),
 
@@ -367,13 +368,15 @@ Future<void> takeScreenCut() async {
       await file.writeAsBytes(image.imageBytes!);
     }
 
-    print(
+    logger.info(
       "Screenshot saved: ${file.path}",
+      .tool
     );
 
   } catch (e) {
-    print(
+    logger.error(
       "Screenshot failed: $e",
+      .tool
     );
   }
 }

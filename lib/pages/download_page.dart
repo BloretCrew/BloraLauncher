@@ -1,14 +1,14 @@
 import 'dart:io';
-
 import 'package:archive/archive.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/windows_widgets.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
-
-import '../main.dart';
+import '../core/i18n.dart';
+import '../core/grammer_candy.dart';
 import '../core/java_config.dart';
+import '../main.dart';
 import '../services/download_service.dart';
 import '../widgets/google_widgets.dart';
 
@@ -34,10 +34,10 @@ class _DownloadPageState extends State<DownloadPage> {
 
   Future<void> _loadVersions() async {
     setState(() {
-      vanillaVersions = ["获取中..."];
-      fabricVersions = ["获取中..."];
-      forgeVersions = ["获取中..."];
-      neoForgeVersions = ["获取中..."];
+      vanillaVersions = ["Fetching...".tl];
+      fabricVersions = ["Fetching...".tl];
+      forgeVersions = ["Fetching...".tl];
+      neoForgeVersions = ["Fetching...".tl];
       javaVersions = JavaConfig.versionList.map((e) => "Java $e").toList();
     });
 
@@ -58,14 +58,15 @@ class _DownloadPageState extends State<DownloadPage> {
         }
       }
     } catch (e) {
-      debugPrint("获取下载版本列表失败: $e");
+      logger.error("Failed to load versions: $e", .network);
       if (mounted) {
         setState(() {
-        vanillaVersions = ["获取失败"];
-        fabricVersions = ["获取失败"];
-        forgeVersions = ["获取失败"];
-        neoForgeVersions = ["获取失败"];
-      });
+          vanillaVersions = ["Fetch Failed".tl];
+          fabricVersions = ["Fetch Failed".tl];
+          forgeVersions = ["Fetch Failed".tl];
+          neoForgeVersions = ["Fetch Failed".tl];
+        });
+        showError("Failed to load download versions".tl);
       }
     }
   }
@@ -80,8 +81,8 @@ class _DownloadPageState extends State<DownloadPage> {
           Padding(
             padding: const EdgeInsets.only(left: 8, top: 8),
             child: Text(
-              "下载",
-              style: TextStyle(
+              "Download".tl,
+              style: const TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
               ),
@@ -103,7 +104,7 @@ class _DownloadPageState extends State<DownloadPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text("当前下载队列", style: TextStyle(fontWeight: FontWeight.bold)),
+                              Text("Active Downloads".tl, style: const TextStyle(fontWeight: FontWeight.bold)),
                               ...activeTasks.map((task) => Padding(
                                 padding: const EdgeInsets.only(top: 8),
                                 child: Row(
@@ -126,12 +127,12 @@ class _DownloadPageState extends State<DownloadPage> {
               );
             },
           ),
-          Text("  当前下载源: bangbang93/BMCLAPI"),
+          Text("  ${"Source".tl}: bangbang93/BMCLAPI"),
           const SizedBox(height: 8),
           DownloadCard(
             image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/mc_be.png", scale: 0.9,)),
-            title: "Minecraft 官方版本",
-            subtitle: "下载并安装原生 Minecraft 核心",
+            title: "Minecraft Versions".tl,
+            subtitle: "Download and install vanilla Minecraft cores".tl,
             versions: vanillaVersions,
             onDownload: (version) async {
               final url = "https://raw.gitcode.com/Bloret/$version/archive/refs/heads/main.zip";
@@ -142,7 +143,7 @@ class _DownloadPageState extends State<DownloadPage> {
                 url,
                 "minecraft_source.zip",
                     (path, updateStatus) async {
-                  updateStatus("正在解压...");
+                  updateStatus("Extracting...".tl);
 
                   try {
                     if (!await targetDir.exists()) await targetDir.create(recursive: true);
@@ -159,11 +160,13 @@ class _DownloadPageState extends State<DownloadPage> {
                       }
                     }
 
-                    updateStatus("安装完成");
+                    updateStatus("Installation Complete".tl);
+                    showSuccess("Minecraft $version installed".tl);
                     return true;
                   } catch (e) {
-                    debugPrint("解压失败: $e");
-                    updateStatus("解压失败");
+                    logger.error("Extraction failed: $e", .tool);
+                    updateStatus("Extraction Failed".tl);
+                    showError("Failed to install Minecraft $version".tl);
                     return false;
                   }
                 },
@@ -172,8 +175,8 @@ class _DownloadPageState extends State<DownloadPage> {
           ),
           DownloadCard(
             image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/forge.png")),
-            title: "Forge Loader",
-            subtitle: "安装 Forge 加载器以使用 Forge Mod",
+            title: "Forge Loader".tl,
+            subtitle: "Install Forge to use Forge Mods".tl,
             versions: forgeVersions,
             onDownload: (version) async {
               final url = "https://bmclapi2.bangbang93.com/forge/download/$version";
@@ -185,8 +188,8 @@ class _DownloadPageState extends State<DownloadPage> {
           ),
           DownloadCard(
             image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/fabric.png")),
-            title: "Fabric Loader",
-            subtitle: "安装 Fabric 加载器以使用 Fabric Mod",
+            title: "Fabric Loader".tl,
+            subtitle: "Install Fabric to use Fabric Mods".tl,
             versions: fabricVersions,
             onDownload: (version) async {
               final url = "https://bmclapi2.bangbang93.com/fabric/loader/$version/installer";
@@ -198,8 +201,8 @@ class _DownloadPageState extends State<DownloadPage> {
           ),
           DownloadCard(
             image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/neoforge.png")),
-            title: "NeoForge Loader",
-            subtitle: "安装 NeoForge 加载器以使用 NeoForge Mod",
+            title: "NeoForge Loader".tl,
+            subtitle: "Install NeoForge to use NeoForge Mods".tl,
             versions: neoForgeVersions,
             onDownload: (version) async {
               final url = "https://bmclapi2.bangbang93.com/neoforge/loader/$version/installer";
@@ -211,20 +214,25 @@ class _DownloadPageState extends State<DownloadPage> {
           ),
           DownloadCard(
             image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/java.png")),
-            title: "Java 运行时环境",
-            subtitle: "运行 Minecraft 所需的 Java 环境",
+            title: "Java Runtime".tl,
+            subtitle: "Java environment required for Minecraft".tl,
             versions: javaVersions,
             onDownload: (v) async {
               final version = v.replaceAll("Java ", "");
-              final url = JavaConfig.versions[version]!["Windows"]!["x64"];
+              final url = JavaConfig.versions[version]?["Windows"]?["x64"];
               if (url != null) {
                 await DownloadService.instance.downloadFile(
                     "Java_$version", url, "java_$version.msi",
                         (path, updateStatus) async {
-                      updateStatus("正在启动安装...");
+                      updateStatus("Starting installation...".tl);
                       final result = await Process.start("msiexec", ["/i", path, "/quiet", "/qn"]);
-                      updateStatus("后台安装中...");
+                      updateStatus("Installing in background...".tl);
                       final exitCode = await result.exitCode;
+                      if (exitCode == 0) {
+                        showSuccess("Java $version installed".tl);
+                      } else {
+                        showError("Java $version installation failed".tl);
+                      }
                       return exitCode == 0;
                     }
                 );
@@ -233,18 +241,18 @@ class _DownloadPageState extends State<DownloadPage> {
           ),
           DownloadCard(
             image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/ext.png")),
-            title: "外部程序/整合包",
-            subtitle: "添加您的自定义启动项或整合包文件",
-            buttonText: "添加自定义项目",
+            title: "External / Modpack".tl,
+            subtitle: "Add custom launchers or modpack files".tl,
+            buttonText: "Add Item".tl,
             onPressed: () {
               // TODO: Backend.addCustomApp()
             },
           ),
           DownloadCard(
             image: SizedBox(width: 42, height: 42, child: CustomPaint(painter: ModrinthPainter(), size: const Size(42, 42))),
-            title: "Modrinth 整合包",
-            subtitle: "导入 .mrpack 格式的 Modrinth 整合包",
-            buttonText: "导入整合包",
+            title: "Modrinth Modpack".tl,
+            subtitle: "Import .mrpack format modpacks".tl,
+            buttonText: "Import Modpack".tl,
             onPressed: () {
               // TODO: Backend.importMrpack()
             },
@@ -346,7 +354,7 @@ class _DownloadCardState extends State<DownloadCard> {
                       if (_task.isDownloading) {
                         return Row(
                           children: [
-                            const Expanded(child: Text("正在下载...", style: TextStyle(fontSize: 10))),
+                            Expanded(child: Text("Downloading...".tl, style: const TextStyle(fontSize: 10))),
                             IconButton(
                               icon: const Icon(Icons.close, size: 16),
                               onPressed: () => DownloadService.instance.cancelTask(widget.title + (selected ?? "")),
@@ -364,7 +372,7 @@ class _DownloadCardState extends State<DownloadCard> {
                             widget.onPressed?.call();
                           }
                         },
-                        text: widget.buttonText ?? "下载并安装",
+                        text: widget.buttonText ?? "Install".tl,
                       );
                     }
                   ),
@@ -410,13 +418,13 @@ class _DownloadCardState extends State<DownloadCard> {
           AnimatedBuilder(
             animation: _task,
             builder: (context, _) {
-              if (_task.isDownloading) {
+            if (_task.isDownloading) {
                 return SizedBox(
                   width: 150,
                   child: Row(
                     children: [
-                      const Expanded(
-                        child: Text("正在下载...", style: TextStyle(fontSize: 10)),
+                      Expanded(
+                        child: Text("Downloading...".tl, style: const TextStyle(fontSize: 10)),
                       ),
                       IconButton(
                         icon: const Icon(Icons.close, size: 16),
@@ -436,7 +444,7 @@ class _DownloadCardState extends State<DownloadCard> {
                     widget.onPressed?.call();
                   }
                 },
-                text: widget.buttonText ?? "下载并安装",
+                text: widget.buttonText ?? "Install".tl,
               );
             }
           ),
@@ -450,7 +458,7 @@ class ModrinthPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Color(0xFF60D677)
+      ..color = const Color(0xFF60D677)
       ..style = PaintingStyle.fill
       ..isAntiAlias = true;
 

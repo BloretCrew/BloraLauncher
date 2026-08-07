@@ -4,6 +4,8 @@ import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/passport_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/main.dart';
+import 'package:bloret_launcher/core/i18n.dart';
+import 'package:bloret_launcher/core/grammer_candy.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -23,13 +25,6 @@ class _PassPortPageState extends State<PassPortPage> {
   HttpServer? _authServer;
   int _actualPort = 25252;
   final ValueNotifier<bool> _isTokenValidNotifier = ValueNotifier<bool>(false);
-
-  Map<String, dynamic> _getAccountData() {
-    final data = ConfigService.get('MinecraftAccount');
-    if (data == null) return {"logined": false, "chosen": -1, "accounts": []};
-    if (data is String) return jsonDecode(data);
-    return data as Map<String, dynamic>;
-  }
 
   void _syncStateToUi() {
     if (mounted) {
@@ -83,8 +78,11 @@ class _PassPortPageState extends State<PassPortPage> {
             final syncResult = await PassportService.syncMinecraftAccounts();
             _isTokenValidNotifier.value = syncResult;
             _syncStateToUi();
+            showSuccess("Logged in successfully".tl);
+            logger.info("Passport login success: ${userInfo['username']}", .network);
           } else {
             _isTokenValidNotifier.value = false;
+            showError("Authentication failed".tl);
           }
           setState(() {});
 
@@ -93,114 +91,14 @@ class _PassPortPageState extends State<PassPortPage> {
             ..headers.contentType = ContentType.html
             ..write('''
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录成功</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #121212;
-            color: #ffffff;
-            overflow: hidden;
-        }
-        .container {
-            text-align: center;
-            padding: 48px;
-            background: #1e1e1e;
-            border-radius: 24px;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            max-width: 400px;
-            width: 90%;
-            animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .icon-wrapper {
-            position: relative;
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 24px;
-        }
-        .success-pulse {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            background: rgba(159, 168, 218, 0.2);
-            border-radius: 50%;
-            animation: pulse 2s infinite;
-        }
-        .success-icon {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: #9FA8DA;
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            box-shadow: 0 4px 20px rgba(159, 168, 218, 0.4);
-        }
-        .success-icon svg {
-            width: 40px;
-            height: 40px;
-            fill: none;
-            stroke: #121212;
-            stroke-width: 4;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-            stroke-dasharray: 100;
-            stroke-dashoffset: 100;
-            animation: drawCheck 0.6s 0.3s forwards cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        h1 {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            letter-spacing: 0.5px;
-        }
-        p {
-            font-size: 14px;
-            color: rgba(255, 255, 255, 0.5);
-            line-height: 1.6;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes pulse {
-            0% { transform: scale(0.95); opacity: 0.5; }
-            50% { transform: scale(1.2); opacity: 0; }
-            100% { transform: scale(0.95); opacity: 0; }
-        }
-        @keyframes drawCheck {
-            to { stroke-dashoffset: 0; }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="icon-wrapper">
-            <div class="success-pulse"></div>
-            <div class="success-icon">
-                <svg viewBox="0 0 24 24">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-            </div>
-        </div>
-        <h1>Bloret PassPort 授权成功</h1>
-        <p>您现在可以安全地关闭此窗口并返回 Launcher 继续设置。</p>
+    <title>${"Login Success".tl}</title>
+...
+        <h1>${"Bloret PassPort Authorized".tl}</h1>
+        <p>${"You can now safely close this window and return to the Launcher.".tl}</p>
     </div>
 </body>
 </html>
@@ -218,18 +116,17 @@ class _PassPortPageState extends State<PassPortPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
-    final userName = ConfigService.get('Bloret_PassPort_UserName') ?? "访客";
+    final userName = ConfigService.get('Bloret_PassPort_UserName') ?? "Guest".tl;
     final avatar = ConfigService.get('Bloret_PassPort_Avatar') ?? "";
-    final accountData = _getAccountData();
-    // fuck
-    final List accounts = accountData['accounts'] ?? [];
+    
+    final accountData = (ConfigService.get('MinecraftAccountList') as List<dynamic>? ?? []).map((e) => (jsonDecode(e.toString()) as Map<String, dynamic>).map((k, v) => MapEntry(k, v.toString()))).toList();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          Text("通行证", style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w800)),
+          Text("Passport".tl, style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 24),
           Text("Bloret PassPort", style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 12),
@@ -249,7 +146,7 @@ class _PassPortPageState extends State<PassPortPage> {
                     onPressed: () async {
                       await _loginBloretPassPort();
                     },
-                    text: _isWaitingForLogin ? "等待登录..." : "登录",
+                    text: _isWaitingForLogin ? "Waiting...".tl : "Login".tl,
                   )
                 else
                   BloretButton(
@@ -257,21 +154,22 @@ class _PassPortPageState extends State<PassPortPage> {
                       await ConfigService.set('Bloret_PassPort_Login', false);
                       await ConfigService.set('Bloret_PassPort_UserName', '');
                       await ConfigService.set('Bloret_PassPort_PassWord', '');
-                      accounts.clear();
+                      await ConfigService.set('MinecraftAccountList', []);
                       setState(() {});
+                      showInfo("Logged out".tl);
                     },
-                    text: "退出登录",
+                    text: "Logout".tl,
                   ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-          Text("使用 Bloret 通行证，可享受几乎所有的 Bloret 服务。",
+          Text("Use Bloret PassPort to access all Bloret services.".tl,
               style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.secondary, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 32),
+          const SizedBox(height: 24),
           Row(
             children: [
-              Text("Minecraft 账户", style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+              Text("Minecraft Accounts".tl, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
               const Spacer(),
               if (_isSyncing)
                 const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
@@ -285,14 +183,14 @@ class _PassPortPageState extends State<PassPortPage> {
           ),
           const SizedBox(height: 12),
           if (!isLoggedIn)
-            const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("您还未登录，请先登录", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 40))))
-          else if (accounts.isEmpty)
-            const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("暂无账户，请从云端同步", style: TextStyle(fontWeight: FontWeight.w600))))
+            Center(child: Padding(padding: const EdgeInsets.all(20), child: Text("Please log in first".tl, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 32))))
+          else if (accountData.isEmpty)
+            Center(child: Padding(padding: const EdgeInsets.all(20), child: Text("No accounts, please sync from cloud".tl, style: const TextStyle(fontWeight: FontWeight.w600))))
           else
-            ...accounts.asMap().entries.map((entry) {
+            ...accountData.asMap().entries.map((entry) {
               final index = entry.key;
               final account = entry.value;
-              final isDefault = accountData['chosen'] == index;
+              final isDefault = int.tryParse(ConfigService.get("MinecraftAccount_Chosen").toString()) == index;
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: FluentCard(
@@ -331,18 +229,17 @@ class _PassPortPageState extends State<PassPortPage> {
                                   ),
                               ],
                             ),
-                            Text(account['type'] ?? "Offline", style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
+                            Text((account['type'] ?? "Offline").toString().tl, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
                           ],
                         ),
                       ),
                       BloretButton(
                         onPressed: isDefault ? null : () async {
-                          final newData = Map<String, dynamic>.from(accountData);
-                          newData['chosen'] = index;
-                          await ConfigService.set('MinecraftAccount', jsonEncode(newData));
-                          setState(() {});
+                          await ConfigService.set('MinecraftAccount_Chosen', index).then((_) {
+                            if (mounted) setState(() {});
+                          });
                         },
-                        text: isDefault ? "正在使用" : "使用此账户",
+                        text: isDefault ? "Using".tl : "Use This".tl,
                       ),
                     ],
                   ),
@@ -350,13 +247,13 @@ class _PassPortPageState extends State<PassPortPage> {
               );
             }),
           if (isLoggedIn) ...[
-            const SizedBox(height: 32),
+            const SizedBox(height: 12),
             FluentCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("通过 Bloret PassPort 管理你的账户", style: TextStyle(fontWeight: FontWeight.w700)),
-                  Text("轻松登录你的 Minecraft Account，便捷地进行操作。",
+                  Text("Manage accounts via Bloret PassPort".tl, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text("Easily manage your Minecraft accounts and settings.".tl,
                       style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.secondary, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 16),
                   Row(
@@ -366,17 +263,27 @@ class _PassPortPageState extends State<PassPortPage> {
                           launchUrlString("https://passport.bloret.net/minecraft");
                         },
                         style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                        child: const Text("网站管理", style: TextStyle(fontWeight: FontWeight.w600)),
+                        child: Text("Website".tl, style: const TextStyle(fontWeight: FontWeight.w600)),
                       ),
                       const SizedBox(width: 12),
                       FilledButton(
                         onPressed: () async {
                           setState(() => _isSyncing = true);
-                          await PassportService.syncMinecraftAccounts();
+                          try {
+                            final success = await PassportService.syncMinecraftAccounts();
+                            if (success) {
+                              showSuccess("Synced successfully".tl);
+                            } else {
+                              showError("Sync failed".tl);
+                            }
+                          } catch (e) {
+                            showError("Sync failed".tl);
+                            logger.error("Passport sync error: $e", .network);
+                          }
                           setState(() => _isSyncing = false);
                         },
                         style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                        child: const Text("云端同步", style: TextStyle(fontWeight: FontWeight.w600)),
+                        child: Text("Cloud Sync".tl, style: const TextStyle(fontWeight: FontWeight.w600)),
                       ),
                     ],
                   ),

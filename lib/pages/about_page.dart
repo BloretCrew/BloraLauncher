@@ -5,6 +5,9 @@ import 'package:bloret_launcher/widgets/button.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/i18n.dart';
+import '../core/grammer_candy.dart';
+import '../core/logger.dart';
 import '../main.dart';
 
 class AboutPage extends StatefulWidget {
@@ -31,7 +34,7 @@ class AboutPageState extends State<AboutPage> {
             children: [
               Row(
                 children: [
-                  Text("关于",
+                  Text("About".tl,
                       style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
                 ],
               ),
@@ -42,7 +45,7 @@ class AboutPageState extends State<AboutPage> {
                   children: [
                     Row(
                       children: [
-                        Image.asset(Theme.of(context).brightness == Brightness.dark ? "assets/bloret_dark.png" : "assets/bloret_light.png", width: isPortrait ? 64 : 100, height: isPortrait ? 64 : 100, fit: BoxFit.cover,),
+                        Image.asset(theme.brightness == Brightness.dark ? "assets/bloret_dark.png" : "assets/bloret_light.png", width: isPortrait ? 64 : 100, height: isPortrait ? 64 : 100, fit: BoxFit.cover,),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
@@ -57,6 +60,8 @@ class AboutPageState extends State<AboutPage> {
                                       if (!(ConfigService.get("develop_mode") ?? false)) {
                                         ConfigService.set("develop_mode", true).then((_) {
                                           setState(() {});
+                                          showSuccess("Developer mode enabled".tl);
+                                          logger.info("Developer mode enabled", LogSource.tool);
                                         });
                                       }
                                     } else {
@@ -83,7 +88,7 @@ class AboutPageState extends State<AboutPage> {
                 ),
               ),
               const SizedBox(height: 12),
-              BloretAboutWidget(),
+              const BloretAboutWidget(),
               const SizedBox(height: 12),
               FluentCard(
                 child: isPortrait 
@@ -94,7 +99,7 @@ class AboutPageState extends State<AboutPage> {
                           children: [
                             Container(width: 40, height: 40, decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)), clipBehavior: Clip.hardEdge, child: Image.asset("assets/icons/qq.png", isAntiAlias: true, filterQuality: FilterQuality.high,),),
                             const SizedBox(width: 12),
-                            Text("Bloret QQ", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                            Text("Bloret QQ".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -103,11 +108,11 @@ class AboutPageState extends State<AboutPage> {
                           runSpacing: 8,
                           children: [
                             BloretButton(
-                              text: "Bloret",
+                              text: "Bloret".tl,
                               onPressed: () => launchUrl(Uri.parse("https://qm.qq.com/q/iGw0GwUCiI")),
                             ),
                             BloretButton(
-                              text: "Bloret Software Community",
+                              text: "Bloret Software Community".tl,
                               onPressed: () => launchUrl(Uri.parse("https://qm.qq.com/q/kEt8fb41wc")),
                             ),
                           ],
@@ -118,18 +123,18 @@ class AboutPageState extends State<AboutPage> {
                       children: [
                         Container(width: 48, height: 48, decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)), clipBehavior: Clip.hardEdge, child: Image.asset("assets/icons/qq.png", isAntiAlias: true, filterQuality: FilterQuality.high,),),
                         const SizedBox(width: 12),
-                        Text("Bloret QQ", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                        Text("Bloret QQ".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                         const Spacer(),
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             BloretButton(
-                              text: "Bloret",
+                              text: "Bloret".tl,
                               onPressed: () => launchUrl(Uri.parse("https://qm.qq.com/q/iGw0GwUCiI")),
                             ),
                             const SizedBox(width: 16),
                             BloretButton(
-                              text: "Bloret Software Community",
+                              text: "Bloret Software Community".tl,
                               onPressed: () => launchUrl(Uri.parse("https://qm.qq.com/q/kEt8fb41wc")),
                             ),
                           ],
@@ -147,7 +152,7 @@ class AboutPageState extends State<AboutPage> {
                           children: [
                             CustomPaint(painter: GithubPainter(), size: const Size(40, 40)),
                             const SizedBox(width: 12),
-                            Text("Github", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                            Text("Github".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -156,15 +161,15 @@ class AboutPageState extends State<AboutPage> {
                           runSpacing: 8,
                           children: [
                             BloretButton(
-                              text: "组织界面",
+                              text: "Organization".tl,
                               onPressed: () => launchUrl(Uri.parse("https://github.com/BloretCrew")),
                             ),
                             BloretButton(
-                              text: "原项目界面",
+                              text: "Legacy Project".tl,
                               onPressed: () => launchUrl(Uri.parse("https://github.com/BloretCrew/Bloret-Launcher")),
                             ),
                             BloretButton(
-                              text: "此项目界面",
+                              text: "Current Project".tl,
                               onPressed: () => launchUrl(Uri.parse("https://github.com/xXYxxdMC-GH/BloretLauncher")),
                             ),
                           ],
@@ -175,23 +180,23 @@ class AboutPageState extends State<AboutPage> {
                       children: [
                         CustomPaint(painter: GithubPainter(), size: const Size(48, 48)),
                         const SizedBox(width: 12),
-                        Text("Github", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                        Text("Github".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                         const Spacer(),
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             BloretButton(
-                              text: "组织界面",
+                              text: "Organization".tl,
                               onPressed: () => launchUrl(Uri.parse("https://github.com/BloretCrew")),
                             ),
                             const SizedBox(width: 16),
                             BloretButton(
-                              text: "原项目界面",
+                              text: "Legacy Project".tl,
                               onPressed: () => launchUrl(Uri.parse("https://github.com/BloretCrew/Bloret-Launcher")),
                             ),
                             const SizedBox(width: 16),
                             BloretButton(
-                              text: "此项目界面",
+                              text: "Current Project".tl,
                               onPressed: () => launchUrl(Uri.parse("https://github.com/xXYxxdMC-GH/BloretLauncher")),
                             ),
                           ],
@@ -209,21 +214,12 @@ class AboutPageState extends State<AboutPage> {
 }
 
 class BloretAboutWidget extends StatelessWidget {
-  final String? Function(String key)? tr;
   final Function(String url)? openUrl;
 
   const BloretAboutWidget({
     super.key,
-    this.tr,
     this.openUrl,
   });
-
-  String _t(String key) {
-    if (tr != null) {
-      return tr!(key) ?? key;
-    }
-    return key;
-  }
 
   void _handleLink(String url) {
     if (openUrl != null) {
@@ -250,22 +246,22 @@ class BloretAboutWidget extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildLinkText('$name Launcher Website: ', 'https://launcher.bloret.net/'),
-              _buildLinkText('Bloret PassPort: ', 'https://passport.bloret.net/'),
-              _buildLinkText('百络百科: ', 'https://wiki.bloret.net/'),
-              Text(_t('$name Launcher 将百络谷带到您的计算机上。')),
-              Text(_t('$name Launcher 是由 Bloret 所有的无广告免费开源软件。')),
-              Text(_t('$name Launcher: Flutter Edition 是由 Bloret 所有的无广告免费开源软件。')),
+              _buildLinkText('$name Launcher Website: ', 'https://launcher.bloret.net/', isDarkMode),
+              _buildLinkText('Bloret PassPort: ', 'https://passport.bloret.net/', isDarkMode),
+              _buildLinkText('Bloret Wiki: ', 'https://wiki.bloret.net/', isDarkMode),
+              Text('$name Launcher brings Bloret to your computer.'.tl),
+              Text('$name Launcher is ad-free open-source software owned by Bloret.'.tl),
+              Text('$name Launcher: Flutter Edition is ad-free open-source software owned by Bloret.'.tl),
               const SizedBox(height: 8),
-              const Text('© 2026 $name Launcher All rights reserved. © 2026 Bloret All rights reserved.'),
-              _buildLinkText('要查看 $name Launcher 的源代码，请前往: ', 'https://github.com/BloretCrew/Bloret-Launcher/'),
-              _buildLinkText('要查看 $name Launcher: Flutter Edition 的源代码，请前往: ', 'https://github.com/xXYxxdMC-GH/BloretLauncher/'),
-              _buildLinkText('要查看 $name Launcher Setup 的源代码，请前往: ', 'https://github.com/BloretCrew/Bloret-Launcher-Setup/'),
-              _buildLinkText('要提交问题，请前往: ', 'https://github.com/xXYxxdMC-GH/BloretLauncher/issues/new/choose'),
+              Text('© 2026 $name Launcher All rights reserved. © 2026 Bloret All rights reserved.'),
+              _buildLinkText('To view the source code of $name Launcher, please go to: ', 'https://github.com/BloretCrew/Bloret-Launcher/', isDarkMode),
+              _buildLinkText('To view the source code of $name Launcher: Flutter Edition, please go to: ', 'https://github.com/xXYxxdMC-GH/BloretLauncher/', isDarkMode),
+              _buildLinkText('To view the source code of $name Launcher Setup, please go to: ', 'https://github.com/BloretCrew/Bloret-Launcher-Setup/', isDarkMode),
+              _buildLinkText('To submit an issue, please go to: ', 'https://github.com/xXYxxdMC-GH/BloretLauncher/issues/new/choose', isDarkMode),
               const SizedBox(height: 8),
               _buildRichEulaText(),
               const SizedBox(height: 8),
-              Text(_t('致谢为 $name Launcher 提供框架的 Flutter。致谢为 $name Launcher 贡献过的开发者。致谢 $name Launcher 所学习和集成的开源项目。')),
+              Text('Thanks to Flutter for providing the framework for $name Launcher. Thanks to the developers who contributed to $name Launcher. Thanks to the open-source projects that $name Launcher learned from and integrated.'.tl),
             ],
           ),
         );
@@ -273,7 +269,7 @@ class BloretAboutWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildLinkText(String prefixKey, String url) {
+  Widget _buildLinkText(String prefixKey, String url, bool isDarkMode) {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
@@ -282,7 +278,7 @@ class BloretAboutWidget extends StatelessWidget {
           text: TextSpan(
             style: const TextStyle(fontSize: 14, height: 1.4),
             children: [
-              TextSpan(text: _t(prefixKey)),
+              TextSpan(text: prefixKey.tl, style: TextStyle(color: isDarkMode ? const Color(0xFFB0B0B0) : const Color(0xFF606060))),
               TextSpan(
                 text: url,
                 style: const TextStyle(
@@ -298,8 +294,6 @@ class BloretAboutWidget extends StatelessWidget {
   }
 
   Widget _buildRichEulaText() {
-    // final text = _t('$name Launcher 遵循 <a href=\'https://www.minecraft.net/zh-hans/eula\'>Mojang Eula (Minecraft 最终用户许可协议)</a> ，$name Launcher 的 微软登录 功能已获 Mojang 批准，$name Launcher 本身未包含 Minecraft 二进制文件和其他资源文件。$name Launcher 是无广告免费开源软件。我们鼓励各位玩家购买 <a href=\'https://www.minecraft.net/zh-hans/choose-your-game\'>Minecraft 正版账户</a> 进行游玩。');
-
     return RichText(
       text: TextSpan(
         style: TextStyle(
@@ -308,11 +302,11 @@ class BloretAboutWidget extends StatelessWidget {
           color: Colors.grey[600],
         ),
         children: [
-          TextSpan(text: _t('$name Launcher 遵循 ')),
-          _widgetSpanLink('Mojang Eula (Minecraft 最终用户许可协议)', 'https://www.minecraft.net/zh-hans/eula'),
-          TextSpan(text: _t(' ，$name Launcher 的 微软登录 功能已获 Mojang 批准，$name Launcher 本身未包含 Minecraft 二进制文件和其他资源文件。$name Launcher 是无广告免费开源软件。我们鼓励各位玩家购买 ')),
-          _widgetSpanLink('Minecraft 正版账户', 'https://www.minecraft.net/zh-hans/choose-your-game'),
-          TextSpan(text: _t(' 进行游玩。')),
+          TextSpan(text: '$name Launcher follows '.tl),
+          _widgetSpanLink('Mojang Eula', 'https://www.minecraft.net/zh-hans/eula'),
+          TextSpan(text: ' , $name Launcher\'s Microsoft Login feature is approved by Mojang. $name Launcher itself does not contain Minecraft binaries or other resource files. $name Launcher is ad-free open-source software. We encourage all players to purchase '.tl),
+          _widgetSpanLink('Genuine Minecraft Account', 'https://www.minecraft.net/zh-hans/choose-your-game'),
+          TextSpan(text: ' to play.'.tl),
         ],
       ),
     );
@@ -344,10 +338,10 @@ class GithubPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.black
+      ..color = (ThemeData().brightness == Brightness.dark ? Colors.white : Colors.black)
       ..style = PaintingStyle.fill;
 
-    canvas.scale(2);
+    canvas.scale(size.width / 24);
     canvas.drawPath(buildIconPath(), paint);
   }
 

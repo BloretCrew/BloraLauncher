@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
@@ -9,6 +8,8 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:file_picker/file_picker.dart';
+import '../core/i18n.dart';
+import '../core/grammer_candy.dart';
 import '../core/window_bridge.dart';
 import '../services/config_service.dart';
 import '../main.dart';
@@ -29,11 +30,11 @@ class WelcomeSetupScreen extends StatefulWidget {
 
 class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBindingObserver {
   int _currentStep = 0;
-  final int _totalSteps = 6;
+  final int _totalSteps = 7;
 
-  final List<String> _stepLabels = ['欢迎', '语言', '登录', '同步', 'Java', '目录'];
+  final List<String> _stepLabels = ['Welcome'.tl, 'Language'.tl, 'Login'.tl, 'Sync'.tl, 'Java'.tl, 'Directory'.tl, 'Link'.tl];
   
-  String _selectedLanguage = 'zh-cn';
+  String _selectedLanguage = 'zh_cn';
   List<String> _minecraftDirs = [];
 
   bool _isWaitingForLogin = false;
@@ -120,7 +121,6 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       final List<String> searchPaths = [];
 
       if (Platform.isWindows) {
-        // ... existing Windows logic ...
         for (int i = 67; i <= 90; i++) {
           final drive = "${String.fromCharCode(i)}:\\";
           try {
@@ -128,7 +128,6 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               searchPaths.add(drive);
             }
           } catch (_) {
-            print("Error checking drive $drive");
           }
         }
 
@@ -141,7 +140,6 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                 searchPaths.add(value);
               }
             } catch (_) {
-              print("Error checking environment variable $env");
             }
           }
         }
@@ -181,25 +179,20 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                                     }
                                   }
                                 } catch (_) {
-                                  print("Error checking directory $subSubEntity");
                                 }
                               }
                             }
                           } catch (_) {
-                            print("Error listing subdirectories of $subEntity");
                           }
                         }
                       } catch (_) {
-                        print("Error checking directory $subEntity");
                       }
                     }
                   }
                 } catch (_) {
-                  print("Error listing subdirectories of $p");
                 }
               }
             } catch (_) {
-              print("Error checking directory $p");
             }
           }
         }
@@ -248,13 +241,11 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   }
                 }
               } catch (_) {
-                print("Error checking file $trimmed");
               }
             }
           }
         }
       } catch (_) {
-        print("Error checking java");
       }
 
       final List<String> targetDirs = [];
@@ -347,8 +338,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
           0,
         );
       }
-    } catch (_) {
-      print("Error checking java environment");
+    } catch (e) {
+      logger.error("Java detection error: $e", .tool);
     }
 
     if (mounted) {
@@ -386,7 +377,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   Future<void> _installJava() async {
     if (!Platform.isWindows) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("当前平台暂不支持自动安装 Java，请手动安装。"))
+        SnackBar(content: Text("Auto-installation of Java is not supported on this platform, please install manually.".tl))
       );
       return;
     }
@@ -394,14 +385,14 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
     setState(() {
       _isInstallingJava = true;
       _installProgress = 0.0;
-      _installStatus = "准备下载...";
+      _installStatus = "Preparing download...".tl;
     });
 
     WinTaskbar.showProgress(0, 100);
 
     try {
       final url = JavaConfig.versions[_selectedJavaVersion]?['Windows']?['x64'];
-      if (url == null) throw "不支持的版本或平台";
+      if (url == null) throw "Unsupported version or platform";
 
       final tempDir = await getTemporaryDirectory();
       final savePath = path.join(tempDir.path, "java_installer_$_selectedJavaVersion.msi");
@@ -417,7 +408,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             if (mounted) {
               setState(() {
                 _installProgress = progress;
-                _installStatus = "正在下载 Java $_selectedJavaVersion... ($percent%)";
+                _installStatus = "Downloading Java $_selectedJavaVersion... ($percent%)".tl;
               });
             }
             WinTaskbar.showProgress(percent, 100);
@@ -427,7 +418,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 
       if (!mounted) return;
       setState(() {
-        _installStatus = "正在静默安装 Java $_selectedJavaVersion...";
+        _installStatus = "Installing Java $_selectedJavaVersion silently...".tl;
         _installProgress = 1.0;
       });
       WinTaskbar.setIndeterminate();
@@ -441,7 +432,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
         if (await installerFile.exists()) {
           await installerFile.delete();
         }
-      } catch (e) {}
+      } catch (e) {
+        logger.error("Failed to delete installer file: $e", .tool);
+        showError("Failed to delete installer file".tl);
+      }
       
       if (exitCode == 0 || exitCode == 3010) {
         if (mounted) {
@@ -449,21 +443,25 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             _isInstallingJava = false;
             _javaInstalled = true;
             _javaPath = "C:/Program Files/Java/jdk-$_selectedJavaVersion";
-            _installStatus = "安装完成";
+            _installStatus = "Installation complete".tl;
             _installProgress = 1.0;
           });
+          showSuccess("Java installed successfully".tl);
+          logger.info("Java installed successfully: $_selectedJavaVersion", .tool);
         }
         WinTaskbar.showProgress(100, 100);
       } else {
-        throw "安装失败，退出码: $exitCode";
+        throw "Installation failed, exit code: $exitCode";
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isInstallingJava = false;
-          _installStatus = "操作失败: $e";
+          _installStatus = "Operation failed: $e".tl;
         });
+        showError("Java installation failed".tl);
       }
+      logger.error("Java installation failed: $e", .tool);
       WinTaskbar.setError();
     } finally {
       Future.delayed(const Duration(seconds: 2), () {
@@ -535,8 +533,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       final result = await PassportService.syncMinecraftAccounts();
       if (!mounted) return;
       _isTokenValidNotifier.value = result;
-    } catch (_) {
+    } catch (e) {
       _isTokenValidNotifier.value = false;
+      logger.error("Token check failed: $e", .network);
     } finally {
       if (mounted) {
         setState(() => _isVerifyingCode = false);
@@ -574,125 +573,27 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             final syncResult = await PassportService.syncMinecraftAccounts();
             _isTokenValidNotifier.value = syncResult;
             _syncStateToUi();
+            showSuccess("Logged in successfully".tl);
+            logger.info("Passport login success: ${userInfo['username']}", .network);
           } else {
             _isTokenValidNotifier.value = false;
+            showError("Authentication failed".tl);
           }
           setState(() => _isVerifyingCode = false);
           
           request.response
             ..statusCode = HttpStatus.ok
             ..headers.contentType = ContentType.html
-            // 史，用Copilot生成
             ..write('''
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录成功</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #121212;
-            color: #ffffff;
-            overflow: hidden;
-        }
-        .container {
-            text-align: center;
-            padding: 48px;
-            background: #1e1e1e;
-            border-radius: 24px;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            max-width: 400px;
-            width: 90%;
-            animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .icon-wrapper {
-            position: relative;
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 24px;
-        }
-        .success-pulse {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            background: rgba(159, 168, 218, 0.2);
-            border-radius: 50%;
-            animation: pulse 2s infinite;
-        }
-        .success-icon {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: #9FA8DA;
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            box-shadow: 0 4px 20px rgba(159, 168, 218, 0.4);
-        }
-        .success-icon svg {
-            width: 40px;
-            height: 40px;
-            fill: none;
-            stroke: #121212;
-            stroke-width: 4;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-            stroke-dasharray: 100;
-            stroke-dashoffset: 100;
-            animation: drawCheck 0.6s 0.3s forwards cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        h1 {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            letter-spacing: 0.5px;
-        }
-        p {
-            font-size: 14px;
-            color: rgba(255, 255, 255, 0.5);
-            line-height: 1.6;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes pulse {
-            0% { transform: scale(0.95); opacity: 0.5; }
-            50% { transform: scale(1.2); opacity: 0; }
-            100% { transform: scale(0.95); opacity: 0; }
-        }
-        @keyframes drawCheck {
-            to { stroke-dashoffset: 0; }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="icon-wrapper">
-            <div class="success-pulse"></div>
-            <div class="success-icon">
-                <svg viewBox="0 0 24 24">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-            </div>
-        </div>
-        <h1>Bloret PassPort 授权成功</h1>
-        <p>您现在可以安全地关闭此窗口并返回 Launcher 继续设置。</p>
+    <title>${"Login Success".tl}</title>
+...
+        <h1>${"Bloret PassPort Authorized".tl}</h1>
+        <p>${"You can now safely close this window and return to the Launcher.".tl}</p>
     </div>
 </body>
 </html>
@@ -894,20 +795,20 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   theme.brightness == Brightness.light ? "assets/bloret_light.png" : "assets/bloret_dark.png"),
             ),
             const SizedBox(height: 32),
-            Text("欢迎使用 $name Launcher", textAlign: TextAlign.center, style: headerStyle),
+            Text("${"Welcome to".tl} $name Launcher", textAlign: TextAlign.center, style: headerStyle),
             const SizedBox(height: 8),
-            Text("Flutter Edition", textAlign: TextAlign.center, style: hintStyle),
+            Text("Flutter Edition".tl, textAlign: TextAlign.center, style: hintStyle),
             const SizedBox(height: 16),
-            Text("欢迎！让我们一起开启 $name Launcher 的旅程！\n接下来，我们需要进行一些必备操作。",
+            Text("${"Welcome! Let's start the journey with".tl} $name Launcher!\n${"Next, we need to perform some essential operations.".tl}",
                 textAlign: TextAlign.center, style: bodyStyle),
           ],
         );
       case 1:
         return Column(
           children: [
-            Text("选择语言", textAlign: TextAlign.center, style: headerStyle),
+            Text("Select Language".tl, textAlign: TextAlign.center, style: headerStyle),
             const SizedBox(height: 12),
-            Text("请选择您希望使用的界面语言：", textAlign: TextAlign.center, style: hintStyle),
+            Text("Please select the interface language you wish to use:".tl, textAlign: TextAlign.center, style: hintStyle),
             const SizedBox(height: 32),
             Container(
               height: 42,
@@ -920,10 +821,13 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               ),
               child: Win11Dropdown(
                 items: [
-                  Win11DropdownItem(label: '简体中文', value: 'zh-cn'),
-                  Win11DropdownItem(label: 'English', value: 'en-us'),
+                  Win11DropdownItem(label: "English (US)", value: "en_us"),
+                  Win11DropdownItem(label: "简体中文", value: "zh_cn"),
+                  Win11DropdownItem(label: "繁體中文", value: "zh_tw"),
+                  Win11DropdownItem(label: "日本語", value: "ja_jp"),
+                  Win11DropdownItem(label: "Русский", value: "ru_ru"),
                 ],
-                initialValue: 'zh-cn',
+                initialValue: 'zh_cn',
                 onChanged: (val) => setState(() => _selectedLanguage = val!),
               ),
             ),
@@ -931,16 +835,16 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
         );
       case 2:
         final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
-        String buttonText = isLoggedIn ? "已登录，继续" : (_isWaitingForLogin ? "重新打开登录页面" : "前往登录");
+        String buttonText = isLoggedIn ? "Already logged in, continue".tl : (_isWaitingForLogin ? "Reopen login page".tl : "Go to login".tl);
 
         return ValueListenableBuilder<bool>(
           valueListenable: _isTokenValidNotifier,
           builder: (context, isTokenValid, _) {
             return Column(
               children: [
-                Text("登录 Bloret PassPort", textAlign: TextAlign.center, style: headerStyle),
+                Text("Login to Bloret PassPort".tl, textAlign: TextAlign.center, style: headerStyle),
                 const SizedBox(height: 16),
-                Text("登录 Bloret PassPort 以同步您的 Minecraft 账户和设置。", textAlign: TextAlign.center, style: bodyStyle),
+                Text("Login to Bloret PassPort to sync your Minecraft accounts and settings.".tl, textAlign: TextAlign.center, style: bodyStyle),
                 const SizedBox(height: 40),
                 AnimatedSize(
                   duration: const Duration(milliseconds: 300),
@@ -952,7 +856,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                       children: [
                         const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
                         const SizedBox(width: 12),
-                        Text("正在等待登录完成...", style: hintStyle),
+                        Text("Waiting for login to complete...".tl, style: hintStyle),
                       ],
                     ),
                   )
@@ -986,13 +890,13 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                       }
                     },
                     child: Text(
-                      isTokenValid ? buttonText : isLoggedIn ? "令牌失效，请重新登录" : "前往登录",
+                      isTokenValid ? buttonText : isLoggedIn ? "Token expired, please log in again".tl : "Go to login".tl,
                       style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
                     ),
                   ),
                 ),
                 const SizedBox(height: 24),
-                Text("提示：您必须登录 Bloret PassPort 才能继续使用。", textAlign: TextAlign.center, style: hintStyle),
+                Text("Tip: You must log in to Bloret PassPort to continue.".tl, textAlign: TextAlign.center, style: hintStyle),
               ],
             );
           },
@@ -1003,33 +907,33 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 
         return Column(
           children: [
-            Text("同步 Minecraft 账户", textAlign: TextAlign.center, style: headerStyle),
+            Text("Sync Minecraft Accounts".tl, textAlign: TextAlign.center, style: headerStyle),
             const SizedBox(height: 12),
-            Text("从 Bloret PassPort 同步您的 Minecraft 账户信息。", textAlign: TextAlign.center, style: hintStyle),
+            Text("Sync your Minecraft account information from Bloret PassPort.".tl, textAlign: TextAlign.center, style: hintStyle),
             const SizedBox(height: 24),
             if (_isSyncingAccounts)
-              const Column(
+              Column(
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text("正在同步账户...", style: TextStyle(fontWeight: FontWeight.w600)),
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text("Syncing accounts...".tl, style: const TextStyle(fontWeight: FontWeight.w600)),
                 ],
               )
             else if (accounts.isEmpty)
               Column(
                 children: [
-                  const Row(
+                  Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.warning_amber_rounded, size: 20, color: Colors.red),
-                      SizedBox(width: 8),
-                      Text("未找到 Minecraft 账户", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                      const Icon(Icons.warning_amber_rounded, size: 20, color: Colors.red),
+                      const SizedBox(width: 8),
+                      Text("No Minecraft accounts found".tl, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                     ],
                   ),
                   const SizedBox(height: 12),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 40),
-                    child: Text("请先前往 passport.bloret.net ，添加一个离线账户或微软账户，然后点击这里的同步按钮再继续。",
+                    child: Text("Please go to passport.bloret.net first to add an account, then click the sync button here.".tl,
                         textAlign: TextAlign.center, style: hintStyle),
                   ),
                 ],
@@ -1134,7 +1038,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                                   ),
                                   Row(
                                     children: [
-                                      Text(account['type'] ?? "Offline", style: hintStyle.copyWith(fontSize: 12)),
+                                      Text((account['type'] ?? "Offline").toString().tl, style: hintStyle.copyWith(fontSize: 12)),
                                       if (account['login_time'] != null) ...[
                                         const SizedBox(width: 8),
                                         Text(
@@ -1156,7 +1060,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                                   color: theme.colorScheme.surfaceContainerHighest,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: const Text("切换", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                child: Text("Switch".tl, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
                               ),
                           ],
                         ),
@@ -1173,11 +1077,17 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               child: ElevatedButton.icon(
                 onPressed: _isSyncingAccounts ? null : () async {
                   setState(() => _isSyncingAccounts = true);
-                  await PassportService.syncMinecraftAccounts();
+                  try {
+                    await PassportService.syncMinecraftAccounts();
+                    showSuccess("Sync complete".tl);
+                  } catch (e) {
+                    showError("Sync failed".tl);
+                    logger.error("Welcome sync error: $e", .network);
+                  }
                   if (mounted) setState(() => _isSyncingAccounts = false);
                 },
                 icon: const Icon(Icons.sync),
-                label: Text(accounts.isEmpty ? "同步账户" : "重新同步", style: const TextStyle(fontWeight: FontWeight.w700)),
+                label: Text(accounts.isEmpty ? "Sync Accounts".tl : "Resync".tl, style: const TextStyle(fontWeight: FontWeight.w700)),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -1189,7 +1099,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       case 4:
         return Column(
           children: [
-            Text("Java 运行环境", textAlign: TextAlign.center, style: headerStyle),
+            Text("Java Runtime Environment".tl, textAlign: TextAlign.center, style: headerStyle),
             const SizedBox(height: 24),
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
@@ -1209,8 +1119,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   const SizedBox(width: 12),
                   Text(
                     _isCheckingJava
-                        ? "正在检查 Java 环境..."
-                        : (_javaInstalled ? "已检测到 Java 运行环境。" : "未检测到 Java 环境，建议安装 Java 21。"),
+                        ? "Checking Java environment...".tl
+                        : (_javaInstalled ? "Java environment detected.".tl : "Java not detected, it is recommended to install Java 21.".tl),
                     textAlign: TextAlign.start,
                     style: bodyStyle,
                   ),
@@ -1245,7 +1155,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              "当前检测到的 Java：",
+                              "Detected Java:".tl,
                               style: hintStyle.copyWith(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
@@ -1284,7 +1194,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             const SizedBox(height: 32),
             const Divider(),
             const SizedBox(height: 24),
-            Text("安装或更换 Java 版本", style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+            Text("Install or Change Java Version".tl, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             if (Platform.isWindows) ...[
               Container(
@@ -1320,7 +1230,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                           child: GoogleSquigglySlider(
                             value: _installProgress * 100, 
                             max: 100,
-                            isPlaying: _installStatus.contains("下载"), // 安装阶段开启精子
+                            isPlaying: _installStatus.contains("Download".tl),
                             activeColor: Theme.of(context).colorScheme.primary,
                             inactiveColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                           ),
@@ -1344,7 +1254,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       side: BorderSide(width: 1.5, color: theme.dividerColor),
                     ),
-                    child: const Text("重新检测"),
+                    child: Text("Redetect".tl),
                   ),
                   const SizedBox(width: 16),
                   FilledButton(
@@ -1353,7 +1263,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    child: Text(_isInstallingJava ? "正在安装..." : (_javaInstalled ? "更换为 Java $_selectedJavaVersion" : "安装 Java $_selectedJavaVersion")),
+                    child: Text(_isInstallingJava ? "Installing...".tl : (_javaInstalled ? "${"Change to".tl} Java $_selectedJavaVersion" : "${"Install".tl} Java $_selectedJavaVersion")),
                   ),
                 ],
               ),
@@ -1362,14 +1272,14 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                 padding: const EdgeInsets.all(16.0),
                 child: Text(
                   Platform.isAndroid 
-                    ? "Android 版使用内置运行时，无需额外安装 Java。" 
-                    : "Linux 版暂不支持自动安装，请使用系统包管理器安装 Java 21。",
+                    ? "Android version uses built-in runtime, no additional Java installation required.".tl 
+                    : "Linux version does not support automatic installation yet, please use system package manager.".tl,
                   textAlign: TextAlign.center,
                   style: bodyStyle.copyWith(color: theme.colorScheme.primary),
                 ),
               ),
             const SizedBox(height: 24),
-            Text("推荐安装 Java 21，这是 Minecraft 最新版本的推荐版本。", textAlign: TextAlign.center, style: hintStyle),
+            Text("Recommended to install Java 21 for latest Minecraft versions.".tl, textAlign: TextAlign.center, style: hintStyle),
           ],
         );
       case 5:
@@ -1377,9 +1287,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
           padding: EdgeInsets.symmetric(horizontal: isPortrait ? 24 : 0),
           child: Column(
             children: [
-              Text("Minecraft 游戏文件夹", textAlign: TextAlign.center, style: headerStyle),
+              Text("Minecraft Game Folder".tl, textAlign: TextAlign.center, style: headerStyle),
               const SizedBox(height: 16),
-              Text("请选择或确认您的 Minecraft 游戏文件夹位置。\n您可以添加多个目录，Launcher 将自动扫描其中的版本。",
+              Text("${"Please select or confirm your".tl} Minecraft ${"game folder location".tl}.\n${"You can add multiple directories, Launcher will automatically scan for versions.".tl}",
                   textAlign: TextAlign.center, style: hintStyle),
               const SizedBox(height: 32),
               Container(
@@ -1415,7 +1325,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                             ),
                           ),
                           IconButton(
-                            onPressed: () => setState(() => _minecraftDirs.removeAt(index)),
+                            onPressed: () {
+                              setState(() => _minecraftDirs.removeAt(index));
+                            },
                             icon: const Icon(Icons.remove_circle_outline, size: 20, color: Colors.red),
                             visualDensity: VisualDensity.compact,
                           ),
@@ -1438,25 +1350,25 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   }
                 },
                 icon: const Icon(Icons.add_location_alt_outlined),
-                label: const Text("添加游戏目录", style: TextStyle(fontWeight: FontWeight.bold)),
+                label: Text("Add Directory".tl, style: const TextStyle(fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
               ),
               const SizedBox(height: 24),
-              Text("提示：如果您不知道在哪里，可以使用默认路径。", textAlign: TextAlign.center, style: hintStyle),
+              Text("Tip: If you don't know where it is, you can use the default path.".tl, textAlign: TextAlign.center, style: hintStyle),
             ],
           ),
         );
       case 6:
         return Column(
           children: [
-            Text("多端联动", textAlign: TextAlign.center, style: headerStyle),
+            Text("Multi-device Link".tl, textAlign: TextAlign.center, style: headerStyle),
             const SizedBox(height: 16),
             Text(Platform.isAndroid 
-                ? "您可以在电脑上运行 Launcher，并使用此手机作为遥控手柄！\n在电脑版设置中开启此功能即可。" 
-                : "您可以将手机作为 Minecraft 的遥控手柄使用！\n扫描下方二维码，或在浏览器打开以下地址访问遥控页面：",
+                ? "You can run the Launcher on PC and use this phone as a remote controller!\nEnable this feature in PC settings.".tl 
+                : "You can use your phone as a remote controller for Minecraft!\nScan the QR code below or open the following address in browser:".tl,
                 textAlign: TextAlign.center, style: bodyStyle),
             if (!Platform.isAndroid) ...[
               const SizedBox(height: 32),
@@ -1469,10 +1381,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: theme.dividerColor.withValues(alpha: 0.2)),
                 ),
-                child: const Icon(Icons.qr_code_2, size: 140, color: Colors.black), // Mock QR code
+                child: const Icon(Icons.qr_code_2, size: 140, color: Colors.black),
               ),
               const SizedBox(height: 24),
-              Text("扫码或在浏览器打开：", style: bodyStyle),
+              Text("Scan or open in browser:".tl, style: bodyStyle),
               const SizedBox(height: 8),
               SelectableText(
                 "http://$_localIp:25252/",
@@ -1484,7 +1396,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               ),
             ],
             const SizedBox(height: 24),
-            Text("提示：确保设备在同一网络下。", textAlign: TextAlign.center, style: hintStyle),
+            Text("Tip: Ensure devices are on the same network.".tl, textAlign: TextAlign.center, style: hintStyle),
           ],
         );
       default:
@@ -1492,7 +1404,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
           children: [
             Text(_stepLabels[step], textAlign: TextAlign.center, style: headerStyle),
             const SizedBox(height: 16),
-            Text("未定义的步骤内容", textAlign: TextAlign.center, style: bodyStyle),
+            Text("Undefined step content".tl, textAlign: TextAlign.center, style: bodyStyle),
           ],
         );
     }
@@ -1535,7 +1447,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   _checkTokenValidity();
                 }
               },
-              child: const Text("返回", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              child: Text("Back".tl, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             ),
           const SizedBox(width: 12),
           FilledButton(
@@ -1557,7 +1469,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                 if (mounted) {
                   Navigator.of(context).pushReplacement(
                     PageRouteBuilder(
-                      pageBuilder: (context, animation, secondaryAnimation) => const MainShell(),
+                      pageBuilder: (context, animation, secondaryAnimation) => MainShell(),
                       transitionsBuilder: (context, animation, secondaryAnimation, child) {
                         return FadeTransition(
                           opacity: animation,
@@ -1576,7 +1488,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                 }
               }
             },
-            child: Text(_currentStep == _totalSteps - 1 ? "完成" : "下一步", style: const TextStyle(fontWeight: FontWeight.w700)),
+            child: Text(_currentStep == _totalSteps - 1 ? "Finish".tl : "Next".tl, style: const TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -1630,7 +1542,7 @@ class _GeneratedJavaSelectorState extends State<_GeneratedJavaSelector> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "当前检测到的路径：",
+                      "Detected paths:".tl,
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,

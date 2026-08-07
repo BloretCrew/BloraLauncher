@@ -1,20 +1,73 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 2.15
+import Qt.labs.platform 1.1 as Platform
 import RinUI
+import "../../components"
+import "../../components/ToolCallGroups.js" as ToolGroups
 
 Item {
     id: agentPage
 
-    // 消息模型
+    // 消息模型：user | assistant | tool_group | error | system
     ListModel { id: messageModel }
     ListModel { id: providerModel }
     ListModel { id: modelModel }
     ListModel { id: roleModel }
     ListModel { id: historyListModel }
+    ListModel { id: pendingImagesModel }
 
     property bool historyPanelOpen: false
     property string conversationTitle: ""
+    property string currentModelLabel: (Backend ? Backend.tr("选择模型") : "选择模型")
+    property string voiceState: "idle"
+    property int maxPendingImages: 4
+    // Agent 活动阶段：idle | thinking | replying | working
+    property string agentPhase: "idle"
+    readonly property bool agentActive: agentPhase !== "idle"
+    readonly property bool awaitingFirstToken: agentPhase === "thinking"
+    readonly property string agentPhaseLabel: {
+        if (agentPhase === "thinking")
+            return Backend ? Backend.tr("正在思考") : "正在思考"
+        if (agentPhase === "replying")
+            return Backend ? Backend.tr("正在回复") : "正在回复"
+        if (agentPhase === "working")
+            return Backend ? Backend.tr("正在工作") : "正在工作"
+        return ""
+    }
+    readonly property string agentPhaseOrbState: {
+        if (agentPhase === "working")
+            return "working"
+        if (agentPhase === "replying")
+            return "composing"
+        return "composing"  // thinking
+    }
+
+    function beginAwaitingReply() { agentPhase = "thinking" }
+    function endAwaitingReply() { agentPhase = "idle" }
+    function markReplying() {
+        if (agentPhase === "idle") return
+        agentPhase = "replying"
+    }
+    function markWorking() {
+        if (agentPhase === "idle") return
+        agentPhase = "working"
+    }
+    function markReplyStarted() { markReplying() }
+
+    function appendUserMessage(text, imagesJson) {
+        messageModel.append({
+            role: "user",
+            content: text || "",
+            imagesJson: imagesJson || "[]",
+            toolName: "",
+            toolArgs: "",
+            toolResult: "",
+            toolsJson: "[]",
+            streaming: false,
+            expanded: false
+        })
+    }
 
     function loadProviders() {
         providerModel.clear()
@@ -44,19 +97,167 @@ Item {
             var models = JSON.parse(Agent.getModels())
             for (var i = 0; i < models.length; i++)
                 modelModel.append(models[i])
-            // 根据全局设置选中当前模型
+            var selected = false
             if (Backend) {
                 var globalModel = Backend.getGlobalAIModel()
                 for (var j = 0; j < modelModel.count; j++) {
                     if (modelModel.get(j).id === globalModel) {
-                        modelCombo.currentIndex = j
-                        return
+                        if (modelCombo) modelCombo.currentIndex = j
+                        selected = true
+                        break
                     }
                 }
             }
-            if (modelCombo.currentIndex < 0 && modelModel.count > 0)
-                modelCombo.currentIndex = 0
+            if (!selected && modelModel.count > 0) {
+                if (modelCombo) modelCombo.currentIndex = 0
+            }
+            updateCurrentModelLabel()
         } catch(e) {}
+    }
+
+    function updateCurrentModelLabel() {
+        if (modelModel.count > 0 && modelCombo && modelCombo.currentIndex >= 0 && modelCombo.currentIndex < modelModel.count) {
+            currentModelLabel = modelModel.get(modelCombo.currentIndex).name || modelModel.get(modelCombo.currentIndex).id || (Backend ? Backend.tr("选择模型") : "选择模型")
+            return
+        }
+        if (Agent && typeof Agent.getCurrentModelName === "function") {
+            var n = Agent.getCurrentModelName()
+            if (n && n.length > 0) { currentModelLabel = n; return }
+        }
+        currentModelLabel = Backend ? Backend.tr("选择模型") : "选择模型"
+    }
+
+    function pathFromFileUrl(url) {
+        var s = (url || "").toString()
+        if (s.indexOf("file://") === 0)
+            s = decodeURIComponent(s.substring(Qt.platform.os === "windows" ? 8 : 7))
+        return s
+    }
+
+    function fileUrlFromPath(path) {
+        if (!path) return ""
+        var s = path.toString()
+        if (s.indexOf("file://") === 0) return s
+        if (Qt.platform.os === "windows")
+            return "file:///" + s.replace(/\\/g, "/")
+        return "file://" + s
+    }
+
+    function pendingImagesJson() {
+        var arr = []
+        for (var i = 0; i < pendingImagesModel.count; i++)
+            arr.push(pendingImagesModel.get(i).path)
+        return JSON.stringify(arr)
+    }
+
+    function addPendingImage(path) {
+        if (!path || path.length === 0) return
+        if (pendingImagesModel.count >= maxPendingImages) return
+        for (var i = 0; i < pendingImagesModel.count; i++) {
+            if (pendingImagesModel.get(i).path === path) return
+        }
+        pendingImagesModel.append({ path: path, previewUrl: fileUrlFromPath(path) })
+    }
+
+    function clearPendingImages() { pendingImagesModel.clear() }
+
+    function findOpenToolGroupIndex() {
+        for (var i = messageModel.count - 1; i >= 0; i--) {
+            var item = messageModel.get(i)
+            if (item.role === "tool_group")
+                return i
+            if (item.role === "assistant" || item.role === "user" || item.role === "error" || item.role === "system")
+                break
+        }
+        return -1
+    }
+
+    function ensureToolGroup() {
+        var idx = findOpenToolGroupIndex()
+        if (idx >= 0)
+            return idx
+        messageModel.append({
+            role: "tool_group",
+            content: Backend ? Backend.tr("正在使用工具…") : "正在使用工具…",
+            imagesJson: "[]",
+            toolName: "", toolArgs: "", toolResult: "",
+            toolsJson: "[]",
+            streaming: false, expanded: false
+        })
+        return messageModel.count - 1
+    }
+
+    function refreshToolGroupSummary(idx) {
+        if (idx < 0 || idx >= messageModel.count) return
+        var tools = ToolGroups.parseToolsJson(messageModel.get(idx).toolsJson)
+        var summary = ToolGroups.summarizeTools(tools)
+        if (!summary || summary.length === 0)
+            summary = Backend ? Backend.tr("正在使用工具…") : "正在使用工具…"
+        messageModel.setProperty(idx, "content", summary)
+    }
+
+    function startToolInGroup(toolName, argsJson) {
+        var idx = ensureToolGroup()
+        var tools = ToolGroups.parseToolsJson(messageModel.get(idx).toolsJson)
+        tools.push(ToolGroups.makeToolEntry(toolName, argsJson, ""))
+        messageModel.setProperty(idx, "toolsJson", JSON.stringify(tools))
+        refreshToolGroupSummary(idx)
+        return idx
+    }
+
+    function finishToolInGroup(toolName, argsJson, result) {
+        for (var g = messageModel.count - 1; g >= 0; g--) {
+            var item = messageModel.get(g)
+            if (item.role !== "tool_group") {
+                if (item.role === "assistant" || item.role === "user")
+                    break
+                continue
+            }
+            var tools = ToolGroups.parseToolsJson(item.toolsJson)
+            for (var t = tools.length - 1; t >= 0; t--) {
+                if (tools[t].toolName === toolName && (!tools[t].toolResult || tools[t].toolResult.length === 0)) {
+                    tools[t].toolResult = result || ""
+                    if (argsJson)
+                        tools[t].toolArgs = argsJson
+                    messageModel.setProperty(g, "toolsJson", JSON.stringify(tools))
+                    refreshToolGroupSummary(g)
+                    return
+                }
+            }
+            tools.push(ToolGroups.makeToolEntry(toolName, argsJson, result))
+            messageModel.setProperty(g, "toolsJson", JSON.stringify(tools))
+            refreshToolGroupSummary(g)
+            return
+        }
+        var idx = ensureToolGroup()
+        messageModel.setProperty(idx, "toolsJson", JSON.stringify([ToolGroups.makeToolEntry(toolName, argsJson, result)]))
+        refreshToolGroupSummary(idx)
+    }
+
+    function doSendMessage() {
+        if (!Agent) return
+        if (Agent.busy) { Agent.cancelAgent(); return }
+        var text = inputField.text.trim()
+        var imagesJson = pendingImagesJson()
+        if (text.length === 0 && pendingImagesModel.count === 0) return
+        appendUserMessage(text, imagesJson)
+        beginAwaitingReply()
+        Agent.sendMessage(text, imagesJson)
+        inputField.text = ""
+        clearPendingImages()
+    }
+
+    function appendTranscription(text) {
+        if (!text || text.length === 0) return
+        var cur = inputField.text || ""
+        if (cur.length > 0 && !/\s$/.test(cur)) cur += " "
+        inputField.text = cur + text
+        inputField.cursorPosition = inputField.text.length
+        // 语音识别完成后直接发给 AI（勿在 busy 时调用 doSendMessage，否则会取消当前任务）
+        if (Agent && !Agent.busy)
+            doSendMessage()
+        else
+            inputField.forceActiveFocus()
     }
 
     function loadRoles() {
@@ -113,24 +314,20 @@ Item {
         if (!Agent) return
         try {
             var msgs = JSON.parse(Agent.getHistoryMessages())
-            for (var i = 0; i < msgs.length; i++) {
-                messageModel.append({
-                    role: msgs[i].role,
-                    content: msgs[i].content,
-                    toolName: msgs[i].toolName || "",
-                    toolArgs: msgs[i].toolArgs || "",
-                    toolResult: msgs[i].toolResult || "",
-                    streaming: false,
-                    expanded: false
-                })
-            }
+            var collapsed = ToolGroups.collapseHistoryMessages(msgs)
+            for (var i = 0; i < collapsed.length; i++)
+                messageModel.append(collapsed[i])
         } catch(e) {}
     }
 
     Component.onCompleted: {
         loadProviders()
         loadRoles()
-        if (Agent) Agent.loadLatestSession()
+        updateCurrentModelLabel()
+        if (Agent) {
+            voiceState = Agent.voiceState || "idle"
+            Agent.loadLatestSession()
+        }
     }
 
     // ============================================================
@@ -183,6 +380,7 @@ Item {
                             font.pixelSize: 14
                             onClicked: {
                                 messageModel.clear()
+                                endAwaitingReply()
                                 if (Agent) Agent.clearHistory()
                             }
                         }
@@ -312,12 +510,40 @@ Item {
                         visible: conversationTitle.length > 0
                     }
 
-                    Text {
-                        text: Agent && Agent.busy
-                            ? (Backend ? Backend.tr("思考中...") : "思考中...")
-                            : (Backend ? Backend.tr("就绪") : "就绪")
-                        font.pixelSize: 11
-                        color: Agent && Agent.busy ? (Theme.accentColor || "#0078D4") : Theme.currentTheme.colors.textSecondaryColor
+                    Item {
+                        Layout.preferredWidth: Math.max(agentTopThinking.implicitWidth, agentReadyLabel.implicitWidth)
+                        Layout.preferredHeight: Math.max(agentTopThinking.implicitHeight, agentReadyLabel.implicitHeight)
+
+                        ThinkingStatus {
+                            id: agentTopThinking
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: implicitWidth
+                            active: agentPage.agentActive
+                            label: agentPage.agentPhaseLabel
+                            orbState: agentPage.agentPhaseOrbState
+                            orbSize: 18
+                            orbSpeed: 1.1
+                            orbInk: Theme.accentColor || Theme.currentTheme.colors.primaryColor || "#0078D4"
+                            labelColor: Theme.accentColor || "#0078D4"
+                            labelPixelSize: 11
+                            showAvatar: false
+                            showPulseDots: false
+                            fadeMs: 280
+                        }
+                        Text {
+                            id: agentReadyLabel
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: Backend ? Backend.tr("就绪") : "就绪"
+                            font.pixelSize: 11
+                            color: Theme.currentTheme.colors.textSecondaryColor
+                            opacity: agentPage.agentActive ? 0 : 1
+                            visible: opacity > 0.01
+                            Behavior on opacity {
+                                NumberAnimation { duration: 280; easing.type: Easing.InOutQuad }
+                            }
+                        }
                     }
 
                     ComboBox {
@@ -340,7 +566,11 @@ Item {
                         flat: true
                         font.pixelSize: 11
                         enabled: Agent && !Agent.busy
-                        onClicked: { messageModel.clear(); if (Agent) Agent.clearHistory() }
+                        onClicked: {
+                            messageModel.clear()
+                            endAwaitingReply()
+                            if (Agent) Agent.clearHistory()
+                        }
                     }
                 }
 
@@ -358,11 +588,48 @@ Item {
 
                 onCountChanged: Qt.callLater(function() { msgView.positionViewAtEnd() })
 
+                footer: Item {
+                    width: msgView.width
+                    height: agentThinkingStatus.active || agentThinkingStatus.opacity > 0.01
+                            ? agentThinkingStatus.implicitHeight + 16
+                            : 0
+                    Behavior on height {
+                        NumberAnimation { duration: 320; easing.type: Easing.InOutQuad }
+                    }
+
+                    ThinkingStatus {
+                        id: agentThinkingStatus
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 16
+                        anchors.topMargin: 8
+                        active: agentPage.agentActive
+                        label: agentPage.agentPhaseLabel
+                        orbState: agentPage.agentPhaseOrbState
+                        orbSize: 22
+                        showAvatar: true
+                        avatarSource: Qt.resolvedUrl("../../../icon/Bloriko.jpg")
+                        showPulseDots: true
+                        fadeMs: 320
+                    }
+
+                    Connections {
+                        target: Agent
+                        enabled: Agent !== null
+                        function onBusyChanged() {
+                            if (Agent && Agent.busy && agentPage.agentActive)
+                                Qt.callLater(function() { msgView.positionViewAtEnd() })
+                        }
+                    }
+                }
+
                 // 空状态
                 Item {
                     anchors.centerIn: parent
                     width: 280; height: emptyCol.implicitHeight
-                    visible: messageModel.count === 0
+                    visible: messageModel.count === 0 && !agentPage.agentActive
 
                     ColumnLayout {
                         id: emptyCol
@@ -402,10 +669,10 @@ Item {
                         var h = 0
                         if (role === "user") h = userCol.height + 8
                         else if (role === "assistant") h = aiCol.height + 8
-                        else if (role === "tool_call") h = tcCol.height + (toolResult && toolResult.length > 0 && expanded ? trResultCol.height + 4 : 0) + 4
+                        else if (role === "tool_group") h = tgCol.height + 6
+                        else if (role === "tool_call") h = tcCol.height + 4
                         else if (role === "error") h = errCol.height + 6
                         else if (role === "system") h = sysCol.height + 4
-                        if (role === "tool_call") console.log("[AgentTab] tool_call height: tcCol=" + tcCol.height + ", item=" + h)
                         return h
                     }
 
@@ -415,11 +682,51 @@ Item {
                         visible: role === "user"
                         anchors.right: parent.right; anchors.rightMargin: 16
                         anchors.top: parent.top; anchors.topMargin: 4
-                        width: Math.min(Math.max(userTxt.contentWidth + 24, 50), parent.width * 0.65)
-                        spacing: 0
+                        width: Math.min(Math.max(
+                            Math.max(userTxt.implicitWidth + 24, userImagesRow.visible ? 120 : 0),
+                            50
+                        ), parent.width * 0.65)
+                        spacing: 6
+
+                        Flow {
+                            id: userImagesRow
+                            width: parent.width
+                            spacing: 4
+                            visible: {
+                                try {
+                                    var arr = JSON.parse(imagesJson || "[]")
+                                    return arr && arr.length > 0
+                                } catch (e) { return false }
+                            }
+                            property var imageList: {
+                                try { return JSON.parse(imagesJson || "[]") } catch (e) { return [] }
+                            }
+                            Repeater {
+                                model: userImagesRow.imageList
+                                delegate: Rectangle {
+                                    width: 88; height: 88
+                                    radius: 8
+                                    color: "#00000022"
+                                    clip: true
+                                    Image {
+                                        anchors.fill: parent
+                                        source: {
+                                            var p = modelData || ""
+                                            if (!p) return ""
+                                            if (p.indexOf("file://") === 0 || p.indexOf("data:") === 0) return p
+                                            return agentPage.fileUrlFromPath(p)
+                                        }
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                    }
+                                }
+                            }
+                        }
 
                         Rectangle {
-                            width: parent.width; height: userTxt.contentHeight + 16
+                            width: parent.width
+                            height: (content && content.length > 0) ? (userTxt.contentHeight + 16) : 0
+                            visible: content && content.length > 0
                             radius: 8
                             color: Theme.accentColor || "#0078D4"
 
@@ -449,175 +756,168 @@ Item {
                             Image { anchors.fill: parent; source: Qt.resolvedUrl("../../../icon/Bloriko.jpg"); fillMode: Image.PreserveAspectCrop; mipmap: true }
                         }
 
+                        ThinkingStatus {
+                            Layout.fillWidth: true
+                            active: agentPage.awaitingFirstToken && streaming && (!content || content.length === 0)
+                            label: agentPage.agentPhaseLabel
+                            orbState: agentPage.agentPhaseOrbState
+                            orbSize: 20
+                            orbSpeed: 1.1
+                            showAvatar: false
+                            showPulseDots: true
+                            fadeMs: 280
+                        }
+
                         Text {
                             Layout.fillWidth: true
-                            text: content || "..."
+                            opacity: (agentPage.awaitingFirstToken && streaming && (!content || content.length === 0)) ? 0 : 1
+                            visible: opacity > 0.01 || (content && content.length > 0)
+                            text: content || ""
                             font.pixelSize: 13
                             color: Theme.currentTheme.colors.textColor
                             wrapMode: Text.Wrap
                             textFormat: Text.MarkdownText
                             onLinkActivated: function(link) { Qt.openUrlExternally(link) }
+                            Behavior on opacity {
+                                NumberAnimation { duration: 280; easing.type: Easing.InOutQuad }
+                            }
                         }
                     }
 
-                    // --- 工具调用（含可折叠结果） ---
+                    // --- 连续工具组（Claude Code 风格汇总） ---
                     Column {
-                        id: tcCol
-                        visible: role === "tool_call"
-                        Component.onCompleted: console.log("[AgentTab] tcCol 创建: role=" + role + ", toolName=" + toolName + ", height=" + height)
+                        id: tgCol
+                        visible: role === "tool_group"
                         anchors.left: parent.left; anchors.leftMargin: 44
                         anchors.right: parent.right; anchors.rightMargin: 16
                         anchors.top: parent.top; anchors.topMargin: 2
                         width: parent.width - 60
                         spacing: 4
+                        property var toolList: ToolGroups.parseToolsJson(toolsJson || "[]")
 
-                        // 工具调用摘要（始终显示）
                         RowLayout {
                             width: parent.width
-                            Layout.preferredHeight: 20
                             spacing: 6
-
-                            // 点击切换展开/折叠
                             MouseArea {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 20
-                                cursorShape: toolResult && toolResult.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                Layout.preferredHeight: Math.max(tgSummary.implicitHeight, 20)
+                                cursorShape: tgCol.toolList.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
                                 onClicked: {
-                                    if (toolResult && toolResult.length > 0) {
+                                    if (tgCol.toolList.length > 0)
                                         messageModel.setProperty(index, "expanded", !expanded)
-                                    }
                                 }
-
                                 RowLayout {
                                     width: parent.width
                                     spacing: 6
-
                                     Icon {
-                                        icon: "ic_fluent_lightbulb_20_regular"
+                                        icon: "ic_fluent_wrench_20_regular"
                                         size: 14
                                         color: Theme.currentTheme.colors.textSecondaryColor
-                                        Layout.alignment: Qt.AlignTop
+                                        Layout.alignment: Qt.AlignVCenter
                                     }
-
                                     Text {
+                                        id: tgSummary
                                         Layout.fillWidth: true
-                                        text: {
-                                            var n = toolName || ""
-                                            var a = ""
-                                            try {
-                                                var obj = JSON.parse(toolArgs || "{}")
-                                                // 生成人类可读摘要
-                                                if (n === "read_file") a = obj.path || ""
-                                                else if (n === "write_file") a = obj.path || ""
-                                                else if (n === "edit_file") a = obj.path || ""
-                                                else if (n === "list_files") a = obj.pattern || "*"
-                                                else if (n === "search_text") a = obj.query || ""
-                                                else if (n === "get_pack_info") a = ""
-                                                else if (n === "analyze_pack") a = ""
-                                                else if (n === "read_language") a = obj.lang || ""
-                                                else if (n === "edit_language") a = obj.lang || ""
-                                                else if (n === "validate_json") a = obj.path || ""
-                                                else if (n === "get_file_tree") a = ""
-                                                else if (n === "ask_user") a = obj.question || ""
-                                                else if (n === "execute_command") a = obj.command || ""
-                                                else if (n === "execute_command_background") a = obj.command || ""
-                                                else if (n === "spawn_agent") a = (obj.agent_type || "general") + ": " + (obj.prompt || "").substring(0, 40)
-                                                else {
-                                                    // fallback: 显示参数摘要
-                                                    var parts = []
-                                                    for (var k in obj) {
-                                                        var v = String(obj[k])
-                                                        if (v.length > 40) v = v.substring(0, 40) + "…"
-                                                        parts.push(v)
-                                                    }
-                                                    a = parts.join(", ")
-                                                }
-                                                // 截断过长内容
-                                                if (a.length > 80) a = a.substring(0, 80) + "…"
-                                            } catch(e) { a = toolArgs || "" }
-
-                                            // 工具名中文映射
-                                            var nameMap = {
-                                                "read_file": (Backend ? Backend.tr("读取") : "读取"),
-                                                "write_file": (Backend ? Backend.tr("写入") : "写入"),
-                                                "edit_file": (Backend ? Backend.tr("编辑") : "编辑"),
-                                                "list_files": (Backend ? Backend.tr("列出文件") : "列出文件"),
-                                                "search_text": (Backend ? Backend.tr("搜索") : "搜索"),
-                                                "get_pack_info": (Backend ? Backend.tr("获取资源包信息") : "获取资源包信息"),
-                                                "analyze_pack": (Backend ? Backend.tr("分析资源包") : "分析资源包"),
-                                                "read_language": (Backend ? Backend.tr("读取语言文件") : "读取语言文件"),
-                                                "edit_language": (Backend ? Backend.tr("编辑语言文件") : "编辑语言文件"),
-                                                "validate_json": (Backend ? Backend.tr("验证 JSON") : "验证 JSON"),
-                                                "get_file_tree": (Backend ? Backend.tr("获取文件树") : "获取文件树"),
-                                                "ask_user": (Backend ? Backend.tr("向用户提问") : "向用户提问"),
-                                                "execute_command": (Backend ? Backend.tr("执行命令") : "执行命令"),
-                                                "execute_command_background": (Backend ? Backend.tr("后台执行") : "后台执行"),
-                                                "spawn_agent": (Backend ? Backend.tr("生成子 Agent") : "生成子 Agent")
-                                            }
-                                            var displayName = nameMap[n] || n
-                                            return a ? displayName + " " + a : displayName
-                                        }
+                                        text: content || (Backend ? Backend.tr("正在使用工具…") : "正在使用工具…")
                                         font.pixelSize: 12
-                                        color: Theme.currentTheme.colors.textColor
-                                        opacity: 0.7
+                                        color: Theme.currentTheme.colors.textSecondaryColor
                                         wrapMode: Text.Wrap
                                     }
-
                                     Text {
-                                        text: toolResult && toolResult.length > 0 ? (expanded ? "▼" : "▶") : ""
+                                        text: tgCol.toolList.length > 0 ? (expanded ? "▼" : "▶") : ""
                                         font.pixelSize: 11
-                                        color: Theme.currentTheme.colors.textColor
-                                        opacity: 0.5
-                                        Layout.alignment: Qt.AlignTop
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                        opacity: 0.6
                                     }
                                 }
                             }
                         }
 
-                        // 工具结果（可折叠）
-                        RowLayout {
-                            id: trResultCol
-                            visible: toolResult && toolResult.length > 0 && expanded
+                        Column {
+                            visible: expanded && tgCol.toolList.length > 0
                             width: parent.width
-                            spacing: 6
-
-                            Text {
-                                text: "└"
-                                font.pixelSize: 11
-                                font.family: "Consolas, monospace"
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                Layout.alignment: Qt.AlignTop
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: Math.min(trResultTxt.contentHeight + 12, 160)
-                                radius: 4
-                                color: Theme.currentTheme.colors.controlAltSecondaryColor || "#F5F5F5"
-                                border.color: Theme.currentTheme.colors.controlBorderColor || "#E8E8E8"
-                                border.width: 1
-
-                                Flickable {
-                                    anchors.fill: parent; anchors.margins: 6
-                                    contentHeight: trResultTxt.contentHeight
-                                    clip: true
-                                    interactive: contentHeight > height
-
-                                    TextEdit {
-                                        id: trResultTxt
+                            spacing: 4
+                            Repeater {
+                                model: tgCol.toolList
+                                delegate: Column {
+                                    width: parent.width
+                                    spacing: 2
+                                    RowLayout {
                                         width: parent.width
-                                        text: {
-                                            var r = toolResult || ""
-                                            if (r.length > 500) r = r.substring(0, 500) + "\n" + (Backend ? Backend.tr("... (已截断)") : "... (已截断)")
-                                            return r
+                                        spacing: 6
+                                        Text {
+                                            text: "·"
+                                            font.pixelSize: 12
+                                            color: Theme.currentTheme.colors.textSecondaryColor
+                                            Layout.alignment: Qt.AlignTop
                                         }
-                                        font.pixelSize: 11
-                                        font.family: "Consolas, monospace"
-                                        color: Theme.currentTheme.colors.textSecondaryColor
-                                        wrapMode: TextEdit.Wrap
-                                        readOnly: true; selectByMouse: true
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: ToolGroups.toolLineLabel(modelData)
+                                            font.pixelSize: 11
+                                            color: Theme.currentTheme.colors.textSecondaryColor
+                                            wrapMode: Text.Wrap
+                                            opacity: 0.9
+                                        }
+                                    }
+                                    Rectangle {
+                                        visible: modelData.toolResult && String(modelData.toolResult).length > 0
+                                        width: parent.width - 12
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 12
+                                        height: Math.min(detailTxt.implicitHeight + 10, 100)
+                                        radius: 4
+                                        color: Theme.currentTheme.colors.controlAltSecondaryColor || "#F5F5F5"
+                                        border.color: Theme.currentTheme.colors.controlBorderColor || "#E8E8E8"
+                                        border.width: 1
+                                        clip: true
+                                        Text {
+                                            id: detailTxt
+                                            anchors.fill: parent
+                                            anchors.margins: 5
+                                            text: {
+                                                var r = String(modelData.toolResult || "")
+                                                if (r.length > 300)
+                                                    r = r.substring(0, 300) + (Backend ? Backend.tr("\n... (已截断)") : "\n... (已截断)")
+                                                return r
+                                            }
+                                            font.pixelSize: 10
+                                            font.family: "Consolas, monospace"
+                                            color: Theme.currentTheme.colors.textSecondaryColor
+                                            wrapMode: Text.Wrap
+                                            elide: Text.ElideRight
+                                            maximumLineCount: 6
+                                        }
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // --- 兼容旧会话单条 tool_call ---
+                    Column {
+                        id: tcCol
+                        visible: role === "tool_call"
+                        anchors.left: parent.left; anchors.leftMargin: 44
+                        anchors.right: parent.right; anchors.rightMargin: 16
+                        anchors.top: parent.top; anchors.topMargin: 2
+                        width: parent.width - 60
+                        spacing: 4
+                        RowLayout {
+                            width: parent.width
+                            spacing: 6
+                            Icon {
+                                icon: "ic_fluent_lightbulb_20_regular"
+                                size: 14
+                                color: Theme.currentTheme.colors.textSecondaryColor
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: ToolGroups.toolLineLabel({ toolName: toolName, toolArgs: toolArgs })
+                                font.pixelSize: 12
+                                color: Theme.currentTheme.colors.textColor
+                                opacity: 0.7
+                                wrapMode: Text.Wrap
                             }
                         }
                     }
@@ -668,7 +968,7 @@ Item {
             // ===== 输入栏 =====
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: (Agent && Agent.busy ? progressBar.height + 4 : 0) + inputRow.implicitHeight + 16
+                Layout.preferredHeight: (Agent && Agent.busy ? progressBar.height + 4 : 0) + inputCard.implicitHeight + 20
                 color: Theme.currentTheme.colors.cardColor || "#FFFFFF"
                 Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: Theme.currentTheme.colors.controlBorderColor }
 
@@ -681,90 +981,325 @@ Item {
                     visible: Agent && Agent.busy
                 }
 
-                ColumnLayout {
-                    id: inputRow
-                    anchors.fill: parent; anchors.margins: 8; anchors.leftMargin: 12; anchors.rightMargin: 12
-                    spacing: 6
+                // 一体输入卡片
+                Rectangle {
+                    id: inputCard
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 10
+                    implicitHeight: inputCardCol.implicitHeight + 16
+                    radius: 22
+                    color: Theme.currentTheme.colors.controlColor || Theme.currentTheme.colors.cardColor || "#FFFFFF"
+                    border.color: inputField.activeFocus
+                        ? (Theme.accentColor || "#0078D4")
+                        : (Theme.currentTheme.colors.controlBorderColor || "#E0E0E0")
+                    border.width: 1
 
-                    RowLayout {
-                        Layout.fillWidth: true; spacing: 8
+                    ColumnLayout {
+                        id: inputCardCol
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 8
 
-                        ComboBox {
-                            id: providerCombo
-                            Layout.preferredWidth: 130
-                            model: providerModel; textRole: "name"
-                            font.pixelSize: 10
-                            enabled: Agent && !Agent.busy
-                            onActivated: function(index) {
-                                var item = providerModel.get(index)
-                                Agent.setProvider(item.key); loadModels()
-                            }
-                        }
-
-                        ComboBox {
-                            id: modelCombo
+                        Flow {
                             Layout.fillWidth: true
-                            model: modelModel; textRole: "name"
-                            font.pixelSize: 10
-                            enabled: Agent && !Agent.busy && modelModel.count > 0
-                            onActivated: function(index) {
-                                if (modelModel.count > 0) Agent.setModel(modelModel.get(index).id)
-                            }
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true; spacing: 8
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Math.max(inputField.implicitHeight + 12, 36)
-                            radius: 8
-                            color: Theme.currentTheme.colors.controlAltSecondaryColor || "#F0F0F0"
-                            border.color: inputField.activeFocus ? (Theme.accentColor || "#0078D4") : (Theme.currentTheme.colors.controlBorderColor || "#E0E0E0")
-                            border.width: 1
-
-                            TextArea {
-                                id: inputField
-                                anchors.fill: parent; anchors.margins: 6
-                                placeholderText: (Backend ? Backend.tr("输入消息... (Enter 发送, Shift+Enter 换行)") : "输入消息... (Enter 发送, Shift+Enter 换行)")
-                                wrapMode: TextArea.Wrap
-                                font.pixelSize: 13
-                                color: Theme.currentTheme.colors.textColor
-                                enabled: Agent && !Agent.busy
-                                background: Item {}
-
-                                Keys.onPressed: function(event) {
-                                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                        if (event.modifiers & Qt.ShiftModifier) {
-                                            inputField.insert(inputField.cursorPosition, "\n")
-                                        } else {
-                                            sendBtn.clicked(); event.accepted = true
+                            spacing: 6
+                            visible: pendingImagesModel.count > 0
+                            Repeater {
+                                model: pendingImagesModel
+                                delegate: Item {
+                                    width: 64; height: 64
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: 10
+                                        color: Theme.currentTheme.colors.controlAltSecondaryColor || "#F0F0F0"
+                                        clip: true
+                                        Image {
+                                            anchors.fill: parent
+                                            source: model.previewUrl
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
                                         }
+                                    }
+                                    RoundButton {
+                                        anchors.top: parent.top
+                                        anchors.right: parent.right
+                                        anchors.margins: -4
+                                        width: 20; height: 20
+                                        flat: true
+                                        icon.name: "ic_fluent_dismiss_20_regular"
+                                        onClicked: pendingImagesModel.remove(index)
                                     }
                                 }
                             }
                         }
 
-                        Button {
-                            id: sendBtn
-                            icon.name: Agent && Agent.busy ? "ic_fluent_stop_20_regular" : "ic_fluent_send_20_regular"
-                            Layout.preferredWidth: 36; Layout.preferredHeight: 36
-                            highlighted: true
-                            enabled: {
-                                if (!Agent) return false
-                                if (Agent.busy) return true
-                                return inputField.text.trim().length > 0
-                            }
-                            onClicked: {
-                                if (Agent.busy) { Agent.cancelAgent(); return }
-                                var text = inputField.text.trim()
-                                if (text.length === 0) return
-                                messageModel.append({role: "user", content: text, toolName: "", toolArgs: "", toolResult: "", streaming: false, expanded: false})
-                                Agent.sendMessage(text)
-                                inputField.text = ""
+                        TextArea {
+                            id: inputField
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Math.min(Math.max(implicitHeight, 28), 120)
+                            placeholderText: (Backend ? Backend.tr("向 Blora Agent 说些什么...") : "向 Blora Agent 说些什么...")
+                            wrapMode: TextArea.Wrap
+                            font.pixelSize: 14
+                            color: Theme.currentTheme.colors.textColor
+                            enabled: Agent && !Agent.busy
+                            background: Item {}
+                            topPadding: 2; bottomPadding: 2; leftPadding: 4; rightPadding: 4
+                            Keys.onPressed: function(event) {
+                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                    if (event.modifiers & Qt.ShiftModifier) {
+                                        inputField.insert(inputField.cursorPosition, "\n")
+                                    } else {
+                                        doSendMessage(); event.accepted = true
+                                    }
+                                }
                             }
                         }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            RoundButton {
+                                Layout.preferredWidth: 32
+                                Layout.preferredHeight: 32
+                                flat: true
+                                icon.name: "ic_fluent_add_20_regular"
+                                enabled: Agent && !Agent.busy && pendingImagesModel.count < maxPendingImages
+                                ToolTip.visible: hovered
+                                ToolTip.text: Backend ? Backend.tr("添加图片") : "添加图片"
+                                ToolTip.delay: 400
+                                onClicked: imageFileDialog.open()
+                            }
+
+                            Rectangle {
+                                Layout.preferredHeight: 32
+                                Layout.preferredWidth: modelPillRow.implicitWidth + 16
+                                Layout.maximumWidth: 360
+                                radius: 16
+                                color: Theme.currentTheme.colors.controlAltSecondaryColor || "#F0F0F0"
+                                border.color: Theme.currentTheme.colors.controlBorderColor || "#E0E0E0"
+                                border.width: 1
+                                opacity: Agent && !Agent.busy ? 1.0 : 0.55
+                                clip: true
+                                RowLayout {
+                                    id: modelPillRow
+                                    anchors.centerIn: parent
+                                    anchors.leftMargin: 8; anchors.rightMargin: 8
+                                    spacing: 4
+                                    Icon {
+                                        icon: "ic_fluent_lightbulb_20_regular"
+                                        size: 14
+                                        color: Theme.currentTheme.colors.textColor
+                                        Layout.preferredWidth: 14
+                                        Layout.preferredHeight: 14
+                                    }
+                                    Text {
+                                        text: currentModelLabel
+                                        font.pixelSize: 12
+                                        color: Theme.currentTheme.colors.textColor
+                                        wrapMode: Text.NoWrap
+                                        maximumLineCount: 1
+                                        elide: Text.ElideRight
+                                        width: Math.min(implicitWidth, 320)
+                                        Layout.preferredWidth: width
+                                        Layout.maximumWidth: 320
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: Agent && !Agent.busy
+                                    onClicked: modelSelectDlg.open()
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            RoundButton {
+                                Layout.preferredWidth: 32
+                                Layout.preferredHeight: 32
+                                flat: true
+                                highlighted: voiceState === "recording"
+                                icon.name: voiceState === "recording"
+                                    ? "ic_fluent_mic_record_20_filled"
+                                    : (voiceState === "transcribing"
+                                        ? "ic_fluent_spinner_ios_20_regular"
+                                        : "ic_fluent_mic_20_regular")
+                                enabled: Agent && !Agent.busy && voiceState !== "transcribing"
+                                ToolTip.visible: hovered
+                                ToolTip.text: voiceState === "recording"
+                                    ? (Backend ? Backend.tr("录音中，再次点击结束") : "录音中，再次点击结束")
+                                    : (Backend ? Backend.tr("语音输入") : "语音输入")
+                                ToolTip.delay: 400
+                                onClicked: {
+                                    if (!Agent) return
+                                    if (voiceState === "recording")
+                                        Agent.stopVoiceCaptureAndTranscribe()
+                                    else if (voiceState === "idle")
+                                        Agent.startVoiceCapture()
+                                }
+                            }
+
+                            RoundButton {
+                                id: sendBtn
+                                Layout.preferredWidth: 34
+                                Layout.preferredHeight: 34
+                                highlighted: true
+                                icon.name: Agent && Agent.busy
+                                    ? "ic_fluent_stop_20_regular"
+                                    : "ic_fluent_arrow_up_20_filled"
+                                enabled: {
+                                    if (!Agent) return false
+                                    if (Agent.busy) return true
+                                    return inputField.text.trim().length > 0 || pendingImagesModel.count > 0
+                                }
+                                onClicked: doSendMessage()
+                            }
+                        }
+                    }
+                }
+
+                Item {
+                    width: 0; height: 0; visible: false
+                    ComboBox {
+                        id: providerCombo
+                        model: providerModel; textRole: "name"
+                        onActivated: function(index) {
+                            var item = providerModel.get(index)
+                            Agent.setProvider(item.key); loadModels()
+                        }
+                    }
+                    ComboBox {
+                        id: modelCombo
+                        model: modelModel; textRole: "name"
+                        onActivated: function(index) {
+                            if (modelModel.count > 0) Agent.setModel(modelModel.get(index).id)
+                            updateCurrentModelLabel()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Platform.FileDialog {
+        id: imageFileDialog
+        title: Backend ? Backend.tr("选择图片") : "选择图片"
+        fileMode: Platform.FileDialog.OpenFiles
+        nameFilters: [
+            Backend ? Backend.tr("图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") : "图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)",
+            Backend ? Backend.tr("所有文件 (*)") : "所有文件 (*)"
+        ]
+        onAccepted: {
+            var files = imageFileDialog.files || []
+            for (var i = 0; i < files.length; i++) {
+                if (pendingImagesModel.count >= maxPendingImages) break
+                addPendingImage(pathFromFileUrl(files[i]))
+            }
+            if (files.length === 0 && imageFileDialog.file)
+                addPendingImage(pathFromFileUrl(imageFileDialog.file))
+        }
+    }
+
+    Dialog {
+        id: modelSelectDlg
+        title: Backend ? Backend.tr("切换模型") : "切换模型"
+        modal: true
+        width: 360
+        standardButtons: Dialog.NoButton
+        onOpened: {
+            loadProviders()
+            providerComboDlg.currentIndex = providerCombo.currentIndex
+            modelComboDlg.currentIndex = modelCombo.currentIndex
+        }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text {
+                text: modelSelectDlg.title
+                font.pixelSize: 16; font.bold: true
+                color: Theme.currentTheme.colors.textColor
+                Layout.fillWidth: true
+            }
+            Text {
+                text: Backend ? Backend.tr("供应商") : "供应商"
+                font.pixelSize: 12
+                color: Theme.currentTheme.colors.textSecondaryColor
+                Layout.fillWidth: true
+            }
+            ComboBox {
+                id: providerComboDlg
+                Layout.fillWidth: true
+                model: providerModel; textRole: "name"
+                onActivated: function(index) {
+                    var item = providerModel.get(index)
+                    Agent.setProvider(item.key)
+                    providerCombo.currentIndex = index
+                    loadModels()
+                    modelComboDlg.currentIndex = modelCombo.currentIndex >= 0 ? modelCombo.currentIndex : 0
+                }
+            }
+            Text {
+                text: Backend ? Backend.tr("模型") : "模型"
+                font.pixelSize: 12
+                color: Theme.currentTheme.colors.textSecondaryColor
+                Layout.fillWidth: true
+            }
+            ComboBox {
+                id: modelComboDlg
+                Layout.fillWidth: true
+                model: modelModel; textRole: "name"
+                onActivated: function(index) {
+                    if (index < 0 || index >= modelModel.count) return
+                    var m = modelModel.get(index)
+                    Agent.setModel(m.id)
+                    modelCombo.currentIndex = index
+                    updateCurrentModelLabel()
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Button {
+                    text: Backend ? Backend.tr("取消") : "取消"
+                    flat: true
+                    Layout.fillWidth: true
+                    onClicked: modelSelectDlg.close()
+                }
+                Button {
+                    text: Backend ? Backend.tr("确定") : "确定"
+                    highlighted: true
+                    Layout.fillWidth: true
+                    onClicked: {
+                        // 先保存选中的模型 id，避免 loadModels clear 冲掉 ComboBox 索引
+                        var selectedModelId = ""
+                        var selectedModelIndex = modelComboDlg.currentIndex
+                        if (selectedModelIndex >= 0 && selectedModelIndex < modelModel.count)
+                            selectedModelId = modelModel.get(selectedModelIndex).id || ""
+
+                        if (providerComboDlg.currentIndex >= 0 && providerComboDlg.currentIndex < providerModel.count) {
+                            var p = providerModel.get(providerComboDlg.currentIndex)
+                            Agent.setProvider(p.key)
+                            providerCombo.currentIndex = providerComboDlg.currentIndex
+                        }
+
+                        if (selectedModelId.length > 0)
+                            Agent.setModel(selectedModelId)
+
+                        loadModels()
+                        if (selectedModelId.length > 0) {
+                            for (var i = 0; i < modelModel.count; i++) {
+                                if (modelModel.get(i).id === selectedModelId) {
+                                    modelCombo.currentIndex = i
+                                    modelComboDlg.currentIndex = i
+                                    break
+                                }
+                            }
+                        }
+                        updateCurrentModelLabel()
+                        modelSelectDlg.close()
                     }
                 }
             }
@@ -1088,61 +1623,99 @@ Item {
     Connections {
         target: Agent; enabled: Agent !== null
 
+        function onVoiceStateChanged(state) {
+            voiceState = state || "idle"
+        }
+
+        function onTranscriptionReady(text) {
+            if (agentPage.visible)
+                appendTranscription(text)
+        }
+
+        function onTranscriptionFailed(msg) {
+            if (!agentPage.visible) return
+            messageModel.append({
+                role: "error",
+                content: msg || (Backend ? Backend.tr("语音识别失败") : "语音识别失败"),
+                imagesJson: "[]",
+                toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]",
+                streaming: false, expanded: false
+            })
+        }
+
+        function onBusyChanged() {
+            if (!Agent) return
+            if (Agent.busy) {
+                if (agentPhase === "idle")
+                    beginAwaitingReply()
+                Qt.callLater(function() { msgView.positionViewAtEnd() })
+            } else {
+                endAwaitingReply()
+            }
+        }
+
         function onTextUpdated(text) {
+            if (text && String(text).length > 0)
+                markReplying()
             var lastIdx = messageModel.count - 1
             if (lastIdx >= 0 && messageModel.get(lastIdx).role === "assistant" && messageModel.get(lastIdx).streaming) {
-                messageModel.set(lastIdx, {role: "assistant", content: text, toolName: "", toolArgs: "", toolResult: "", streaming: true})
+                messageModel.set(lastIdx, {
+                    role: "assistant", content: text, imagesJson: "[]",
+                    toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]",
+                    streaming: true, expanded: false
+                })
             } else {
-                messageModel.append({role: "assistant", content: text, toolName: "", toolArgs: "", toolResult: "", streaming: true, expanded: false})
+                messageModel.append({
+                    role: "assistant", content: text, imagesJson: "[]",
+                    toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]",
+                    streaming: true, expanded: false
+                })
             }
+            Qt.callLater(function() { msgView.positionViewAtEnd() })
         }
 
         function onToolCallStarted(toolName, argsJson) {
             console.log("[AgentTab] onToolCallStarted: " + toolName)
-            // 找到最后一个 tool_call 之后的位置（连续的 tool_calls 应该在一起）
-            var insertIdx = messageModel.count
-            for (var i = messageModel.count - 1; i >= 0; i--) {
-                var item = messageModel.get(i)
-                if (item.role === "tool_call") {
-                    insertIdx = i + 1
-                    break
-                }
-                if (item.role === "assistant") {
-                    // 在 assistant 之后插入（tool calls 紧跟在 text 之后）
-                    insertIdx = i + 1
-                    break
-                }
-            }
-            messageModel.insert(insertIdx, {role: "tool_call", content: "", toolName: toolName, toolArgs: argsJson, toolResult: "", streaming: false, expanded: false})
+            markWorking()
+            startToolInGroup(toolName, argsJson)
+            Qt.callLater(function() { msgView.positionViewAtEnd() })
         }
 
         function onToolCallFinished(toolName, argsJson, result) {
-            // 更新最后一条 tool_call 的结果，而非新增条目
-            for (var i = messageModel.count - 1; i >= 0; i--) {
-                var item = messageModel.get(i)
-                if (item.role === "tool_call" && item.toolName === toolName && item.toolResult === "") {
-                    messageModel.set(i, {toolResult: result})
-                    return
-                }
-            }
-            // 兜底：如果没有找到匹配的 tool_call，追加一条
-            messageModel.append({role: "tool_call", content: "", toolName: toolName, toolArgs: argsJson, toolResult: result, streaming: false, expanded: false})
+            finishToolInGroup(toolName, argsJson, result)
+            if (Agent && Agent.busy && agentPhase === "working")
+                markReplying()
         }
 
         function onErrorOccurred(msg) {
-            messageModel.append({role: "error", content: msg, toolName: "", toolArgs: "", toolResult: "", streaming: false, expanded: false})
+            endAwaitingReply()
+            messageModel.append({
+                role: "error", content: msg, imagesJson: "[]",
+                toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]",
+                streaming: false, expanded: false
+            })
         }
 
         function onMessageAdded(role, content, toolCallsJson) {
-            // 找到流式 assistant 消息并终结
+            if (Agent && Agent.busy)
+                markReplying()
+            else
+                endAwaitingReply()
             for (var i = messageModel.count - 1; i >= 0; i--) {
                 if (messageModel.get(i).role === "assistant" && messageModel.get(i).streaming) {
-                    messageModel.set(i, {role: "assistant", content: content, streaming: false})
+                    messageModel.set(i, {
+                        role: "assistant", content: content, imagesJson: "[]",
+                        toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]",
+                        streaming: false, expanded: false
+                    })
                     return
                 }
             }
-            // 没有流式消息（历史恢复场景），直接追加
-            messageModel.append({role: role, content: content, toolName: "", toolArgs: "", toolResult: "", streaming: false, expanded: false})
+            messageModel.append({
+                role: role, content: content, imagesJson: "[]",
+                toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]",
+                streaming: false, expanded: false
+            })
         }
 
         function onProvidersChanged() { loadProviders() }
@@ -1182,6 +1755,8 @@ Item {
             rebuildMessageModelFromHistory()
             conversationTitle = Agent ? (Agent.title || "") : ""
             syncRoleCombo()
+            loadProviders()
+            updateCurrentModelLabel()
         }
 
         function onRoleChanged() {
@@ -1193,7 +1768,17 @@ Item {
         }
 
         function onStatusMessage(msg) {
-            messageModel.append({role: "system", content: msg, toolName: "", toolArgs: "", toolResult: "", streaming: false, expanded: false})
+            messageModel.append({
+                role: "system",
+                content: msg,
+                imagesJson: "[]",
+                toolName: "",
+                toolArgs: "",
+                toolResult: "",
+                toolsJson: "[]",
+                streaming: false,
+                expanded: false
+            })
         }
     }
 }

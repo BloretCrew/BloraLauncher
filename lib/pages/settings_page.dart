@@ -13,11 +13,13 @@ import 'package:bloret_launcher/widgets/google_widgets.dart';
 import 'package:bloret_launcher/widgets/log_viewer.dart';
 import 'package:bloret_launcher/widgets/windows_widgets.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/android_bridge.dart';
 import '../services/bloriko.dart';
+import '../core/grammer_candy.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -62,7 +64,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_isScanningJava) return;
     setState(() {
       _isScanningJava = true;
-      _detectedJavaList = []; // Start fresh for real-time visual
+      _detectedJavaList = [];
     });
     
     try {
@@ -96,7 +98,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final apiKey = ConfigService.get(key);
     if (apiKey == null || apiKey.isEmpty) {
       setState(() {
-        _remoteModelItems = [Win11DropdownItem(label: "请先配置 API Key".tl, value: "none")];
+        _remoteModelItems = [Win11DropdownItem(label: "Please configure API Key first".tl, value: "none")];
       });
       return;
     }
@@ -137,7 +139,7 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _remoteModelItems = [Win11DropdownItem(label: "获取模型失败".tl, value: "error")];
+          _remoteModelItems = [Win11DropdownItem(label: "Failed to fetch models".tl, value: "error")];
           _isFetchingAiModels = false;
         });
       }
@@ -145,18 +147,18 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   final List<Map<String, dynamic>> _categories = [
-    {"id": "minecraft", "title": "Minecraft 与 Java", "desc": "Java、游戏目录与下载源", "icon": Icons.check_box_outline_blank_outlined},
-    {"id": "home", "title": "首页", "desc": "账户展示、托盘与多开", "icon": Icons.home},
-    {"id": "system", "title": "系统", "desc": "关闭与重启程序", "icon": Icons.power_settings_new},
-    {"id": "gamepad", "title": "虚拟手柄", "desc": "COMING SOON", "icon": Icons.videogame_asset},
-    {"id": "notification", "title": "通知", "desc": "COMING SOON", "icon": Icons.notifications},
-    {"id": "appearance", "title": "外观", "desc": "语言与主题", "icon": Icons.color_lens},
-    {"id": "plugins", "title": "插件", "desc": "COMING SOON", "icon": Icons.extension},
-    {"id": "log", "title": "日志", "desc": "打开或清空日志文件", "icon": Icons.list_alt},
-    {"id": "network", "title": "网络", "desc": "HTTP / SOCKS5 代理", "icon": Icons.language},
-    {"id": "ai", "title": "AI 供应商", "desc": "默认模型与自定义供应商", "icon": Icons.smart_toy},
-    {"id": "bloriko", "title": "Blora Agent", "desc": "AI 设置与消息连接器管理", "icon": Icons.chat_bubble_outline},
-    {"id": "control", "title": "应用控制", "desc": "热更新与高级调试", "icon": Icons.build},
+    {"id": "minecraft", "title": "Minecraft & Java".tl, "desc": "Java, game directories and download sources".tl, "icon": CupertinoIcons.cube},
+    {"id": "home", "title": "Home".tl, "desc": "Account display, tray and multi-instance".tl, "icon": Icons.home},
+    {"id": "system", "title": "System".tl, "desc": "Close and restart program".tl, "icon": Icons.power_settings_new},
+    {"id": "gamepad", "title": "Virtual Gamepad".tl, "desc": "COMING SOON", "icon": Icons.videogame_asset},
+    {"id": "notification", "title": "Notifications".tl, "desc": "COMING SOON", "icon": Icons.notifications},
+    {"id": "appearance", "title": "Appearance".tl, "desc": "Language and Theme".tl, "icon": Icons.color_lens},
+    {"id": "plugins", "title": "Plugins".tl, "desc": "COMING SOON", "icon": Icons.extension},
+    {"id": "log", "title": "Logs".tl, "desc": "Open or clear log files".tl, "icon": Icons.list_alt},
+    {"id": "network", "title": "Network".tl, "desc": "HTTP / SOCKS5 Proxy".tl, "icon": Icons.language},
+    {"id": "ai", "title": "AI Providers".tl, "desc": "Default models and custom providers".tl, "icon": Icons.smart_toy},
+    {"id": "bloriko", "title": "Blora Agent".tl, "desc": "AI settings and message connector management".tl, "icon": Icons.chat_bubble_outline},
+    {"id": "control", "title": "App Control".tl, "desc": "Hot updates and advanced debugging".tl, "icon": Icons.build},
   ];
 
   @override
@@ -192,7 +194,7 @@ class _SettingsPageState extends State<SettingsPage> {
         key: const ValueKey("hub"),
         padding: const EdgeInsets.all(24),
         children: [
-          Text("设置", style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
+          Text("Settings".tl, style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 24),
           FluentCard(
             child: Row(
@@ -203,7 +205,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("当前版本", style: TextStyle(fontWeight: FontWeight.bold)),
+                      Text("Current Version".tl, style: const TextStyle(fontWeight: FontWeight.bold)),
                       Text("$name Launcher"),
                     ],
                   ),
@@ -220,7 +222,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          const Text("选择一个类别以管理相关设置", style: TextStyle(fontSize: 13, color: Colors.grey)),
+          Text("Select a category to manage related settings".tl, style: const TextStyle(fontSize: 13, color: Colors.grey)),
           const SizedBox(height: 12),
           Wrap(
             spacing: spacing,
@@ -280,27 +282,27 @@ class _SettingsPageState extends State<SettingsPage> {
           children: [
             IconButton(onPressed: () => setState(() => _currentCategory = ""), icon: const Icon(Icons.arrow_back)),
             const SizedBox(width: 8),
-            Text("设置 · ${cat["title"]}", style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            Text("${"Settings".tl} · ${cat["title"]}", style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
           ],
         ),
         const SizedBox(height: 24),
         if (_currentCategory == "appearance") ...[
-          _buildSettingItem("语言", "调整语言设置", Icons.language, dropdown: Win11Dropdown(items: [
+          _buildSettingItem("Language".tl, "Adjust language settings".tl, Icons.language, dropdown: Win11Dropdown(items: [
             Win11DropdownItem(label: "English (US)", value: "en_us"),
             Win11DropdownItem(label: "简体中文", value: "zh_cn"),
             Win11DropdownItem(label: "繁體中文", value: "zh_tw"),
             Win11DropdownItem(label: "日本語", value: "ja_jp"),
             Win11DropdownItem(label: "Русский", value: "ru_ru"),
           ],
-            initialValue: ConfigService.get("language") ?? "zh_cn",
+            initialValue: ConfigService.getLanguage(),
             onChanged: (v) async {
-              await ConfigService.set("language", v);
+              await ConfigService.setLanguage(v ?? "zh_cn");
             },
           )),
-          _buildSettingItem("主题", "选择界面的颜色模式", Icons.color_lens, dropdown: Win11Dropdown(items: [
-            Win11DropdownItem(label: "自动", value: "Auto"),
-            Win11DropdownItem(label: "浅色", value: "Light"),
-            Win11DropdownItem(label: "深色", value: "Dark"),
+          _buildSettingItem("Theme".tl, "Choose interface color mode".tl, Icons.color_lens, dropdown: Win11Dropdown(items: [
+            Win11DropdownItem(label: "Auto".tl, value: "Auto"),
+            Win11DropdownItem(label: "Light".tl, value: "Light"),
+            Win11DropdownItem(label: "Dark".tl, value: "Dark"),
           ],
             initialValue: ConfigService.get("theme_mode") ?? "Auto",
             onChanged: (v) async {
@@ -308,10 +310,10 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           )),
           if (Platform.isAndroid)
-            _buildSettingItem("应用图标", "选择应用图标类型", Icons.app_registration, dropdown: Win11Dropdown(items: [
-              Win11DropdownItem(label: "亮色", value: "light"),
-              Win11DropdownItem(label: "暗色", value: "dark"),
-              Win11DropdownItem(label: "系统", value: "system"),
+            _buildSettingItem("App Icon".tl, "Select app icon type".tl, Icons.app_registration, dropdown: Win11Dropdown(items: [
+              Win11DropdownItem(label: "Light".tl, value: "light"),
+              Win11DropdownItem(label: "Dark".tl, value: "dark"),
+              Win11DropdownItem(label: "System".tl, value: "system"),
             ],
               initialValue: ConfigService.get("icon_theme") ?? "system",
               onChanged: (v) async {
@@ -330,29 +332,28 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
         if (_currentCategory == "minecraft") ...[
           _buildSettingItem(
-            "Java 选择模式", 
+            "Java Selection Mode".tl, 
             (ConfigService.get("java_selection_mode") ?? "auto") == "auto" 
-              ? "自动匹配路径"
-              : "固定路径模式: ${ConfigService.get("java_path") ?? "未设置"}", 
+              ? "Auto-match paths".tl
+              : "${"Fixed path mode".tl}: ${ConfigService.get("java_path") ?? "Not set".tl}", 
             Icons.code,
             itemKey: "java_main",
             expandedChild: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisSize: .min,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     const SizedBox(width: 5,),
                     Win11Dropdown(
                       items: [
-                        Win11DropdownItem(label: "自动选择 (推荐)", value: "auto"),
-                        Win11DropdownItem(label: "固定 Java", value: "fixed"),
+                        Win11DropdownItem(label: "Auto Selection (Recommended)".tl, value: "auto"),
+                        Win11DropdownItem(label: "Fixed Java".tl, value: "fixed"),
                       ],
                       initialValue: ConfigService.get("java_selection_mode") ?? "auto",
                       onChanged: (v) {
                         setState(() {
                           ConfigService.set("java_selection_mode", v);
-                          // Update expansion state for inner list based on mode
                           if (v == "fixed") {
                             _expandedItems.add("java_list");
                           } else {
@@ -365,8 +366,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const SizedBox(height: 12),
                 _buildSettingItem(
-                  (ConfigService.get("java_selection_mode") ?? "auto") == "auto" ? "可用 Java 环境" : "选择 Java 路径",
-                  "点击查看或更换 Java",
+                  (ConfigService.get("java_selection_mode") ?? "auto") == "auto" ? "Available Java Environments".tl : "Select Java Path".tl,
+                  "Click to view or change Java".tl,
                   Icons.manage_search,
                   itemKey: "java_list",
                   trailing: _isScanningJava 
@@ -379,7 +380,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   expandedChild: Column(
                     children: [
                       if (_detectedJavaList.isEmpty && !_isScanningJava)
-                        const Text("未检测到有效的 Java 安装", style: TextStyle(fontSize: 13, color: Colors.redAccent))
+                        Text("No valid Java installation detected".tl, style: const TextStyle(fontSize: 13, color: Colors.redAccent))
                       else
                         ..._detectedJavaList.map((java) {
                           final bool isSelected = ConfigService.get("java_path") == java['path'];
@@ -431,8 +432,8 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           _buildSettingItem(
-            "Minecraft 文件夹位置", 
-            "管理游戏文件的存储路径 (${_minecraftDirs.length})", 
+            "Minecraft Folder Locations".tl, 
+            "${"Manage game file storage paths".tl} (${_minecraftDirs.length})", 
             Icons.folder,
             itemKey: "mc_dirs",
             expandedChild: Column(
@@ -479,7 +480,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
-                  child: BloretButton(text: "添加文件夹", onPressed: () async {
+                  child: BloretButton(text: "Add Folder".tl, onPressed: () async {
                     String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
                     if (selectedDirectory != null) {
                       setState(() {
@@ -494,7 +495,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
             ),
           ),
-          _buildSettingItem("下载源", "选择下载来源", Icons.cloud_download, dropdown: Win11Dropdown(items: [
+          _buildSettingItem("Download Source".tl, "Select download source".tl, Icons.cloud_download, dropdown: Win11Dropdown(items: [
             Win11DropdownItem(label: "Bloret", value: "gitcode"),
             Win11DropdownItem(label: "Mojang", value: "official"),
             Win11DropdownItem(label: "BMCLAPI", value: "bmclapi"),
@@ -504,48 +505,47 @@ class _SettingsPageState extends State<SettingsPage> {
           )),
         ],
         if (_currentCategory == "home") ...[
-          _buildSettingItem("显示账户信息", "在首页展示账户详情", Icons.person, dropdown: Win11Dropdown(items: [
-            Win11DropdownItem(label: "简略展示", value: "compact"),
-            Win11DropdownItem(label: "完整展示", value: "full"),
-            Win11DropdownItem(label: "隐藏", value: "hidden"),
+          _buildSettingItem("Show Account Info".tl, "Show account details on home page".tl, Icons.person, dropdown: Win11Dropdown(items: [
+            Win11DropdownItem(label: "Compact".tl, value: "compact"),
+            Win11DropdownItem(label: "Full".tl, value: "full"),
+            Win11DropdownItem(label: "Hidden".tl, value: "hidden"),
           ],
             initialValue: ConfigService.get("home_account_mode") ?? "compact",
             onChanged: (v) => ConfigService.set("home_account_mode", v),
           )),
-          _buildSettingItem("关闭按钮动作", "最小化到托盘或直接退出", Icons.close, dropdown: Win11Dropdown(items: [
-            Win11DropdownItem(label: "最小化到托盘", value: "hide"),
-            Win11DropdownItem(label: "直接退出", value: "exit"),
+          _buildSettingItem("Close Button Action".tl, "Minimize to tray or exit directly".tl, Icons.close, dropdown: Win11Dropdown(items: [
+            Win11DropdownItem(label: "Minimize to Tray".tl, value: "hide"),
+            Win11DropdownItem(label: "Exit Directly".tl, value: "exit"),
           ],
             initialValue: ConfigService.getExitBehavior() == "ask" ? "exit" : ConfigService.getExitBehavior(),
             onChanged: (v) {
               if (v != null) ConfigService.setExitBehavior(v);
             },
           )),
-          // _buildSettingItem("允许重复打开", "运行多个启动器实例", Icons.copy, switchValue: ConfigService.get("repeat_run") ?? false, onSwitchChanged: (v) => ConfigService.set("repeat_run", v)),
         ],
         if (_currentCategory == "system") ...[
-          _buildSettingItem("关闭程序", "完全退出 Blora Launcher", Icons.power_settings_new, trailing: BloretButton(text: "关闭", onPressed: () {
+          _buildSettingItem("Close Program".tl, "Completely exit Blora Launcher".tl, Icons.power_settings_new, trailing: BloretButton(text: "Close".tl, onPressed: () {
             showDialog(
               context: context,
               builder: (context) => AlertDialog(
-                title: const Text("确认关闭"),
-                content: const Text("确定要完全退出 Blora Launcher 吗？"),
+                title: Text("Confirm Close".tl),
+                content: Text("Are you sure you want to completely exit Blora Launcher?".tl),
                 actions: [
-                  TextButton(onPressed: () => Navigator.pop(context), child: const Text("取消")),
-                  TextButton(onPressed: () => terminateProcess(), child: const Text("退出")),
+                  TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
+                  TextButton(onPressed: () => terminateProcess(), child: Text("Exit".tl)),
                 ],
               ),
             );
           })),
           if (!Platform.isAndroid)
-            _buildSettingItem("重启程序", "重新启动应用", Icons.refresh, trailing: BloretButton(text: "重启", onPressed: () {
+            _buildSettingItem("Restart Program".tl, "Restart app".tl, Icons.refresh, trailing: BloretButton(text: "Restart".tl, onPressed: () {
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
-                  title: const Text("确认重启"),
-                  content: const Text("确定要重启 Blora Launcher"),
+                  title: Text("Confirm Restart".tl),
+                  content: Text("Are you sure you want to restart Blora Launcher?".tl),
                   actions: [
-                    TextButton(onPressed: () => Navigator.pop(context), child: const Text("取消")),
+                    TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
                     TextButton(onPressed: () async {
                       Navigator.pop(context);
                       if (Platform.isWindows) {
@@ -554,28 +554,24 @@ class _SettingsPageState extends State<SettingsPage> {
                         await Process.start("sh", ["-c", "${Platform.resolvedExecutable} &"]);
                       }
                       exit(0);
-                    }, child: const Text("重启")),
+                    }, child: Text("Restart".tl)),
                   ],
                 )
               );  
             })),
         ],
         if (_currentCategory == "gamepad") ...[
-          /*
-          _buildSettingItem("移动摇杆灵敏度", "控制移动响应速度", Icons.directions_run, sliderValue: 0.5, onSliderChanged: (v){}),
-          _buildSettingItem("视角摇杆灵敏度", "控制视角旋转速度", Icons.visibility, sliderValue: 0.5, onSliderChanged: (v){}),
-          */
-          const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("功能暂未启用"))),
+          Center(child: Padding(padding: const EdgeInsets.all(20), child: Text("Feature not enabled yet".tl))),
         ],
         if (_currentCategory == "notification") ...[
-          _buildSettingItem("启用系统通知", "总开关", Icons.notifications_active, switchValue: true, onSwitchChanged: (v){}),
-          _buildSettingItem("游戏启动完成", "Minecraft 成功进入后的通知", Icons.check_circle, switchValue: true, onSwitchChanged: (v){}),
-          _buildSettingItem("更新提醒", "应用有新补丁时的通知", Icons.update, switchValue: true, onSwitchChanged: (v){}),
+          _buildSettingItem("Enable System Notifications".tl, "Master Switch".tl, Icons.notifications_active, switchValue: true, onSwitchChanged: (v){}),
+          _buildSettingItem("Game Launch Completed".tl, "Notification after Minecraft successfully enters".tl, Icons.check_circle, switchValue: true, onSwitchChanged: (v){}),
+          _buildSettingItem("Update Reminders".tl, "Notification when there is a new patch".tl, Icons.update, switchValue: true, onSwitchChanged: (v){}),
         ],
         if (_currentCategory == "log") ...[
           _buildSettingItem(
-            "查看日志", 
-            "实时查看启动器运行日志", 
+            "View Logs".tl, 
+            "View launcher runtime logs in real-time".tl, 
             Icons.list, 
             trailing: IconButton(
               icon: const Icon(Icons.arrow_forward),
@@ -584,24 +580,22 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             )
           ),
-          _buildSettingItem("日志文件夹位置", (Platform.isWindows || Platform.isLinux) ? p.dirname(Platform.resolvedExecutable) : "应用数据目录", Icons.folder, trailing: IconButton(icon: const Icon(Icons.open_in_new), onPressed: () {})),
-          _buildSettingItem("清空日志", "删除所有本地日志记录", Icons.delete_sweep, trailing: BloretButton(text: "清空", onPressed: () {
+          _buildSettingItem("Log Folder Location".tl, (Platform.isWindows || Platform.isLinux) ? p.dirname(Platform.resolvedExecutable) : "App Data Directory".tl, Icons.folder, trailing: IconButton(icon: const Icon(Icons.open_in_new), onPressed: () {})),
+          _buildSettingItem("Clear Logs".tl, "Delete all local log records".tl, Icons.delete_sweep, trailing: BloretButton(text: "Clear".tl, onPressed: () {
              showDialog(
                context: context,
                builder: (context) => AlertDialog(
-                 title: const Text("确认清空"),
-                 content: const Text("确定要删除所有本地日志记录吗？此操作不可撤销。"),
+                 title: Text("Confirm Clear".tl),
+                 content: Text("Are you sure you want to delete all local log records? This action is irreversible.".tl),
                  actions: [
-                   TextButton(onPressed: () => Navigator.pop(context), child: const Text("取消")),
+                   TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
                    TextButton(onPressed: () async {
-                     final nav = Navigator.of(context);
-                     final messenger = noticeManager;
-                     nav.pop();
-                     final logger = await AppLogger.getInstance();
+                     Navigator.pop(context);
                      await logger.clearLogs();
-                     if (!context.mounted) return;
-                     messenger.show(context, message: "日志已清空", icon: Icons.check_circle);
-                   }, child: const Text("清空", style: TextStyle(color: Colors.red))),
+                     if (context.mounted) {
+                       showSuccess("Logs cleared".tl);
+                     }
+                   }, child: Text("Clear".tl, style: const TextStyle(color: Colors.red))),
                  ],
                ),
              );
@@ -609,8 +603,8 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
         if (_currentCategory == "network") ...[
           _buildSettingItem(
-            "网络代理", 
-            ConfigService.get("proxy") == null || ConfigService.get("proxy").isEmpty ? "未启用代理" : "当前代理: ${ConfigService.get("proxy")}", 
+            "Network Proxy".tl, 
+            ConfigService.get("proxy") == null || ConfigService.get("proxy").isEmpty ? "Proxy disabled".tl : "${"Current proxy".tl}: ${ConfigService.get("proxy")}", 
             Icons.language,
             itemKey: "proxy",
             expandedChild: RadioGroup<String>(
@@ -624,8 +618,8 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const RadioListTile<String>(
-                    title: Text("未配置", style: TextStyle(fontSize: 14)),
+                  RadioListTile<String>(
+                    title: Text("Not configured".tl, style: const TextStyle(fontSize: 14)),
                     value: "",
                     contentPadding: EdgeInsets.zero,
                     dense: true,
@@ -660,7 +654,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     );
                   }),
                 const SizedBox(height: 12),
-                // Add New Proxy
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
@@ -690,9 +683,9 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ConfigService.set("proxy_list", _proxyList);
                                   _proxyController.clear();
                                 });
-                                if (mounted) noticeManager.show(context, message: "已添加代理地址", icon: Icons.check_circle);
+                                if (mounted) showSuccess("Proxy address added".tl);
                               } else {
-                                if (mounted) noticeManager.show(context, message: "该地址已在列表中", icon: Icons.warning);
+                                if (mounted) showWarning("This address is already in the list".tl);
                               }
                             }
                           },
@@ -708,9 +701,9 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ConfigService.set("proxy_list", _proxyList);
                                 _proxyController.clear();
                               });
-                              if (mounted) noticeManager.show(context, message: "已添加代理地址", icon: Icons.check_circle);
+                              if (mounted) showSuccess("Proxy address added".tl);
                             } else {
-                              if (mounted) noticeManager.show(context, message: "该地址已在列表中", icon: Icons.warning);
+                              if (mounted) showWarning("This address is already in the list".tl);
                             }
                           }
                         },
@@ -725,12 +718,12 @@ class _SettingsPageState extends State<SettingsPage> {
           ),)
         ],
         if (_currentCategory == "bloriko") ...[
-          _buildSettingItem("当前角色类型", "切换 AI 处理逻辑", Icons.face, dropdown: Win11Dropdown(
+          _buildSettingItem("Current Character Type".tl, "Switch AI processing logic".tl, Icons.face, dropdown: Win11Dropdown(
             initialValue: Bloriko.type,
             items: [
-              Win11DropdownItem(label: "默认", value: "default"),
-              Win11DropdownItem(label: "络可", value: "bloriko"),
-              if (ConfigService.get("develop_mode") ?? false) Win11DropdownItem(label: "络可 (R18)", value: "bloriko_r18"),
+              Win11DropdownItem(label: "Default".tl, value: "default"),
+              Win11DropdownItem(label: "Bloriko".tl, value: "bloriko"),
+              if (ConfigService.get("develop_mode") ?? false) Win11DropdownItem(label: "Bloriko (R18)".tl, value: "bloriko_r18"),
             ],
             onChanged: (value) async {
               if (value != null) {
@@ -739,12 +732,12 @@ class _SettingsPageState extends State<SettingsPage> {
               }
             },
           )),
-          _buildSettingItem("规划模式", "AI 运行行为模式", Icons.psychology, dropdown: Win11Dropdown(
+          _buildSettingItem("Planning Mode".tl, "AI behavior mode".tl, Icons.psychology, dropdown: Win11Dropdown(
             initialValue: Bloriko.mode,
             items: [
-              Win11DropdownItem(label: "自动模式", value: "auto"),
-              Win11DropdownItem(label: "辅助点击", value: "help"),
-              Win11DropdownItem(label: "规划模式", value: "plan"),
+              Win11DropdownItem(label: "Auto Mode".tl, value: "auto"),
+              Win11DropdownItem(label: "Assist Click".tl, value: "help"),
+              Win11DropdownItem(label: "Planning Mode".tl, value: "plan"),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -753,17 +746,17 @@ class _SettingsPageState extends State<SettingsPage> {
               }
             },
           )),
-          const Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 16), child: Text("消息连接器", style: TextStyle(fontWeight: FontWeight.bold))),
-          _buildSettingItem("微信连接器", "扫码登录微信进行交互", Icons.wechat, trailing: BloretButton(text: "配置", onPressed: () {})),
+          Padding(padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16), child: Text("Message Connectors".tl, style: const TextStyle(fontWeight: FontWeight.bold))),
+          _buildSettingItem("WeChat Connector".tl, "Scan code to login WeChat for interaction".tl, Icons.wechat, trailing: BloretButton(text: "Configure".tl, onPressed: () {})),
         ],
         if (_currentCategory == "ai") ...[
-           _buildSettingItem("当前提供商", "切换后端接口源", Icons.hub, dropdown: Win11Dropdown(
+           _buildSettingItem("Current Provider".tl, "Switch backend interface source".tl, Icons.hub, dropdown: Win11Dropdown(
              initialValue: ConfigService.get('ai_provider') ?? 'bloret_passport',
              items: [
                 Win11DropdownItem(label: "Bloret PassPort", value: "bloret_passport"),
                 Win11DropdownItem(label: "OpenCode Zen", value: "opencode_zen"),
                 Win11DropdownItem(label: "Google AI Studio", value: "google_ai_studio"),
-                Win11DropdownItem(label: "自定义 API", value: "custom_api"),
+                Win11DropdownItem(label: "Custom API", value: "custom_api"),
              ],
              onChanged: (p) async {
                if (p != null) {
@@ -780,8 +773,8 @@ class _SettingsPageState extends State<SettingsPage> {
              
              if (provider == 'google_ai_studio' || provider == 'custom_api') {
                return _buildSettingItem(
-                 "默认模型", 
-                 "选择该提供商下的首选模型", 
+                 "Default Model".tl, 
+                 "Select the preferred model for this provider".tl, 
                  Icons.model_training, 
                  dropdown: _isFetchingAiModels 
                    ? Align(
@@ -801,7 +794,7 @@ class _SettingsPageState extends State<SettingsPage> {
                    : Win11Dropdown(
                        initialValue: ConfigService.get('ai_model'),
                        items: _remoteModelItems.isEmpty 
-                         ? [Win11DropdownItem(label: "未获取到模型".tl, value: "none")] 
+                         ? [Win11DropdownItem(label: "No models fetched".tl, value: "none")] 
                          : _remoteModelItems,
                        onChanged: (m) async {
                          if (m != null && m != "none" && m != "error") {
@@ -829,7 +822,7 @@ class _SettingsPageState extends State<SettingsPage> {
                ],
              };
 
-             return _buildSettingItem("默认模型", "选择该提供商下的首选模型", Icons.model_training, dropdown: Win11Dropdown(
+             return _buildSettingItem("Default Model".tl, "Select the preferred model for this provider".tl, Icons.model_training, dropdown: Win11Dropdown(
                initialValue: ConfigService.get('ai_model') ?? modelItems.first.value,
                items: modelItems,
                onChanged: (m) async {
@@ -840,14 +833,14 @@ class _SettingsPageState extends State<SettingsPage> {
                },
              ));
            }),
-           _buildSettingItem("接口配置", "管理 API Key 与地址", Icons.settings, trailing: BloretButton(text: "配置", onPressed: () {
+           _buildSettingItem("Interface Config".tl, "Manage API Key and address".tl, Icons.settings, trailing: BloretButton(text: "Configure".tl, onPressed: () {
               _showAiConfigDialog(context);
            })),
         ],
         if (_currentCategory == "control") ...[
           if (Platform.isWindows) _buildSettingItem(
-            "检查更新", 
-            "检查并安装热更新补丁 (当前: $_hotfixVersion)", 
+            "Check for Updates".tl, 
+            "${"Check and install hot update patches".tl} (${"Current".tl}: $_hotfixVersion)", 
             Icons.update, 
             trailing: _isCheckingUpdate 
               ? const Padding(padding: EdgeInsets.only(right: 6), child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2)))
@@ -862,11 +855,11 @@ class _SettingsPageState extends State<SettingsPage> {
                         final confirm = await showDialog<bool>(
                           context: context,
                           builder: (context) => AlertDialog(
-                            title: const Text("发现新补丁"),
-                            content: Text("版本: ${update.version}\n是否立即下载并应用？\n(注意：覆盖后需重启应用)"),
+                            title: Text("New Patch Found".tl),
+                            content: Text("${"Version".tl}: ${update.version}\n${"Download and apply now?".tl}\n${"(Note: Requires app restart after application)".tl}"),
                             actions: [
-                              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("取消")),
-                              TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("安装")),
+                              TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
+                              TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Install".tl)),
                             ],
                           ),
                         );
@@ -889,7 +882,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                     : "${(p * 100).toInt()}%";
                                 
                                 return AlertDialog(
-                                  title: const Text("正在更新补丁"),
+                                  title: Text("Updating patch".tl),
                                   content: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
@@ -900,7 +893,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                         GoogleSquigglySlider(value: p * 100, max: 100,),
                                       const SizedBox(height: 12),
                                       Text(percentText, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                      const Text("正在下载并应用，请勿关闭应用...", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                      Text("Downloading and applying, please do not close the app...".tl, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                                     ],
                                   ),
                                 );
@@ -918,22 +911,22 @@ class _SettingsPageState extends State<SettingsPage> {
                             if (!result) return;
                             await _loadHotfixVersion();
                             if (mounted) {
-                              noticeManager.show(context, message: "补丁已安装，重启应用生效。", icon: Icons.check_circle);
+                              showSuccess("Patch installed, restart app to take effect.".tl);
                             }
                           } catch (e) {
                             if (mounted) Navigator.pop(context);
-                            rethrow;
+                            logger.error("[Update] Apply failed: $e", LogSource.system);
                           } finally {
                             progressController.close();
                           }
                         }
                       } else {
-                        noticeManager.show(context, message: "当前已是最新补丁版本。", icon: Icons.info);
+                        showInfo("You are already on the latest patch version.".tl);
                       }
                     }
                   } catch (e) {
                     if (mounted) {
-                      noticeManager.show(context, message: "检查出错: $e", icon: Icons.error);
+                      showError("${"Check error".tl}: $e");
                     }
                   } finally {
                     if (mounted) setState(() => _isCheckingUpdate = false);
@@ -941,12 +934,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 },
               )
           ),
-          _buildSettingItem("通知", "显示一个测试通知", Icons.notifications_active, trailing: BloretButton(text: "显示", onPressed: () {
-            noticeManager.show(context, message: "这是一个测试通知", icon: Icons.info);
+          _buildSettingItem("Notifications".tl, "Show a test notification".tl, Icons.notifications_active, trailing: BloretButton(text: "Show".tl, onPressed: () {
+            showInfo("This is a test notification".tl);
           })),
         ],
         const SizedBox(height: 24),
-        const Text("设置界面大部分内容需要重启程序后生效。", style: TextStyle(fontSize: 12, color: Colors.grey)),
+        Text("Most settings require an app restart to take effect.".tl, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
   }
@@ -965,7 +958,7 @@ class _SettingsPageState extends State<SettingsPage> {
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(isGoogle ? "配置 Google AI Studio".tl : "配置自定义 API".tl),
+        title: Text(isGoogle ? "Configure Google AI Studio".tl : "Configure Custom API".tl),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -982,12 +975,12 @@ class _SettingsPageState extends State<SettingsPage> {
             if (!isGoogle)
               TextField(
                 controller: modelController,
-                decoration: InputDecoration(labelText: "默认模型 ID".tl, hintText: "gpt-4o"),
+                decoration: InputDecoration(labelText: "Default Model ID".tl, hintText: "gpt-4o"),
               ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text("取消".tl)),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
           TextButton(
             onPressed: () async {
               if (isGoogle) {
@@ -1002,7 +995,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 Navigator.pop(context);
               }
             },
-            child: Text("保存".tl),
+            child: Text("Save".tl),
           ),
         ],
       ),

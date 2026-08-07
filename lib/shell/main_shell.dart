@@ -12,7 +12,6 @@ import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/win32_icon_service.dart';
 import 'package:bloret_launcher/core/window_bridge.dart';
-// 引用 config/server 变量
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +23,7 @@ import '../main.dart';
 import '../pages/home_page.dart';
 import '../pages/passport_page.dart';
 import '../pages/settings_page.dart';
+import '../core/i18n.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -98,27 +98,35 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _updateAppIcon();
   }
 
+  void setNavExtended(bool value) {
+    if (mounted) {
+      setState(() {
+        _isExtended = value;
+      });
+    }
+  }
+
   void _updateAppIcon() {
     final isDark = WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.dark;
     Win32IconService.switchIcon(isDark);
   }
 
-  final List<dynamic> _pages = [
-    (const _NavDestination("主页", Icons.home_outlined, Icons.home,), () => const HomePage()),
-    (const _NavDestination("助手", Icons.smart_toy_outlined, Icons.smart_toy, keepAlive: true), () => const BloraChatPage()),
+  List<dynamic> get _pages => [
+    (_NavDestination("Home".tl, Icons.home_outlined, Icons.home,), () => const HomePage()),
+    (_NavDestination("Agent".tl, Icons.smart_toy_outlined, Icons.smart_toy, keepAlive: true), () => const BloraChatPage()),
     "divider",
-    (const _NavDestination("下载", Icons.file_download_outlined, Icons.file_download, keepAlive: true), () => const DownloadPage()),
-    (const _NavDestination("核心", Icons.view_in_ar_outlined, Icons.view_in_ar), () => const CoresPage()),
-    (const _NavDestination("小工具", Icons.handyman_outlined, Icons.handyman), () => const ToolsPage()),
-    (const _NavDestination("统计", Icons.bar_chart_outlined, Icons.bar_chart), () => const StatsPage()),
-    (const _NavDestination("Mods", Icons.extension_outlined, Icons.extension), () => const ModsPage()),
-    (const _NavDestination("BBBS", Icons.forum_outlined, Icons.forum, keepAlive: true), () => const BbbsPage()),
-    (const _NavDestination("Live", Icons.live_tv_outlined, Icons.live_tv, keepAlive: true), () => const LivePage()),
+    (_NavDestination("Download".tl, Icons.file_download_outlined, Icons.file_download, keepAlive: true), () => const DownloadPage()),
+    (_NavDestination("Cores".tl, Icons.view_in_ar_outlined, Icons.view_in_ar), () => const CoresPage()),
+    (_NavDestination("Tools".tl, Icons.handyman_outlined, Icons.handyman), () => const ToolsPage()),
+    (_NavDestination("Stats".tl, Icons.bar_chart_outlined, Icons.bar_chart), () => const StatsPage()),
+    (_NavDestination("Mods".tl, Icons.extension_outlined, Icons.extension), () => const ModsPage()),
+    (_NavDestination("BBBS".tl, Icons.forum_outlined, Icons.forum, keepAlive: true), () => const BbbsPage()),
+    (_NavDestination("Live".tl, Icons.live_tv_outlined, Icons.live_tv, keepAlive: true), () => const LivePage()),
 
     "divider",
-    (const _NavDestination("通行证", Icons.person_outline, Icons.person), () => const PassPortPage()),
-    (const _NavDestination("设置", Icons.settings_outlined, Icons.settings), () => const SettingsPage()),
-    (const _NavDestination("关于", Icons.info_outline, Icons.info), () => const AboutPage()),
+    (_NavDestination("Passport".tl, Icons.person_outline, Icons.person), () => const PassPortPage()),
+    (_NavDestination("Settings".tl, Icons.settings_outlined, Icons.settings), () => const SettingsPage()),
+    (_NavDestination("About".tl, Icons.info_outline, Icons.info), () => const AboutPage()),
   ];
 
   void _onPageChanged(int index) {
@@ -161,7 +169,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
-    final userName = ConfigService.get('Bloret_PassPort_UserName') ?? "未登录";
+    final userName = ConfigService.get('Bloret_PassPort_UserName') ?? "Guest".tl;
     final avatar = ConfigService.get('Bloret_PassPort_Avatar') ?? "";
 
     return Scaffold(
@@ -191,7 +199,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                     const SizedBox(height: 8),
                                     _NavTile(
                                       icon: Icons.menu,
-                                      title: "菜单",
+                                      title: "Menu".tl,
                                       isExtended: false,
                                       isSelected: false,
                                       compact: true,
@@ -337,8 +345,8 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(Bloriko.instance.currentTool != null && Bloriko.instance.currentTool! != "set_user_identity"
-                                        ? "$agentName正在: ${Bloriko.instance.currentTool}"
-                                        : "$agentName 正在运行...",
+                                        ? "${agentName.tl} ${"is:".tl} ${Bloriko.instance.currentTool}"
+                                        : "${agentName.tl} ${"is running...".tl}",
                                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onPrimaryContainer)
                                     ),
                                     if (Bloriko.instance.currentTool == null)
@@ -346,11 +354,11 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                         children: [
                                           Text(
                                               switch (Bloriko.instance.connectionStatus) {
-                                                BlorikoConnectionStatus.connecting => "正在连接服务器...",
-                                                BlorikoConnectionStatus.handshake => "正在验证...",
-                                                BlorikoConnectionStatus.streaming => "正在接收响应流...",
-                                                BlorikoConnectionStatus.error => "连接异常",
-                                                _ => "请稍候...",
+                                                BlorikoConnectionStatus.connecting => "Connecting to server...".tl,
+                                                BlorikoConnectionStatus.handshake => "Verifying...".tl,
+                                                BlorikoConnectionStatus.streaming => "Receiving response...".tl,
+                                                BlorikoConnectionStatus.error => "Connection Error".tl,
+                                                _ => "Please wait...".tl,
                                               },
                                               style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.7))
                                           ),
@@ -589,7 +597,7 @@ class _AccountTile extends StatelessWidget {
                       duration: const Duration(milliseconds: 200),
                       opacity: isExtended ? 1.0 : 0.0,
                       child: Text(
-                        ConfigService.get('Bloret_PassPort_Login') == true ? userName : "登录",
+                        ConfigService.get('Bloret_PassPort_Login') == true ? userName : "Login".tl,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                           fontSize: 13,

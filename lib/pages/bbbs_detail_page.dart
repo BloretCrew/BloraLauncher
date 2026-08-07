@@ -9,6 +9,8 @@ import '../services/bbbs.dart';
 import '../services/config_service.dart';
 import '../widgets/button.dart';
 import '../main.dart';
+import '../core/logger.dart';
+import '../core/grammer_candy.dart';
 
 class BbbsDetailPage extends StatefulWidget {
   final BbbsPost post;
@@ -24,32 +26,27 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
   bool _isLoading = false;
   
   final TextEditingController _commentController = TextEditingController();
-  final ScrollController _scrollController = ScrollController(); // 新增
+  final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
-  bool _isFocused = false;
   
   bool _isSubmitting = false;
   BbbsComment? _replyTo;
   
-  // AI Translation/Explain State
   String? _aiText;
   bool _isAiProcessing = false;
-  String? _aiTargetId; // "post" or "comment_id"
+  String? _aiTargetId;
 
   @override
   void initState() {
     super.initState();
     _currentPost = widget.post;
-    _focusNode.addListener(() {
-      if (mounted) setState(() => _isFocused = _focusNode.hasFocus);
-    });
     _refreshPost();
   }
 
   @override
   void dispose() {
     _commentController.dispose();
-    _scrollController.dispose(); // 释放
+    _scrollController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
@@ -63,12 +60,12 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
           _currentPost = BbbsPost.fromJson(data);
           _isLoading = false;
         });
-        print("[BBBS] Detail refreshed. Comments: ${_currentPost.comments.length}");
+        logger.info("[BBBS] Detail refreshed. Comments: ${_currentPost.comments.length}", LogSource.network);
       } else {
         if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      debugPrint("[BBBS] Refresh error: $e");
+      logger.error("[BBBS] Refresh error: $e", LogSource.network);
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -87,7 +84,6 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       text: newText,
       selection: TextSelection.collapsed(offset: selection.baseOffset + tag.length),
     );
-    // 保持焦点
     _focusNode.requestFocus();
   }
 
@@ -110,12 +106,12 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
         _replyTo = null;
         _isSubmitting = false;
       });
-      noticeManager.show(context, message: "评论成功".tl, icon: Icons.check_circle);
-      await _refreshPost(); // 提交后刷新列表
-      _scrollToBottom(); // 平滑滚动到底部
+      if (mounted) showSuccess("Comment successful".tl);
+      await _refreshPost();
+      _scrollToBottom();
     } else {
       setState(() => _isSubmitting = false);
-      noticeManager.show(context, message: "${"评论失败".tl}: ${res['message']}", icon: Icons.error);
+      if (mounted) showError("${"Comment failed".tl}: ${res['message']}");
     }
   }
 
@@ -126,7 +122,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       _aiTargetId = targetId;
     });
 
-    BbbsService.streamAiAction(mode: mode, content: content).listen(
+    BbbsService.streamAiAction(mode: mode, content: content, targetLang: (ConfigService.get('language') ?? "zh_cn").toString().substring(0, 2)).listen(
       (chunk) {
         setState(() {
           _aiText = (_aiText ?? "") + chunk;
@@ -135,7 +131,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       onDone: () => setState(() => _isAiProcessing = false),
       onError: (e) => setState(() {
         _isAiProcessing = false;
-        _aiText = "AI 错误: $e";
+        _aiText = "${"AI Error".tl}: $e";
       }),
     );
   }
@@ -161,7 +157,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       );
       await _refreshPost();
     } catch (e) {
-      debugPrint("Like error: $e");
+      logger.error("[BBBS] Like error: $e", LogSource.network);
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -181,7 +177,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       );
       await _refreshPost();
     } catch (e) {
-      debugPrint("Share error: $e");
+      logger.error("[BBBS] Share error: $e", LogSource.network);
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -223,7 +219,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
             child: RefreshIndicator(
               onRefresh: _refreshPost,
               child: SingleChildScrollView(
-                controller: _scrollController, // 绑定控制器
+                controller: _scrollController,
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 child: Column(
@@ -233,22 +229,14 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                     const SizedBox(height: 16),
                     _buildAuthorInfo(secondaryColor),
                     const SizedBox(height: 24),
-                    
-                    // Post Content
                     _buildContentSection(textColor, secondaryColor, cardColor, borderColor),
-                    
                     const SizedBox(height: 32),
                     const Divider(),
                     const SizedBox(height: 16),
-                    
-                    // Interaction Stats
                     _buildInteractionRow(secondaryColor),
-                    
                     const SizedBox(height: 32),
                     _buildCommentsHeader(secondaryColor),
                     const SizedBox(height: 16),
-                    
-                    // Comments List
                     _buildCommentsList(textColor, secondaryColor, cardColor, borderColor),
                     const SizedBox(height: 48),
                   ],
@@ -278,7 +266,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(_currentPost.author, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              Text(_currentPost.authorTitle ?? "用户".tl, style: TextStyle(fontSize: 12, color: secondaryColor)),
+              Text(_currentPost.authorTitle ?? "User".tl, style: TextStyle(fontSize: 12, color: secondaryColor)),
             ],
           ),
         ),
@@ -296,14 +284,14 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
         Row(
           children: [
             BloretButton(
-              text: "翻译".tl,
+              text: "Translate".tl,
               icon: Icons.translate,
               onPressed: () => _handleAiAction("translate", _currentPost.content),
               height: 48,
             ),
             const SizedBox(width: 12),
             BloretButton(
-              text: "解释".tl,
+              text: "Explain".tl,
               icon: Icons.auto_awesome,
               onPressed: () => _handleAiAction("explain", _currentPost.content),
               height: 48,
@@ -352,7 +340,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                   child: const Icon(Icons.psychology, size: 14, color: Colors.blue),
                 ),
                 const SizedBox(width: 8),
-                Text("AI 助手".tl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue)),
+                Text("AI Assistant".tl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue)),
                 const Spacer(),
                 if (_isAiProcessing)
                   const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue)),
@@ -397,7 +385,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
           height: 38,
         ),
         const Spacer(),
-        Text("${_currentPost.views} ${"浏览".tl}", style: TextStyle(fontSize: 13, color: secondaryColor)),
+        Text("${_currentPost.views} ${"Views".tl}", style: TextStyle(fontSize: 13, color: secondaryColor)),
       ],
     );
   }
@@ -405,7 +393,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
   Widget _buildCommentsHeader(Color secondaryColor) {
     return Row(
       children: [
-        Text("评论".tl, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        Text("Comments".tl, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(width: 8),
         Text("(${_currentPost.commentsCount})", style: TextStyle(color: secondaryColor)),
       ],
@@ -421,7 +409,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
             children: [
               Icon(Icons.chat_bubble_outline, size: 40, color: secondaryColor.withValues(alpha: 0.3)),
               const SizedBox(height: 12),
-              Text("暂无评论".tl, style: TextStyle(color: secondaryColor)),
+              Text("No comments yet".tl, style: TextStyle(color: secondaryColor)),
             ],
           )
         ),
@@ -502,7 +490,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                             setState(() => _replyTo = comment);
                             _focusNode.requestFocus();
                           },
-                          child: Text("回复".tl, style: TextStyle(fontSize: 12, color: secondaryColor)),
+                          child: Text("Reply".tl, style: TextStyle(fontSize: 12, color: secondaryColor)),
                         ),
                         const SizedBox(width: 16),
                         _mdBtn(Icons.translate, () => _handleAiAction("translate", comment.content, targetId: cId)),
@@ -552,7 +540,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                 children: [
                   Icon(Icons.reply_rounded, size: 16, color: theme.colorScheme.primary),
                   const SizedBox(width: 8),
-                  Text("${"回复".tl} @${_replyTo!.author}", style: TextStyle(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
+                  Text("${"Reply".tl} @${_replyTo!.author}", style: TextStyle(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
                   const Spacer(),
                   GestureDetector(
                     onTap: () => setState(() => _replyTo = null),
@@ -567,24 +555,15 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 400),
-                    curve: Curves.fastOutSlowIn,
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: _isFocused ? 16 : 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
                       color: altColor,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: _isFocused ? theme.colorScheme.primary : borderColor,
-                        width: _isFocused ? 2.0 : 1.0,
+                        color: _focusNode.hasFocus ? theme.colorScheme.primary : borderColor,
+                        width: _focusNode.hasFocus ? 2.0 : 1.0,
                       ),
-                      boxShadow: _isFocused ? [
-                        BoxShadow(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        )
-                      ] : [],
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -598,7 +577,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                             onChanged: (v) => setState(() {}),
                             keyboardType: TextInputType.multiline,
                             decoration: InputDecoration(
-                              hintText: "写下你的评论...".tl,
+                              hintText: "Write your comment...".tl,
                               border: InputBorder.none,
                               isDense: true,
                               contentPadding: const EdgeInsets.symmetric(vertical: 8),
@@ -606,7 +585,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                             style: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface),
                           ),
                         ),
-                        if (_isFocused || _commentController.text.isNotEmpty) ...[
+                        if (_focusNode.hasFocus || _commentController.text.isNotEmpty) ...[
                           const Divider(height: 24),
                           Focus(
                             canRequestFocus: false,
@@ -625,7 +604,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                                   _mdBtn(Icons.format_quote, () => _insertMd("> ")),
                                   const SizedBox(width: 16),
                                   Text(
-                                    "${_commentController.text.length} 字",
+                                    "${_commentController.text.length} ${"chars".tl}",
                                     style: TextStyle(fontSize: 11, color: secondaryColor.withValues(alpha: 0.6)),
                                   ),
                                 ],
@@ -649,7 +628,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                         : BloretIconButton(
                             onPressed: _commentController.text.trim().isEmpty ? null : _submitComment,
                             icon: Icons.send,
-                            tooltip: "发送".tl,
+                            tooltip: "Send".tl,
                           ),
                   ],
                 ),

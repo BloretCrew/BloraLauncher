@@ -1,5 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:ai_flutter_agent/ai_flutter_agent.dart';
+import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/core/logger.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/memory.dart';
@@ -7,7 +10,9 @@ import 'package:bloret_launcher/services/notice_manager.dart';
 import 'package:bloret_launcher/services/update_manager.dart';
 import 'package:bloret_launcher/shell/main_shell.dart';
 import 'package:bloret_launcher/tools/server_info.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'core/global.dart';
 import 'core/network_config.dart';
 import 'services/config_service.dart';
 import 'services/win32_icon_service.dart';
@@ -28,6 +33,7 @@ final NoticeManager noticeManager = NoticeManager.instance;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ConfigService.init();
+  await I18n.init();
   HttpOverrides.global = BloraHttpOverrides();
   logger = await AppLogger.getInstance();
   Win32IconService.init();
@@ -37,6 +43,19 @@ void main() async {
   Bloriko.getInstance();
   await MemoryStore.instance.loadOnInit();
   updateManager = await UpdateManager.instance.init();
+  Timer.periodic(const Duration(seconds: 30), (timer) async {
+    try {
+      final res = await Dio().get("https://raw.gitcode.com/Bloret/Bloret-Launcher/raw/Windows/IP.json");
+      if (res.statusCode == 200) {
+        if (jsonDecode(res.data)["PCFS"] != null && jsonDecode(res.data)["PCFS"] != serverIP) {
+          serverIP = res.data["PCFS"];
+          timer.cancel();
+        }
+      }
+    } catch (e) {
+      logger.error("Fetch Server IP Error: $e",);
+    }
+  });
   runApp(const BloraLauncherApp());
 }
 
@@ -45,48 +64,53 @@ class BloraLauncherApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '$name Launcher',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0078D4),
-          brightness: Brightness.light,
-        ),
-        cardTheme: CardTheme(
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.withValues(alpha: 0.2))),
-        ).data,
-        buttonTheme: ButtonThemeData(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
-        ),
-        fontFamily: "Microsoft",
-        textTheme: const TextTheme().apply(fontFamily: "Microsoft"),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0078D4),
-          brightness: Brightness.dark,
-        ),
-        cardTheme: CardTheme(
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
-        ).data,
-        buttonTheme: ButtonThemeData(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
-        ),
-        fontFamily: "Microsoft",
-        textTheme: const TextTheme().apply(fontFamily: "Microsoft"),
-      ),
-      themeMode: ThemeMode.system,
-      home: Semantics(
-        container: true,
-        child: ConfigService.isFirstRun()
-            ? const WelcomeSetupScreen()
-            : AgentOverlayWidget(child: const MainShell()),
-      )
+    return ListenableBuilder(
+      listenable: I18n.instance,
+      builder: (context, child) {
+        return MaterialApp(
+          title: '$name Launcher',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF0078D4),
+              brightness: Brightness.light,
+            ),
+            cardTheme: CardTheme(
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.withValues(alpha: 0.2))),
+            ).data,
+            buttonTheme: ButtonThemeData(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+            ),
+            fontFamily: "Microsoft",
+            textTheme: const TextTheme().apply(fontFamily: "Microsoft"),
+          ),
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF0078D4),
+              brightness: Brightness.dark,
+            ),
+            cardTheme: CardTheme(
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+            ).data,
+            buttonTheme: ButtonThemeData(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+            ),
+            fontFamily: "Microsoft",
+            textTheme: const TextTheme().apply(fontFamily: "Microsoft"),
+          ),
+          themeMode: ThemeMode.system,
+          home: Semantics(
+            container: true,
+            child: ConfigService.isFirstRun()
+                ? const WelcomeSetupScreen()
+                : AgentOverlayWidget(child: MainShell()),
+          ),
+        );
+      },
     );
   }
 }

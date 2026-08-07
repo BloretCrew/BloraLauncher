@@ -2,22 +2,83 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 2.15
 import QtQuick.Window 2.15
+import Qt.labs.platform 1.1 as Platform
 import RinUI
 import "../components"
+import "../components/ToolCallGroups.js" as ToolGroups
 
 Item {
     id: blorikoPage
 
     // 消息模型
+    // role: user | assistant | tool_group | error | system
+    // tool_group 使用 toolsJson（工具数组 JSON）+ content（汇总文案）
     ListModel { id: messageModel }
     ListModel { id: providerModel }
     ListModel { id: modelModel }
     ListModel { id: roleModel }
     ListModel { id: historyListModel }
+    ListModel { id: pendingImagesModel }
 
     property bool historyPanelOpen: false
     property string conversationTitle: ""
     property string currentEmotion: "neutral"
+    property string currentModelLabel: (Backend ? Backend.tr("选择模型") : "选择模型")
+    property string voiceState: "idle"  // idle | recording | transcribing
+    property int maxPendingImages: 4
+    // Agent 活动阶段：idle | thinking | replying | working
+    // thinking = 首 token 前；replying = 正在流出正文；working = 调用工具
+    property string agentPhase: "idle"
+    readonly property bool agentActive: agentPhase !== "idle"
+    readonly property bool awaitingFirstToken: agentPhase === "thinking"
+    readonly property string agentPhaseLabel: {
+        if (agentPhase === "thinking")
+            return Backend ? Backend.tr("正在思考") : "正在思考"
+        if (agentPhase === "replying")
+            return Backend ? Backend.tr("正在回复") : "正在回复"
+        if (agentPhase === "working")
+            return Backend ? Backend.tr("正在工作") : "正在工作"
+        return ""
+    }
+    readonly property string agentPhaseOrbState: {
+        if (agentPhase === "working")
+            return "working"
+        if (agentPhase === "replying")
+            return "composing"
+        return "composing"  // thinking
+    }
+
+    function beginAwaitingReply() {
+        agentPhase = "thinking"
+    }
+
+    function endAwaitingReply() {
+        agentPhase = "idle"
+    }
+
+    function setAgentPhase(phase) {
+        if (agentPhase === "idle" && phase !== "thinking" && phase !== "idle") {
+            // 允许从 thinking 进入 replying/working；busy 外不强制
+        }
+        agentPhase = phase
+    }
+
+    function markReplying() {
+        if (agentPhase === "idle")
+            return
+        agentPhase = "replying"
+    }
+
+    function markWorking() {
+        if (agentPhase === "idle")
+            return
+        agentPhase = "working"
+    }
+
+    /** @deprecated 兼容旧调用：首 token 出现后进入「正在回复」 */
+    function markReplyStarted() {
+        markReplying()
+    }
 
     // 情感状态 → emoji 映射
     property var emotionMap: ({
@@ -63,18 +124,205 @@ Item {
             for (var i = 0; i < models.length; i++)
                 modelModel.append(models[i])
             // 根据全局设置选中当前模型
+            var selected = false
             if (Backend) {
                 var globalModel = Backend.getGlobalAIModel()
                 for (var j = 0; j < modelModel.count; j++) {
                     if (modelModel.get(j).id === globalModel) {
-                        modelCombo.currentIndex = j
-                        return
+                        if (modelCombo) modelCombo.currentIndex = j
+                        selected = true
+                        break
                     }
                 }
             }
-            if (modelCombo.currentIndex < 0 && modelModel.count > 0)
-                modelCombo.currentIndex = 0
+            if (!selected && modelModel.count > 0) {
+                if (modelCombo) modelCombo.currentIndex = 0
+            }
+            updateCurrentModelLabel()
         } catch(e) { console.error("[Bloriko] loadModels error:", e) }
+    }
+
+    function updateCurrentModelLabel() {
+        if (modelModel.count > 0 && modelCombo && modelCombo.currentIndex >= 0 && modelCombo.currentIndex < modelModel.count) {
+            currentModelLabel = modelModel.get(modelCombo.currentIndex).name || modelModel.get(modelCombo.currentIndex).id || (Backend ? Backend.tr("选择模型") : "选择模型")
+            return
+        }
+        if (Bloriko && typeof Bloriko.getCurrentModelName === "function") {
+            var n = Bloriko.getCurrentModelName()
+            if (n && n.length > 0) {
+                currentModelLabel = n
+                return
+            }
+        }
+        currentModelLabel = Backend ? Backend.tr("选择模型") : "选择模型"
+    }
+
+    function pathFromFileUrl(url) {
+        var s = (url || "").toString()
+        if (s.indexOf("file://") === 0) {
+            s = decodeURIComponent(s.substring(Qt.platform.os === "windows" ? 8 : 7))
+        }
+        return s
+    }
+
+    function fileUrlFromPath(path) {
+        if (!path) return ""
+        var s = path.toString()
+        if (s.indexOf("file://") === 0) return s
+        if (Qt.platform.os === "windows")
+            return "file:///" + s.replace(/\\/g, "/")
+        return "file://" + s
+    }
+
+    function pendingImagesJson() {
+        var arr = []
+        for (var i = 0; i < pendingImagesModel.count; i++)
+            arr.push(pendingImagesModel.get(i).path)
+        return JSON.stringify(arr)
+    }
+
+    function addPendingImage(path) {
+        if (!path || path.length === 0) return
+        if (pendingImagesModel.count >= maxPendingImages) {
+            console.warn("[Bloriko] 已达最大图片数", maxPendingImages)
+            return
+        }
+        for (var i = 0; i < pendingImagesModel.count; i++) {
+            if (pendingImagesModel.get(i).path === path)
+                return
+        }
+        pendingImagesModel.append({ path: path, previewUrl: fileUrlFromPath(path) })
+    }
+
+    function clearPendingImages() {
+        pendingImagesModel.clear()
+    }
+
+    function appendUserMessage(text, imagesJson) {
+        messageModel.append({
+            role: "user",
+            content: text || "",
+            imagesJson: imagesJson || "[]",
+            toolName: "",
+            toolArgs: "",
+            toolResult: "",
+            toolsJson: "[]",
+            streaming: false,
+            expanded: false
+        })
+    }
+
+    function findOpenToolGroupIndex() {
+        for (var i = messageModel.count - 1; i >= 0; i--) {
+            var item = messageModel.get(i)
+            if (item.role === "tool_group")
+                return i
+            // 连续工具组只认紧挨着的；若中途有 assistant 正文/错误则新开一组
+            if (item.role === "assistant" || item.role === "user" || item.role === "error" || item.role === "system")
+                break
+        }
+        return -1
+    }
+
+    function ensureToolGroup() {
+        var idx = findOpenToolGroupIndex()
+        if (idx >= 0)
+            return idx
+        messageModel.append({
+            role: "tool_group",
+            content: Backend ? Backend.tr("正在使用工具…") : "正在使用工具…",
+            imagesJson: "[]",
+            toolName: "",
+            toolArgs: "",
+            toolResult: "",
+            toolsJson: "[]",
+            streaming: false,
+            expanded: false
+        })
+        return messageModel.count - 1
+    }
+
+    function refreshToolGroupSummary(idx) {
+        if (idx < 0 || idx >= messageModel.count) return
+        var tools = ToolGroups.parseToolsJson(messageModel.get(idx).toolsJson)
+        var summary = ToolGroups.summarizeTools(tools)
+        if (!summary || summary.length === 0)
+            summary = Backend ? Backend.tr("正在使用工具…") : "正在使用工具…"
+        messageModel.setProperty(idx, "content", summary)
+    }
+
+    function startToolInGroup(toolName, argsJson) {
+        var idx = ensureToolGroup()
+        var tools = ToolGroups.parseToolsJson(messageModel.get(idx).toolsJson)
+        tools.push(ToolGroups.makeToolEntry(toolName, argsJson, ""))
+        messageModel.setProperty(idx, "toolsJson", JSON.stringify(tools))
+        refreshToolGroupSummary(idx)
+        return idx
+    }
+
+    function finishToolInGroup(toolName, argsJson, result) {
+        // 从后往前找未完成的同名工具
+        for (var g = messageModel.count - 1; g >= 0; g--) {
+            var item = messageModel.get(g)
+            if (item.role !== "tool_group") {
+                if (item.role === "assistant" || item.role === "user")
+                    break
+                continue
+            }
+            var tools = ToolGroups.parseToolsJson(item.toolsJson)
+            for (var t = tools.length - 1; t >= 0; t--) {
+                if (tools[t].toolName === toolName && (!tools[t].toolResult || tools[t].toolResult.length === 0)) {
+                    tools[t].toolResult = result || ""
+                    if (argsJson)
+                        tools[t].toolArgs = argsJson
+                    messageModel.setProperty(g, "toolsJson", JSON.stringify(tools))
+                    refreshToolGroupSummary(g)
+                    return
+                }
+            }
+            // 没找到未完成的，追加一条已完成记录
+            tools.push(ToolGroups.makeToolEntry(toolName, argsJson, result))
+            messageModel.setProperty(g, "toolsJson", JSON.stringify(tools))
+            refreshToolGroupSummary(g)
+            return
+        }
+        // 完全没有 group：新建
+        var idx = ensureToolGroup()
+        var tools2 = [ToolGroups.makeToolEntry(toolName, argsJson, result)]
+        messageModel.setProperty(idx, "toolsJson", JSON.stringify(tools2))
+        refreshToolGroupSummary(idx)
+    }
+
+    function doSendMessage() {
+        if (!Bloriko) return
+        if (Bloriko.busy) {
+            Bloriko.cancelAgent()
+            return
+        }
+        var text = inputField.text.trim()
+        var imagesJson = pendingImagesJson()
+        var hasImages = pendingImagesModel.count > 0
+        if (text.length === 0 && !hasImages)
+            return
+        appendUserMessage(text, imagesJson)
+        beginAwaitingReply()
+        Bloriko.sendMessage(text, imagesJson)
+        inputField.text = ""
+        clearPendingImages()
+    }
+
+    function appendTranscription(text) {
+        if (!text || text.length === 0) return
+        var cur = inputField.text || ""
+        if (cur.length > 0 && !/\s$/.test(cur))
+            cur += " "
+        inputField.text = cur + text
+        inputField.cursorPosition = inputField.text.length
+        // 语音识别完成后直接发给 AI（勿在 busy 时调用 doSendMessage，否则会取消当前任务）
+        if (Bloriko && !Bloriko.busy)
+            doSendMessage()
+        else
+            inputField.forceActiveFocus()
     }
 
     function loadRoles() {
@@ -129,17 +377,9 @@ Item {
         if (!Bloriko) return
         try {
             var msgs = JSON.parse(Bloriko.getHistoryMessages())
-            for (var i = 0; i < msgs.length; i++) {
-                messageModel.append({
-                    role: msgs[i].role,
-                    content: msgs[i].content,
-                    toolName: msgs[i].toolName || "",
-                    toolArgs: msgs[i].toolArgs || "",
-                    toolResult: msgs[i].toolResult || "",
-                    streaming: false,
-                    expanded: false
-                })
-            }
+            var collapsed = ToolGroups.collapseHistoryMessages(msgs)
+            for (var i = 0; i < collapsed.length; i++)
+                messageModel.append(collapsed[i])
         } catch(e) {}
     }
 
@@ -151,11 +391,18 @@ Item {
             return
         }
         var text = (win.pendingBlorikoMessage || "").trim()
-        if (text.length === 0)
+        var imagesJson = win.pendingBlorikoImagesJson || "[]"
+        var hasImages = false
+        try {
+            var arr = JSON.parse(imagesJson)
+            hasImages = arr && arr.length > 0
+        } catch (e) { hasImages = false }
+        if (text.length === 0 && !hasImages)
             return
 
-        console.log("[Bloriko] 收到首页待处理消息:", text.substring(0, 80))
+        console.log("[Bloriko] 收到首页待处理消息:", text.substring(0, 80), "images=", imagesJson)
         win.pendingBlorikoMessage = ""
+        win.pendingBlorikoImagesJson = "[]"
 
         if (!Bloriko) {
             console.error("[Bloriko] processPendingHomeMessage: Bloriko 后端不可用")
@@ -164,28 +411,26 @@ Item {
         if (Bloriko.busy) {
             console.warn("[Bloriko] Agent 正忙，延迟重试首页消息")
             win.pendingBlorikoMessage = text
+            win.pendingBlorikoImagesJson = imagesJson
             pendingMessageRetryTimer.restart()
             return
         }
 
-        messageModel.append({
-            role: "user",
-            content: text,
-            toolName: "",
-            toolArgs: "",
-            toolResult: "",
-            streaming: false,
-            expanded: false
-        })
+        appendUserMessage(text, imagesJson || "[]")
         console.log("[Bloriko] 自动发送首页消息到 Agent")
-        Bloriko.sendMessage(text)
+        beginAwaitingReply()
+        Bloriko.sendMessage(text, imagesJson || "[]")
     }
 
     Component.onCompleted: {
         console.log("[Bloriko] onCompleted, Bloriko:", Bloriko)
         loadProviders()
         loadRoles()
-        if (Bloriko) Bloriko.loadLatestSession()
+        updateCurrentModelLabel()
+        if (Bloriko) {
+            voiceState = Bloriko.voiceState || "idle"
+            Bloriko.loadLatestSession()
+        }
         // 延迟重试：防止上下文属性延迟加载导致数据为空
         retryTimer.start()
         // 页面首次加载后处理首页跳转消息（在会话加载之后）
@@ -293,6 +538,7 @@ Item {
                             font.pixelSize: 14
                             onClicked: {
                                 messageModel.clear()
+                                endAwaitingReply()
                                 if (Bloriko) Bloriko.clearHistory()
                             }
                         }
@@ -486,11 +732,42 @@ Item {
                         }
                     }
 
-                    Text {
-                        text: Bloriko && Bloriko.busy ? (Backend ? Backend.tr("思考中...") : "思考中...") : (Backend ? Backend.tr("就绪") : "就绪")
-                        font.pixelSize: 11
-                        color: Bloriko && Bloriko.busy ? (Theme.accentColor || "#0078D4") : Theme.currentTheme.colors.textSecondaryColor
+                    // 忙碌态 / 就绪：淡入淡出切换
+                    Item {
                         Layout.alignment: Qt.AlignVCenter
+                        Layout.preferredWidth: Math.max(topThinking.implicitWidth, readyLabel.implicitWidth)
+                        Layout.preferredHeight: Math.max(topThinking.implicitHeight, readyLabel.implicitHeight)
+
+                        ThinkingStatus {
+                            id: topThinking
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: implicitWidth
+                            active: blorikoPage.agentActive
+                            label: blorikoPage.agentPhaseLabel
+                            orbState: blorikoPage.agentPhaseOrbState
+                            orbSize: 18
+                            orbSpeed: 1.1
+                            orbInk: Theme.accentColor || Theme.currentTheme.colors.primaryColor || "#0078D4"
+                            labelColor: Theme.accentColor || "#0078D4"
+                            labelPixelSize: 11
+                            showAvatar: false
+                            showPulseDots: false
+                            fadeMs: 280
+                        }
+                        Text {
+                            id: readyLabel
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: Backend ? Backend.tr("就绪") : "就绪"
+                            font.pixelSize: 11
+                            color: Theme.currentTheme.colors.textSecondaryColor
+                            opacity: blorikoPage.agentActive ? 0 : 1
+                            visible: opacity > 0.01
+                            Behavior on opacity {
+                                NumberAnimation { duration: 280; easing.type: Easing.InOutQuad }
+                            }
+                        }
                     }
 
                     ComboBox {
@@ -514,7 +791,11 @@ Item {
                         font.pixelSize: 11
                         Layout.alignment: Qt.AlignVCenter
                         enabled: Bloriko && !Bloriko.busy
-                        onClicked: { messageModel.clear(); if (Bloriko) Bloriko.clearHistory() }
+                        onClicked: {
+                            messageModel.clear()
+                            endAwaitingReply()
+                            if (Bloriko) Bloriko.clearHistory()
+                        }
                     }
                 }
 
@@ -532,11 +813,50 @@ Item {
 
                 onCountChanged: Qt.callLater(function() { msgView.positionViewAtEnd() })
 
+                // 列表底部活动状态：思考 / 回复 / 工作（淡入淡出）
+                footer: Item {
+                    id: thinkingFooterHost
+                    width: msgView.width
+                    height: thinkingStatus.active || thinkingStatus.opacity > 0.01
+                            ? thinkingStatus.implicitHeight + 16
+                            : 0
+                    Behavior on height {
+                        NumberAnimation { duration: 320; easing.type: Easing.InOutQuad }
+                    }
+
+                    ThinkingStatus {
+                        id: thinkingStatus
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 16
+                        anchors.topMargin: 8
+                        active: blorikoPage.agentActive
+                        label: blorikoPage.agentPhaseLabel
+                        orbState: blorikoPage.agentPhaseOrbState
+                        orbSize: 22
+                        showAvatar: true
+                        avatarSource: Qt.resolvedUrl("../../icon/Bloriko.jpg")
+                        showPulseDots: true
+                        fadeMs: 320
+                    }
+
+                    Connections {
+                        target: Bloriko
+                        enabled: Bloriko !== null
+                        function onBusyChanged() {
+                            if (Bloriko && Bloriko.busy && blorikoPage.agentActive)
+                                Qt.callLater(function() { msgView.positionViewAtEnd() })
+                        }
+                    }
+                }
+
                 // 空状态
                 Item {
                     anchors.centerIn: parent
                     width: 280; height: emptyCol.implicitHeight
-                    visible: messageModel.count === 0
+                    visible: messageModel.count === 0 && !blorikoPage.agentActive
 
                     ColumnLayout {
                         id: emptyCol
@@ -576,7 +896,8 @@ Item {
                         var h = 0
                         if (role === "user") h = userCol.height + 8
                         else if (role === "assistant") h = aiCol.height + 8
-                        else if (role === "tool_call") h = tcCol.height + (toolResult && toolResult.length > 0 && expanded ? trResultCol.height + 4 : 0) + 4
+                        else if (role === "tool_group") h = tgCol.height + 6
+                        else if (role === "tool_call") h = tcCol.height + 4
                         else if (role === "error") h = errCol.height + 6
                         else if (role === "system") h = sysCol.height + 4
                         return h
@@ -588,11 +909,52 @@ Item {
                         visible: role === "user"
                         anchors.right: parent.right; anchors.rightMargin: 16
                         anchors.top: parent.top; anchors.topMargin: 4
-                        width: Math.min(Math.max(userTxt.implicitWidth + 24, 50), parent.width * 0.65)
-                        spacing: 0
+                        width: Math.min(Math.max(
+                            Math.max(userTxt.implicitWidth + 24, userImagesRow.visible ? 120 : 0),
+                            50
+                        ), parent.width * 0.65)
+                        spacing: 6
+
+                        // 图片附件预览
+                        Flow {
+                            id: userImagesRow
+                            width: parent.width
+                            spacing: 4
+                            visible: {
+                                try {
+                                    var arr = JSON.parse(imagesJson || "[]")
+                                    return arr && arr.length > 0
+                                } catch (e) { return false }
+                            }
+                            property var imageList: {
+                                try { return JSON.parse(imagesJson || "[]") } catch (e) { return [] }
+                            }
+                            Repeater {
+                                model: userImagesRow.imageList
+                                delegate: Rectangle {
+                                    width: 88; height: 88
+                                    radius: 8
+                                    color: "#00000022"
+                                    clip: true
+                                    Image {
+                                        anchors.fill: parent
+                                        source: {
+                                            var p = modelData || ""
+                                            if (!p) return ""
+                                            if (p.indexOf("file://") === 0 || p.indexOf("data:") === 0) return p
+                                            return blorikoPage.fileUrlFromPath(p)
+                                        }
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                    }
+                                }
+                            }
+                        }
 
                         Rectangle {
-                            width: parent.width; height: userTxt.contentHeight + 16
+                            width: parent.width
+                            height: (content && content.length > 0) ? (userTxt.contentHeight + 16) : 0
+                            visible: content && content.length > 0
                             radius: 8
                             color: Theme.accentColor || "#0078D4"
 
@@ -623,18 +985,166 @@ Item {
                             Image { anchors.fill: parent; source: Qt.resolvedUrl("../../icon/Bloriko.jpg"); fillMode: Image.PreserveAspectCrop; mipmap: true }
                         }
 
+                        // 流式气泡内：仅在「正在思考」且尚无正文时显示内联状态；
+                        // 出字后由列表 footer 显示「正在回复」，气泡只渲染正文
+                        ThinkingStatus {
+                            Layout.fillWidth: true
+                            active: blorikoPage.awaitingFirstToken && streaming && (!content || content.length === 0)
+                            label: blorikoPage.agentPhaseLabel
+                            orbState: blorikoPage.agentPhaseOrbState
+                            orbSize: 20
+                            orbSpeed: 1.1
+                            showAvatar: false
+                            showPulseDots: true
+                            fadeMs: 280
+                        }
+
                         Text {
                             Layout.fillWidth: true
-                            text: content || "..."
+                            opacity: (blorikoPage.awaitingFirstToken && streaming && (!content || content.length === 0)) ? 0 : 1
+                            visible: opacity > 0.01 || (content && content.length > 0)
+                            text: content || ""
                             font.pixelSize: 13
                             color: Theme.currentTheme.colors.textColor
                             wrapMode: Text.Wrap
                             textFormat: Text.MarkdownText
                             onLinkActivated: function(link) { Qt.openUrlExternally(link) }
+                            Behavior on opacity {
+                                NumberAnimation { duration: 280; easing.type: Easing.InOutQuad }
+                            }
                         }
                     }
 
-                    // --- 工具调用（含可折叠结果） ---
+                    // --- 连续工具组（Claude Code 风格汇总，可展开明细） ---
+                    Column {
+                        id: tgCol
+                        visible: role === "tool_group"
+                        anchors.left: parent.left; anchors.leftMargin: 44
+                        anchors.right: parent.right; anchors.rightMargin: 16
+                        anchors.top: parent.top; anchors.topMargin: 2
+                        width: parent.width - 60
+                        spacing: 4
+
+                        property var toolList: ToolGroups.parseToolsJson(toolsJson || "[]")
+
+                        RowLayout {
+                            width: parent.width
+                            spacing: 6
+
+                            MouseArea {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: Math.max(tgSummary.implicitHeight, 20)
+                                cursorShape: tgCol.toolList.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                onClicked: {
+                                    if (tgCol.toolList.length > 0)
+                                        messageModel.setProperty(index, "expanded", !expanded)
+                                }
+
+                                RowLayout {
+                                    width: parent.width
+                                    spacing: 6
+
+                                    Icon {
+                                        icon: "ic_fluent_wrench_20_regular"
+                                        size: 14
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                        Layout.alignment: Qt.AlignVCenter
+                                    }
+
+                                    Text {
+                                        id: tgSummary
+                                        Layout.fillWidth: true
+                                        text: content || (Backend ? Backend.tr("正在使用工具…") : "正在使用工具…")
+                                        font.pixelSize: 12
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                        wrapMode: Text.Wrap
+                                    }
+
+                                    Text {
+                                        text: tgCol.toolList.length > 0 ? (expanded ? "▼" : "▶") : ""
+                                        font.pixelSize: 11
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                        opacity: 0.6
+                                        Layout.alignment: Qt.AlignVCenter
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            visible: expanded && tgCol.toolList.length > 0
+                            width: parent.width
+                            spacing: 4
+
+                            Repeater {
+                                model: tgCol.toolList
+                                delegate: Column {
+                                    width: parent.width
+                                    spacing: 2
+
+                                    RowLayout {
+                                        width: parent.width
+                                        spacing: 6
+                                        Text {
+                                            text: "·"
+                                            font.pixelSize: 12
+                                            color: Theme.currentTheme.colors.textSecondaryColor
+                                            Layout.alignment: Qt.AlignTop
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: ToolGroups.toolLineLabel(modelData)
+                                            font.pixelSize: 11
+                                            color: Theme.currentTheme.colors.textSecondaryColor
+                                            wrapMode: Text.Wrap
+                                            opacity: 0.9
+                                        }
+                                        Text {
+                                            visible: modelData.toolResult && String(modelData.toolResult).length > 0
+                                            text: "✓"
+                                            font.pixelSize: 11
+                                            color: Theme.currentTheme.colors.textSecondaryColor
+                                            opacity: 0.5
+                                            Layout.alignment: Qt.AlignTop
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        visible: modelData.toolResult && String(modelData.toolResult).length > 0
+                                        width: parent.width - 12
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 12
+                                        height: Math.min(detailTxt.implicitHeight + 10, 100)
+                                        radius: 4
+                                        color: Theme.currentTheme.colors.controlAltSecondaryColor || "#F5F5F5"
+                                        border.color: Theme.currentTheme.colors.controlBorderColor || "#E8E8E8"
+                                        border.width: 1
+                                        clip: true
+
+                                        Text {
+                                            id: detailTxt
+                                            anchors.fill: parent
+                                            anchors.margins: 5
+                                            text: {
+                                                var r = String(modelData.toolResult || "")
+                                                if (r.length > 300)
+                                                    r = r.substring(0, 300) + (Backend ? Backend.tr("\n... (已截断)") : "\n... (已截断)")
+                                                return r
+                                            }
+                                            font.pixelSize: 10
+                                            font.family: "Consolas, monospace"
+                                            color: Theme.currentTheme.colors.textSecondaryColor
+                                            wrapMode: Text.Wrap
+                                            elide: Text.ElideRight
+                                            maximumLineCount: 6
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // --- 兼容旧会话中的单条 tool_call ---
                     Column {
                         id: tcCol
                         visible: role === "tool_call"
@@ -644,142 +1154,21 @@ Item {
                         width: parent.width - 60
                         spacing: 4
 
-                        // 工具调用摘要（始终显示）
                         RowLayout {
                             width: parent.width
-                            Layout.preferredHeight: 20
                             spacing: 6
-
-                            MouseArea {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 20
-                                cursorShape: toolResult && toolResult.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                onClicked: {
-                                    if (toolResult && toolResult.length > 0) {
-                                        messageModel.setProperty(index, "expanded", !expanded)
-                                    }
-                                }
-
-                                RowLayout {
-                                    width: parent.width
-                                    spacing: 6
-
-                                    Icon {
-                                        icon: "ic_fluent_lightbulb_20_regular"
-                                        size: 14
-                                        color: Theme.currentTheme.colors.textSecondaryColor
-                                        Layout.alignment: Qt.AlignTop
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: {
-                                            var n = toolName || ""
-                                            var a = ""
-                                            try {
-                                                var obj = JSON.parse(toolArgs || "{}")
-                                                if (n === "read_file") a = obj.path || ""
-                                                else if (n === "write_file") a = obj.path || ""
-                                                else if (n === "edit_file") a = obj.path || ""
-                                                else if (n === "list_files") a = obj.pattern || "*"
-                                                else if (n === "search_text") a = obj.query || ""
-                                                else if (n === "get_directory_tree") a = obj.path || ""
-                                                else if (n === "ask_user") a = obj.question || ""
-                                                else if (n === "execute_command") a = obj.command || ""
-                                                else if (n === "execute_command_background") a = obj.command || ""
-                                                else if (n === "spawn_agent") a = (obj.agent_type || "general") + ": " + (obj.prompt || "").substring(0, 40)
-                                                else if (n === "memory") a = obj.action + " " + obj.target + ": " + (obj.content || obj.old_text || "").substring(0, 30)
-                                                else if (n === "set_emotion") a = obj.emotion || ""
-                                                else {
-                                                    var parts = []
-                                                    for (var k in obj) {
-                                                        var v = String(obj[k])
-                                                        if (v.length > 40) v = v.substring(0, 40) + "…"
-                                                        parts.push(v)
-                                                    }
-                                                    a = parts.join(", ")
-                                                }
-                                                if (a.length > 80) a = a.substring(0, 80) + "…"
-                                            } catch(e) { a = toolArgs || "" }
-
-                                            var nameMap = {
-                                                "read_file": (Backend ? Backend.tr("读取") : "读取"),
-                                                "write_file": (Backend ? Backend.tr("写入") : "写入"),
-                                                "edit_file": (Backend ? Backend.tr("编辑") : "编辑"),
-                                                "list_files": (Backend ? Backend.tr("列出文件") : "列出文件"),
-                                                "search_text": (Backend ? Backend.tr("搜索") : "搜索"),
-                                                "get_directory_tree": (Backend ? Backend.tr("查看目录树") : "查看目录树"),
-                                                "ask_user": (Backend ? Backend.tr("向用户提问") : "向用户提问"),
-                                                "execute_command": (Backend ? Backend.tr("执行命令") : "执行命令"),
-                                                "execute_command_background": (Backend ? Backend.tr("后台执行") : "后台执行"),
-                                                "spawn_agent": (Backend ? Backend.tr("生成子 Agent") : "生成子 Agent"),
-                                                "memory": (Backend ? Backend.tr("管理记忆") : "管理记忆"),
-                                                "set_emotion": (Backend ? Backend.tr("更新情感") : "更新情感")
-                                            }
-                                            var displayName = nameMap[n] || n
-                                            return a ? displayName + " " + a : displayName
-                                        }
-                                        font.pixelSize: 12
-                                        color: Theme.currentTheme.colors.textColor
-                                        opacity: 0.7
-                                        wrapMode: Text.Wrap
-                                    }
-
-                                    Text {
-                                        text: toolResult && toolResult.length > 0 ? (expanded ? "▼" : "▶") : ""
-                                        font.pixelSize: 11
-                                        color: Theme.currentTheme.colors.textColor
-                                        opacity: 0.5
-                                        Layout.alignment: Qt.AlignTop
-                                    }
-                                }
-                            }
-                        }
-
-                        // 工具结果（可折叠）
-                        RowLayout {
-                            id: trResultCol
-                            visible: toolResult && toolResult.length > 0 && expanded
-                            width: parent.width
-                            spacing: 6
-
-                            Text {
-                                text: "└"
-                                font.pixelSize: 11
-                                font.family: "Consolas, monospace"
+                            Icon {
+                                icon: "ic_fluent_lightbulb_20_regular"
+                                size: 14
                                 color: Theme.currentTheme.colors.textSecondaryColor
-                                Layout.alignment: Qt.AlignTop
                             }
-
-                            Rectangle {
+                            Text {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: Math.min(trResultTxt.contentHeight + 12, 160)
-                                radius: 4
-                                color: Theme.currentTheme.colors.controlAltSecondaryColor || "#F5F5F5"
-                                border.color: Theme.currentTheme.colors.controlBorderColor || "#E8E8E8"
-                                border.width: 1
-
-                                Flickable {
-                                    anchors.fill: parent; anchors.margins: 6
-                                    contentHeight: trResultTxt.contentHeight
-                                    clip: true
-                                    interactive: contentHeight > height
-
-                                    TextEdit {
-                                        id: trResultTxt
-                                        width: parent.width
-                                        text: {
-                                            var r = toolResult || ""
-                                            if (r.length > 500) r = r.substring(0, 500) + (Backend ? Backend.tr("\n... (已截断)") : "\n... (已截断)")
-                                            return r
-                                        }
-                                        font.pixelSize: 11
-                                        font.family: "Consolas, monospace"
-                                        color: Theme.currentTheme.colors.textSecondaryColor
-                                        wrapMode: TextEdit.Wrap
-                                        readOnly: true; selectByMouse: true
-                                    }
-                                }
+                                text: ToolGroups.toolLineLabel({ toolName: toolName, toolArgs: toolArgs })
+                                font.pixelSize: 12
+                                color: Theme.currentTheme.colors.textColor
+                                opacity: 0.7
+                                wrapMode: Text.Wrap
                             }
                         }
                     }
@@ -827,14 +1216,13 @@ Item {
                 }
             }
 
-            // ===== 输入栏 =====
+            // ===== 输入栏（图示一体圆角卡片） =====
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: (Bloriko && Bloriko.busy ? progressBar.height + 4 : 0) + inputRow.implicitHeight + 16
+                Layout.preferredHeight: (Bloriko && Bloriko.busy ? progressBar.height + 4 : 0) + inputCard.implicitHeight + 20
                 color: Theme.currentTheme.colors.cardColor || "#FFFFFF"
                 Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: Theme.currentTheme.colors.controlBorderColor }
 
-                // 生成中的进度条
                 ProgressBar {
                     id: progressBar
                     anchors.top: parent.top; anchors.topMargin: 1
@@ -843,93 +1231,375 @@ Item {
                     visible: Bloriko && Bloriko.busy
                 }
 
-                ColumnLayout {
-                    id: inputRow
-                    anchors.fill: parent; anchors.margins: 8; anchors.leftMargin: 12; anchors.rightMargin: 12
-                    spacing: 6
+                // 一体输入卡片
+                Rectangle {
+                    id: inputCard
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 10
+                    anchors.topMargin: Bloriko && Bloriko.busy ? progressBar.height + 8 : 10
+                    implicitHeight: inputCardCol.implicitHeight + 16
+                    radius: 22
+                    color: Theme.currentTheme.colors.controlColor || Theme.currentTheme.colors.cardColor || "#FFFFFF"
+                    border.color: inputField.activeFocus
+                        ? (Theme.accentColor || "#0078D4")
+                        : (Theme.currentTheme.colors.controlBorderColor || "#E0E0E0")
+                    border.width: 1
 
-                    RowLayout {
-                        Layout.fillWidth: true; spacing: 8
+                    ColumnLayout {
+                        id: inputCardCol
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 8
 
-                        ComboBox {
-                            id: providerCombo
-                            Layout.preferredWidth: 130
-                            model: providerModel; textRole: "name"
-                            font.pixelSize: 10
-                            enabled: Bloriko && !Bloriko.busy
-                            onActivated: function(index) {
-                                var item = providerModel.get(index)
-                                // 写入全局配置，所有 AI 功能同步
-                                if (Backend) Backend.setGlobalAIProvider(item.key)
-                                loadModels()
-                            }
-                        }
-
-                        ComboBox {
-                            id: modelCombo
+                        // 待发送图片预览
+                        Flow {
                             Layout.fillWidth: true
-                            model: modelModel; textRole: "name"
-                            font.pixelSize: 10
-                            enabled: Bloriko && !Bloriko.busy && modelModel.count > 0
-                            onActivated: function(index) {
-                                if (modelModel.count > 0 && Backend)
-                                    Backend.setGlobalAIModel(modelModel.get(index).id)
-                            }
-                        }
-                    }
+                            spacing: 6
+                            visible: pendingImagesModel.count > 0
 
-                    RowLayout {
-                        Layout.fillWidth: true; spacing: 8
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Math.max(inputField.implicitHeight + 12, 36)
-                            radius: 8
-                            color: Theme.currentTheme.colors.controlAltSecondaryColor || "#F0F0F0"
-                            border.color: inputField.activeFocus ? (Theme.accentColor || "#0078D4") : (Theme.currentTheme.colors.controlBorderColor || "#E0E0E0")
-                            border.width: 1
-
-                            TextArea {
-                                id: inputField
-                                anchors.fill: parent; anchors.margins: 6
-                                placeholderText: (Backend ? Backend.tr("向 Blora Agent 说些什么... (Enter 发送, Shift+Enter 换行)") : "向 Blora Agent 说些什么... (Enter 发送, Shift+Enter 换行)")
-                                wrapMode: TextArea.Wrap
-                                font.pixelSize: 13
-                                color: Theme.currentTheme.colors.textColor
-                                enabled: Bloriko && !Bloriko.busy
-                                background: Item {}
-
-                                Keys.onPressed: function(event) {
-                                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                        if (event.modifiers & Qt.ShiftModifier) {
-                                            inputField.insert(inputField.cursorPosition, "\n")
-                                        } else {
-                                            sendBtn.clicked(); event.accepted = true
+                            Repeater {
+                                model: pendingImagesModel
+                                delegate: Item {
+                                    width: 64; height: 64
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: 10
+                                        color: Theme.currentTheme.colors.controlAltSecondaryColor || "#F0F0F0"
+                                        clip: true
+                                        Image {
+                                            anchors.fill: parent
+                                            source: model.previewUrl
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
                                         }
+                                    }
+                                    RoundButton {
+                                        anchors.top: parent.top
+                                        anchors.right: parent.right
+                                        anchors.margins: -4
+                                        width: 20; height: 20
+                                        flat: true
+                                        icon.name: "ic_fluent_dismiss_20_regular"
+                                        font.pixelSize: 10
+                                        onClicked: pendingImagesModel.remove(index)
                                     }
                                 }
                             }
                         }
 
-                        Button {
-                            id: sendBtn
-                            icon.name: Bloriko && Bloriko.busy ? "ic_fluent_stop_20_regular" : "ic_fluent_send_20_regular"
-                            Layout.preferredWidth: 36; Layout.preferredHeight: 36
-                            highlighted: true
-                            enabled: {
-                                if (!Bloriko) return false
-                                if (Bloriko.busy) return true
-                                return inputField.text.trim().length > 0
-                            }
-                            onClicked: {
-                                if (Bloriko.busy) { Bloriko.cancelAgent(); return }
-                                var text = inputField.text.trim()
-                                if (text.length === 0) return
-                                messageModel.append({role: "user", content: text, toolName: "", toolArgs: "", toolResult: "", streaming: false, expanded: false})
-                                Bloriko.sendMessage(text)
-                                inputField.text = ""
+                        TextArea {
+                            id: inputField
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Math.min(Math.max(implicitHeight, 28), 120)
+                            placeholderText: (Backend ? Backend.tr("向 Blora Agent 说些什么...") : "向 Blora Agent 说些什么...")
+                            wrapMode: TextArea.Wrap
+                            font.pixelSize: 14
+                            color: Theme.currentTheme.colors.textColor
+                            enabled: Bloriko && !Bloriko.busy
+                            background: Item {}
+                            topPadding: 2
+                            bottomPadding: 2
+                            leftPadding: 4
+                            rightPadding: 4
+
+                            Keys.onPressed: function(event) {
+                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                    if (event.modifiers & Qt.ShiftModifier) {
+                                        inputField.insert(inputField.cursorPosition, "\n")
+                                    } else {
+                                        doSendMessage()
+                                        event.accepted = true
+                                    }
+                                }
                             }
                         }
+
+                        // 底栏：+ | 模型胶囊 | spacer | mic | send
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            RoundButton {
+                                id: addImageBtn
+                                Layout.preferredWidth: 32
+                                Layout.preferredHeight: 32
+                                flat: true
+                                icon.name: "ic_fluent_add_20_regular"
+                                enabled: Bloriko && !Bloriko.busy && pendingImagesModel.count < maxPendingImages
+                                ToolTip.visible: hovered
+                                ToolTip.text: Backend ? Backend.tr("添加图片") : "添加图片"
+                                ToolTip.delay: 400
+                                onClicked: imageFileDialog.open()
+                            }
+
+                            // 模型胶囊（单击打开模型切换对话框）
+                            // 文本需有明确 width 时 elide 才生效；否则长名会在胶囊内换行
+                            Rectangle {
+                                id: modelPill
+                                Layout.preferredHeight: 32
+                                Layout.preferredWidth: modelPillRow.implicitWidth + 16
+                                Layout.maximumWidth: 360
+                                radius: 16
+                                color: Theme.currentTheme.colors.controlAltSecondaryColor || "#F0F0F0"
+                                border.color: Theme.currentTheme.colors.controlBorderColor || "#E0E0E0"
+                                border.width: 1
+                                opacity: Bloriko && !Bloriko.busy ? 1.0 : 0.55
+                                clip: true
+
+                                RowLayout {
+                                    id: modelPillRow
+                                    anchors.centerIn: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    spacing: 4
+                                    Icon {
+                                        icon: "ic_fluent_lightbulb_20_regular"
+                                        size: 14
+                                        color: Theme.currentTheme.colors.textColor
+                                        Layout.preferredWidth: 14
+                                        Layout.preferredHeight: 14
+                                    }
+                                    Text {
+                                        text: currentModelLabel
+                                        font.pixelSize: 12
+                                        color: Theme.currentTheme.colors.textColor
+                                        wrapMode: Text.NoWrap
+                                        maximumLineCount: 1
+                                        elide: Text.ElideRight
+                                        // 给 elide 一个确定宽度：自然宽度与上限取较小值
+                                        width: Math.min(implicitWidth, 320)
+                                        Layout.preferredWidth: width
+                                        Layout.maximumWidth: 320
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: Bloriko && !Bloriko.busy
+                                    onClicked: modelSelectDlg.open()
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            RoundButton {
+                                id: micBtn
+                                Layout.preferredWidth: 32
+                                Layout.preferredHeight: 32
+                                flat: true
+                                icon.name: voiceState === "recording"
+                                    ? "ic_fluent_mic_record_20_filled"
+                                    : (voiceState === "transcribing"
+                                        ? "ic_fluent_spinner_ios_20_regular"
+                                        : "ic_fluent_mic_20_regular")
+                                highlighted: voiceState === "recording"
+                                enabled: Bloriko && !Bloriko.busy && voiceState !== "transcribing"
+                                ToolTip.visible: hovered
+                                ToolTip.text: {
+                                    if (voiceState === "recording")
+                                        return Backend ? Backend.tr("录音中，再次点击结束") : "录音中，再次点击结束"
+                                    if (voiceState === "transcribing")
+                                        return Backend ? Backend.tr("识别中...") : "识别中..."
+                                    return Backend ? Backend.tr("语音输入") : "语音输入"
+                                }
+                                ToolTip.delay: 400
+                                onClicked: {
+                                    if (!Bloriko) return
+                                    if (voiceState === "recording")
+                                        Bloriko.stopVoiceCaptureAndTranscribe()
+                                    else if (voiceState === "idle")
+                                        Bloriko.startVoiceCapture()
+                                }
+                            }
+
+                            RoundButton {
+                                id: sendBtn
+                                Layout.preferredWidth: 34
+                                Layout.preferredHeight: 34
+                                highlighted: true
+                                icon.name: Bloriko && Bloriko.busy
+                                    ? "ic_fluent_stop_20_regular"
+                                    : "ic_fluent_arrow_up_20_filled"
+                                enabled: {
+                                    if (!Bloriko) return false
+                                    if (Bloriko.busy) return true
+                                    return inputField.text.trim().length > 0 || pendingImagesModel.count > 0
+                                }
+                                ToolTip.visible: hovered
+                                ToolTip.text: Bloriko && Bloriko.busy
+                                    ? (Backend ? Backend.tr("停止") : "停止")
+                                    : (Backend ? Backend.tr("发送") : "发送")
+                                ToolTip.delay: 400
+                                onClicked: doSendMessage()
+                            }
+                        }
+                    }
+                }
+
+                // 隐藏的 modelCombo / providerCombo：保留 id 供 loadModels 使用
+                Item {
+                    width: 0; height: 0; visible: false
+                    ComboBox {
+                        id: providerCombo
+                        model: providerModel
+                        textRole: "name"
+                        onActivated: function(index) {
+                            var item = providerModel.get(index)
+                            if (Backend) Backend.setGlobalAIProvider(item.key)
+                            loadModels()
+                        }
+                    }
+                    ComboBox {
+                        id: modelCombo
+                        model: modelModel
+                        textRole: "name"
+                        onActivated: function(index) {
+                            if (modelModel.count > 0 && Backend)
+                                Backend.setGlobalAIModel(modelModel.get(index).id)
+                            updateCurrentModelLabel()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Platform.FileDialog {
+        id: imageFileDialog
+        title: Backend ? Backend.tr("选择图片") : "选择图片"
+        fileMode: Platform.FileDialog.OpenFiles
+        nameFilters: [
+            Backend ? Backend.tr("图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") : "图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)",
+            Backend ? Backend.tr("所有文件 (*)") : "所有文件 (*)"
+        ]
+        onAccepted: {
+            var files = imageFileDialog.files || []
+            for (var i = 0; i < files.length; i++) {
+                if (pendingImagesModel.count >= maxPendingImages)
+                    break
+                addPendingImage(pathFromFileUrl(files[i]))
+            }
+            // 部分平台也提供 file 单选
+            if (files.length === 0 && imageFileDialog.file)
+                addPendingImage(pathFromFileUrl(imageFileDialog.file))
+        }
+    }
+
+    // 模型切换对话框
+    Dialog {
+        id: modelSelectDlg
+        title: Backend ? Backend.tr("切换模型") : "切换模型"
+        modal: true
+        width: 360
+        standardButtons: Dialog.NoButton
+
+        onOpened: {
+            loadProviders()
+            providerComboDlg.currentIndex = providerCombo.currentIndex
+            modelComboDlg.currentIndex = modelCombo.currentIndex
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text {
+                text: modelSelectDlg.title
+                font.pixelSize: 16
+                font.bold: true
+                color: Theme.currentTheme.colors.textColor
+                Layout.fillWidth: true
+            }
+            Text {
+                text: Backend ? Backend.tr("供应商") : "供应商"
+                font.pixelSize: 12
+                color: Theme.currentTheme.colors.textSecondaryColor
+                Layout.fillWidth: true
+            }
+            ComboBox {
+                id: providerComboDlg
+                Layout.fillWidth: true
+                model: providerModel
+                textRole: "name"
+                onActivated: function(index) {
+                    var item = providerModel.get(index)
+                    if (Backend) Backend.setGlobalAIProvider(item.key)
+                    providerCombo.currentIndex = index
+                    loadModels()
+                    modelComboDlg.currentIndex = modelCombo.currentIndex >= 0 ? modelCombo.currentIndex : 0
+                }
+            }
+            Text {
+                text: Backend ? Backend.tr("模型") : "模型"
+                font.pixelSize: 12
+                color: Theme.currentTheme.colors.textSecondaryColor
+                Layout.fillWidth: true
+            }
+            ComboBox {
+                id: modelComboDlg
+                Layout.fillWidth: true
+                model: modelModel
+                textRole: "name"
+                // 选中即写入，避免仅依赖「确定」时 loadModels 冲掉索引
+                onActivated: function(index) {
+                    if (index < 0 || index >= modelModel.count) return
+                    var m = modelModel.get(index)
+                    if (Backend) Backend.setGlobalAIModel(m.id)
+                    if (Bloriko && typeof Bloriko.setModel === "function")
+                        Bloriko.setModel(m.id)
+                    modelCombo.currentIndex = index
+                    updateCurrentModelLabel()
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Button {
+                    text: Backend ? Backend.tr("取消") : "取消"
+                    flat: true
+                    Layout.fillWidth: true
+                    onClicked: modelSelectDlg.close()
+                }
+                Button {
+                    text: Backend ? Backend.tr("确定") : "确定"
+                    highlighted: true
+                    Layout.fillWidth: true
+                    onClicked: {
+                        // 先记下用户选中的模型 id，再改供应商/刷新列表。
+                        // 若先 loadModels() 会 clear ListModel，ComboBox 索引被重置，导致无法切换模型。
+                        var selectedModelId = ""
+                        var selectedModelIndex = modelComboDlg.currentIndex
+                        if (selectedModelIndex >= 0 && selectedModelIndex < modelModel.count) {
+                            selectedModelId = modelModel.get(selectedModelIndex).id || ""
+                        }
+
+                        if (providerComboDlg.currentIndex >= 0 && providerComboDlg.currentIndex < providerModel.count) {
+                            var p = providerModel.get(providerComboDlg.currentIndex)
+                            if (Backend) Backend.setGlobalAIProvider(p.key)
+                            providerCombo.currentIndex = providerComboDlg.currentIndex
+                        }
+
+                        if (selectedModelId.length > 0) {
+                            if (Backend) Backend.setGlobalAIModel(selectedModelId)
+                            if (Bloriko && typeof Bloriko.setModel === "function")
+                                Bloriko.setModel(selectedModelId)
+                        }
+
+                        loadModels()
+                        // loadModels 后按已写入的全局模型对齐索引与胶囊文案
+                        if (selectedModelId.length > 0) {
+                            for (var i = 0; i < modelModel.count; i++) {
+                                if (modelModel.get(i).id === selectedModelId) {
+                                    modelCombo.currentIndex = i
+                                    modelComboDlg.currentIndex = i
+                                    break
+                                }
+                            }
+                        }
+                        updateCurrentModelLabel()
+                        modelSelectDlg.close()
                     }
                 }
             }
@@ -1230,54 +1900,80 @@ Item {
     Connections {
         target: Bloriko; enabled: Bloriko !== null
 
+        function onBusyChanged() {
+            if (!Bloriko) return
+            if (Bloriko.busy) {
+                // 发送路径已 beginAwaitingReply；若 busy 从外部拉起也进入 thinking
+                if (agentPhase === "idle")
+                    beginAwaitingReply()
+                Qt.callLater(function() { msgView.positionViewAtEnd() })
+            } else {
+                endAwaitingReply()
+            }
+        }
+
         function onTextUpdated(text) {
+            // 有正文 → 「正在回复」（不再显示「正在思考」）
+            if (text && String(text).length > 0)
+                markReplying()
             var lastIdx = messageModel.count - 1
             if (lastIdx >= 0 && messageModel.get(lastIdx).role === "assistant" && messageModel.get(lastIdx).streaming) {
-                messageModel.set(lastIdx, {role: "assistant", content: text, toolName: "", toolArgs: "", toolResult: "", streaming: true})
+                messageModel.set(lastIdx, {
+                    role: "assistant", content: text, imagesJson: "[]",
+                    toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]", streaming: true, expanded: false
+                })
             } else {
-                messageModel.append({role: "assistant", content: text, toolName: "", toolArgs: "", toolResult: "", streaming: true, expanded: false})
+                messageModel.append({
+                    role: "assistant", content: text, imagesJson: "[]",
+                    toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]", streaming: true, expanded: false
+                })
             }
+            Qt.callLater(function() { msgView.positionViewAtEnd() })
         }
 
         function onToolCallStarted(toolName, argsJson) {
-            var insertIdx = messageModel.count
-            for (var i = messageModel.count - 1; i >= 0; i--) {
-                var item = messageModel.get(i)
-                if (item.role === "tool_call") {
-                    insertIdx = i + 1
-                    break
-                }
-                if (item.role === "assistant") {
-                    insertIdx = i + 1
-                    break
-                }
-            }
-            messageModel.insert(insertIdx, {role: "tool_call", content: "", toolName: toolName, toolArgs: argsJson, toolResult: "", streaming: false, expanded: false})
+            markWorking()
+            startToolInGroup(toolName, argsJson)
+            Qt.callLater(function() { msgView.positionViewAtEnd() })
         }
 
         function onToolCallFinished(toolName, argsJson, result) {
-            for (var i = messageModel.count - 1; i >= 0; i--) {
-                var item = messageModel.get(i)
-                if (item.role === "tool_call" && item.toolName === toolName && item.toolResult === "") {
-                    messageModel.set(i, {toolResult: result})
-                    return
-                }
-            }
-            messageModel.append({role: "tool_call", content: "", toolName: toolName, toolArgs: argsJson, toolResult: result, streaming: false, expanded: false})
+            finishToolInGroup(toolName, argsJson, result)
+            // 工具结束后若仍 busy，回到「正在回复」等待后续正文；若已 idle 由 onBusyChanged 清理
+            if (Bloriko && Bloriko.busy && agentPhase === "working")
+                markReplying()
         }
 
         function onErrorOccurred(msg) {
-            messageModel.append({role: "error", content: msg, toolName: "", toolArgs: "", toolResult: "", streaming: false, expanded: false})
+            endAwaitingReply()
+            messageModel.append({
+                role: "error", content: msg, imagesJson: "[]",
+                toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]",
+                streaming: false, expanded: false
+            })
         }
 
         function onMessageAdded(role, content, toolCallsJson) {
+            // 最终 assistant 落盘：若仍 busy 显示「正在回复」，否则结束
+            if (Bloriko && Bloriko.busy)
+                markReplying()
+            else
+                endAwaitingReply()
             for (var i = messageModel.count - 1; i >= 0; i--) {
                 if (messageModel.get(i).role === "assistant" && messageModel.get(i).streaming) {
-                    messageModel.set(i, {role: "assistant", content: content, streaming: false})
+                    messageModel.set(i, {
+                        role: "assistant", content: content, imagesJson: "[]",
+                        toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]",
+                        streaming: false, expanded: false
+                    })
                     return
                 }
             }
-            messageModel.append({role: role, content: content, toolName: "", toolArgs: "", toolResult: "", streaming: false, expanded: false})
+            messageModel.append({
+                role: role, content: content, imagesJson: "[]",
+                toolName: "", toolArgs: "", toolResult: "", toolsJson: "[]",
+                streaming: false, expanded: false
+            })
         }
 
         function onProvidersChanged() { loadProviders() }
@@ -1311,6 +2007,8 @@ Item {
             conversationTitle = Bloriko ? (Bloriko.title || "") : ""
             currentEmotion = Bloriko ? (Bloriko.emotion || "neutral") : "neutral"
             syncRoleCombo()
+            loadProviders()
+            updateCurrentModelLabel()
         }
 
         function onRoleChanged() {
@@ -1319,6 +2017,31 @@ Item {
 
         function onTitleChanged(title) {
             conversationTitle = title
+        }
+
+        function onVoiceStateChanged(state) {
+            voiceState = state || "idle"
+        }
+
+        function onTranscriptionReady(text) {
+            // 仅当前页可见时写入，避免与首页输入条抢结果
+            if (blorikoPage.visible)
+                appendTranscription(text)
+        }
+
+        function onTranscriptionFailed(msg) {
+            if (!blorikoPage.visible)
+                return
+            messageModel.append({
+                role: "error",
+                content: msg || (Backend ? Backend.tr("语音识别失败") : "语音识别失败"),
+                imagesJson: "[]",
+                toolName: "",
+                toolArgs: "",
+                toolResult: "",
+                streaming: false,
+                expanded: false
+            })
         }
 
         function onStatusMessage(msg) {

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import 'global.dart';
+
 class I18n extends ChangeNotifier {
   static final I18n instance = I18n._();
   I18n._();
@@ -12,13 +14,46 @@ class I18n extends ChangeNotifier {
   static Map<String, String> _localizedValues = {};
   static String _currentLang = 'en_us';
   static final Set<String> _calledKeys = {};
+  static final Map<String, String> _missingValues = {};
+  static bool _isSavingMissing = false;
 
   static String get currentLang => _currentLang;
 
   /// Initialize internationalization settings
   static Future<void> init() async {
     final lang = ConfigService.getLanguage();
+    await _loadMissingKeys();
     await load(lang);
+  }
+
+  static Future<void> _loadMissingKeys() async {
+    try {
+      final customDir = await getCustomLangDir();
+      final file = File(p.join(customDir.path, 'missing_keys.json'));
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        if (content.isNotEmpty) {
+          final data = json.decode(content);
+          _missingValues.addAll(Map<String, String>.from(data));
+        }
+      }
+    } catch (_) {}
+  }
+
+  static Future<void> _saveMissingKeys() async {
+    if (_isSavingMissing) return;
+    _isSavingMissing = true;
+    try {
+      final customDir = await getCustomLangDir();
+      final file = File(p.join(customDir.path, 'missing_keys.json'));
+      await file.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(_missingValues),
+        mode: FileMode.write,
+        flush: true,
+      );
+    } catch (_) {} finally {
+      _isSavingMissing = false;
+    }
   }
 
   static Future<Directory> getCustomLangDir() async {
@@ -47,6 +82,10 @@ class I18n extends ChangeNotifier {
       _localizedValues.clear();
       _localizedValues = jsonMap.map((key, value) => MapEntry(key, value.toString()));
       _currentLang = lang;
+
+      // Clear translation cache when language changes
+      TranslationStore.resetCache();
+
       instance.notifyListeners();
 
     } catch (e) {
@@ -88,7 +127,15 @@ class I18n extends ChangeNotifier {
   static String translate(String key) {
     _calledKeys.add(key);
     final value = _localizedValues[key];
-    if (_currentLang != 'en_us' && value == null) print("----------MISSING KEY: $key-----------");
+    
+    if (value == null) {
+      if (!_missingValues.containsKey(key)) {
+        _missingValues[key] = "";
+        _saveMissingKeys();
+      }
+      if (_currentLang != 'en_us') debugPrint("----------MISSING KEY: $key-----------");
+    }
+
     return value ?? key;
   }
 

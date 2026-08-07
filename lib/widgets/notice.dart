@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+
+enum NoticeType { info, warning, error, success }
 
 @immutable
 class Notice {
@@ -8,12 +11,14 @@ class Notice {
   final IconData icon;
   final bool continueOnHover;
   final int durationMs;
+  final NoticeType type;
 
   Notice({
     required this.message,
     required this.icon,
     this.continueOnHover = false,
     this.durationMs = 5000,
+    this.type = NoticeType.info,
   }) : id = UniqueKey().toString();
 
   @override
@@ -41,6 +46,7 @@ class NoticeOverlayState extends State<NoticeOverlay> {
   final Set<String> _leavingIds = {};
   bool _isHovered = false;
   Timer? _ticker;
+  static bool _apiAvailable = false;
 
   static const double _cardHeight = 64.0;
   static const double _stackOffset = 6.0;
@@ -48,6 +54,7 @@ class NoticeOverlayState extends State<NoticeOverlay> {
   @override
   void initState() {
     super.initState();
+    _checkApiStatus();
     _ticker = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (_notices.isEmpty) return;
 
@@ -67,6 +74,28 @@ class NoticeOverlayState extends State<NoticeOverlay> {
     });
   }
 
+  Future<void> _checkApiStatus() async {
+    try {
+      final dio = Dio();
+      final response = await dio.get(
+        "https://translate.googleapis.com/translate_a/single",
+        queryParameters: {
+          "client": "gtx",
+          "sl": "auto",
+          "tl": "zh-CN",
+          "dt": "t",
+          "q": "ping",
+        },
+      ).timeout(const Duration(seconds: 3));
+
+      if (mounted) {
+        setState(() {
+          _apiAvailable = response.statusCode == 200;
+        });
+      }
+    } catch (_) {}
+  }
+
   void addNotice(Notice notice) {
     if (!mounted) return;
     setState(() {
@@ -79,6 +108,38 @@ class NoticeOverlayState extends State<NoticeOverlay> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() => _enteringIds.remove(notice.id));
     });
+  }
+
+  void showError(String message) {
+    addNotice(Notice(
+      message: message,
+      icon: Icons.error_outline,
+      type: NoticeType.error,
+    ));
+  }
+
+  void showWarning(String message) {
+    addNotice(Notice(
+      message: message,
+      icon: Icons.warning_amber_rounded,
+      type: NoticeType.warning,
+    ));
+  }
+
+  void showSuccess(String message) {
+    addNotice(Notice(
+      message: message,
+      icon: Icons.check_circle_outline,
+      type: NoticeType.success,
+    ));
+  }
+
+  void showInfo(String message) {
+    addNotice(Notice(
+      message: message,
+      icon: Icons.info_outline,
+      type: NoticeType.info,
+    ));
   }
 
   void _removeWithAnimation(String id) {
@@ -233,6 +294,7 @@ class NoticeOverlayState extends State<NoticeOverlay> {
                                 child: NoticeCard(
                                   notice: notice,
                                   onClose: () => _removeWithAnimation(notice.id),
+                                  apiAvailable: _apiAvailable,
                                 ),
                               ),
                             ),
@@ -284,20 +346,81 @@ class NoticeOverlayState extends State<NoticeOverlay> {
   }
 }
 
-class NoticeCard extends StatelessWidget {
+class NoticeCard extends StatefulWidget {
   final Notice notice;
   final VoidCallback onClose;
+  final bool apiAvailable;
 
   const NoticeCard({
     super.key,
     required this.notice,
     required this.onClose,
+    required this.apiAvailable,
   });
+
+  @override
+  State<NoticeCard> createState() => _NoticeCardState();
+}
+
+class _NoticeCardState extends State<NoticeCard> {
+  String? _translatedText;
+  bool _isTranslating = false;
+
+  bool _isLikelyEnglish(String text) {
+    final letters = RegExp(r'[a-zA-Z]').allMatches(text).length;
+    final total = text.replaceAll(RegExp(r'\s'), '').length;
+    if (total == 0) return false;
+    return (letters / total) > 0.5;
+  }
+
+  Future<void> _translate() async {
+    if (_isTranslating || _translatedText != null) return;
+    setState(() => _isTranslating = true);
+
+    try {
+      final dio = Dio();
+      final response = await dio.get(
+        "https://translate.googleapis.com/translate_a/single",
+        queryParameters: {
+          "client": "gtx",
+          "sl": "auto",
+          "tl": "zh-CN",
+          "dt": "t",
+          "q": widget.notice.message,
+        },
+      );
+
+      if (response.statusCode == 200 && response.data is List) {
+        final List parts = response.data[0];
+        final translated = parts.map((p) => p[0]).join();
+        if (mounted) {
+          setState(() {
+            _translatedText = translated;
+          });
+        }
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _isTranslating = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    
+    Color accentColor;
+    switch (widget.notice.type) {
+      case NoticeType.error: accentColor = Colors.redAccent; break;
+      case NoticeType.warning: accentColor = Colors.orangeAccent; break;
+      case NoticeType.success: accentColor = Colors.green; break;
+      case NoticeType.info: accentColor = colorScheme.primary; break;
+    }
+
+    final bool showTranslate = widget.apiAvailable && 
+        _translatedText == null && 
+        _isLikelyEnglish(widget.notice.message);
 
     return Container(
       height: 64,
@@ -321,7 +444,7 @@ class NoticeCard extends StatelessWidget {
           Container(
             width: 4,
             decoration: BoxDecoration(
-              color: colorScheme.primary,
+              color: accentColor,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(8),
                 bottomLeft: Radius.circular(8),
@@ -333,11 +456,11 @@ class NoticeCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  Icon(notice.icon, size: 18, color: colorScheme.primary),
+                  Icon(widget.notice.icon, size: 18, color: accentColor),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      notice.message,
+                      _translatedText ?? widget.notice.message,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
@@ -346,10 +469,24 @@ class NoticeCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (showTranslate) ...[
+                    const SizedBox(width: 4),
+                    _isTranslating 
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : IconButton(
+                          icon: const Icon(Icons.translate, size: 16),
+                          onPressed: _translate,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                          splashRadius: 16,
+                          visualDensity: VisualDensity.compact,
+                          color: colorScheme.primary,
+                        ),
+                  ],
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.close, size: 16),
-                    onPressed: onClose,
+                    onPressed: widget.onClose,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
                     splashRadius: 16,
@@ -365,3 +502,4 @@ class NoticeCard extends StatelessWidget {
     );
   }
 }
+

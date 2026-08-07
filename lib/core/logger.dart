@@ -71,6 +71,22 @@ class AppLogger {
     return p.dirname(path);
   }
 
+  Future<void> info(String message, [LogSource source = LogSource.system]) async {
+    await log(message, source: source);
+  }
+
+  Future<void> warning(String message, [LogSource source = LogSource.system]) async {
+    await log(message, source: source, level: .warning);
+  }
+
+  Future<void> error(String message, [LogSource source = LogSource.system]) async {
+    await log(message, source: source, level: .error);
+  }
+
+  Future<void> debug(String message, [LogSource source = LogSource.system]) async {
+    await log(message, source: source, level: .debug);
+  }
+
   Future<void> log(
       String message, {
         LogLevel level = LogLevel.info,

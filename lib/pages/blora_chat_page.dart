@@ -19,6 +19,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import '../main.dart';
 import '../services/config_service.dart';
+import '../core/grammer_candy.dart';
 
 class BloraChatPage extends StatefulWidget {
   const BloraChatPage({super.key});
@@ -182,7 +183,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             children: [
               const Icon(Icons.copy_rounded, size: 18),
               const SizedBox(width: 8),
-              Text(_tr("复制内容")),
+              Text("Copy Content".tl),
             ],
           ),
         ),
@@ -198,7 +199,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
               children: [
                 const Icon(Icons.download_for_offline_rounded, size: 18, color: Colors.blue),
                 const SizedBox(width: 8),
-                Text(_tr("下载所有图片"), style: const TextStyle(color: Colors.blue)),
+                Text("Download All Images".tl, style: const TextStyle(color: Colors.blue)),
               ],
             ),
           ),
@@ -208,7 +209,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             children: [
               const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
               const SizedBox(width: 8),
-              Text(_tr("删除消息"), style: const TextStyle(color: Colors.redAccent)),
+              Text("Delete Message".tl, style: const TextStyle(color: Colors.redAccent)),
             ],
           ),
         ),
@@ -282,10 +283,10 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       _agent.messages.add({
         'role': 'user',
         'content': userContent,
-        'displayText': effectiveText.isNotEmpty ? effectiveText : "[${_tr("附件")}]"
+        'displayText': effectiveText.isNotEmpty ? effectiveText : "[${"Attachment".tl}]"
       });
       if (_agent.messages.length == 1 || _agent.conversationTitle.isEmpty) {
-        _agent.conversationTitle = text.isNotEmpty ? text.split('\n').first.trim() : _tr("图片/文件对话");
+        _agent.conversationTitle = text.isNotEmpty ? text.split('\n').first.trim() : "Image/File Conversation".tl;
       }
       _attachments.clear();
     });
@@ -320,8 +321,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       );
     } catch (e) {
       if (batchId == _agent.requestBatch && mounted) {
-        final l = await AppLogger.getInstance();
-        l.log("发送消息异常", level: LogLevel.error, source: LogSource.network, detail: e.toString());
+        logger.error("[BloraChat] Exception sending message: $e", LogSource.network);
         setState(() {
           _agent.messages.add({'role': 'error', 'content': 'Error: $e'});
         });
@@ -395,8 +395,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         _loadHistoryList();
       }
     } catch (e) {
-      final l = await AppLogger.getInstance();
-      l.log("保存会话失败", level: LogLevel.error, source: LogSource.fileSystem, detail: e.toString());
+      logger.error("[BloraChat] Failed to save session: $e", LogSource.fileSystem);
     }
   }
 
@@ -430,8 +429,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         _historyList.addAll(loadedList);
       });
     } catch (e) {
-      final l = await AppLogger.getInstance();
-      l.log("加载历史列表失败", level: LogLevel.error, source: LogSource.fileSystem, detail: e.toString());
+      logger.error("[BloraChat] Failed to load history list: $e", LogSource.fileSystem);
     }
   }
 
@@ -449,18 +447,18 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           final bool? result = await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
-              title: Text(_tr("角色类型不匹配")),
-              content: Text(_tr("此对话上次使用的角色是「$savedType」，而当前是「${Bloriko.type}」。直接加载可能会导致上下文紊乱。")),
+              title: Text("Character Type Mismatch".tl),
+              content: Text("This conversation last used character '$savedType', while current is '${Bloriko.type}'. Loading directly may cause context confusion.".tl),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: Text(_tr("忽略并加载"))),
+                TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Ignore and Load".tl)),
                 TextButton(onPressed: () {
                   Bloriko.setType(savedType);
                   Navigator.pop(context, true);
-                }, child: Text(_tr("切换为 $savedType"))),
+                }, child: Text("${"Switch to".tl} $savedType")),
                 FilledButton(onPressed: () {
                   Navigator.pop(context, null);
                   _clearHistory();
-                }, child: Text(_tr("开启新对话"))),
+                }, child: Text("Start New Conversation".tl)),
               ],
             ),
           );
@@ -479,9 +477,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         if (_agent.messages.isNotEmpty) _scrollToBottom();
       }
     } catch (e) {
-      final l = await AppLogger.getInstance();
-      l.log("加载会话失败", level: LogLevel.error, source: LogSource.fileSystem, detail: "Path: $filePath\nError: $e");
-      debugPrint("Error loading session: $e");
+      logger.error("[BloraChat] Failed to load session: $filePath, Error: $e", LogSource.fileSystem);
     }
   }
 
@@ -498,9 +494,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         _loadHistoryList();
       }
     } catch (e) {
-      final l = await AppLogger.getInstance();
-      l.log("删除历史失败", level: LogLevel.error, source: LogSource.fileSystem, detail: "Path: $filePath\nError: $e");
-      debugPrint("Error deleting history: $e");
+      logger.error("[BloraChat] Failed to delete history: $filePath, Error: $e", LogSource.fileSystem);
     }
   }
 
@@ -510,13 +504,13 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(_tr("删除确认")),
-        content: Text(_tr("确定要删除选中的 ${_selectedFiles.length} 条记录吗？")),
+        title: Text("Delete Confirmation".tl),
+        content: Text("${"Are you sure you want to delete selected".tl} ${_selectedFiles.length} ${"records?".tl}"),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(_tr("取消"))),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text(_tr("删除"), style: const TextStyle(color: Colors.redAccent))
+            child: Text("Delete".tl, style: const TextStyle(color: Colors.redAccent))
           ),
         ],
       ),
@@ -536,8 +530,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             }
           }
         } catch (e) {
-          final l = await AppLogger.getInstance();
-          l.log("批量删除失败", level: LogLevel.error, source: LogSource.fileSystem, detail: "Path: $path\nError: $e");
+          logger.error("[BloraChat] Failed batch delete: $path, Error: $e", LogSource.fileSystem);
         }
       }
 
@@ -569,7 +562,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       if (await file.exists()) {
         final content = await file.readAsString();
         String? outputFile = await FilePicker.platform.saveFile(
-          dialogTitle: _tr("导出对话记录"),
+          dialogTitle: "Export Conversation History".tl,
           fileName: p.basename(filePath),
           type: FileType.custom,
           allowedExtensions: ['json'],
@@ -579,14 +572,12 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           final exportFile = File(outputFile);
           await exportFile.writeAsString(content);
           if (mounted) {
-            noticeManager.show(context, message: _tr("导出成功"), icon: Icons.check_circle);
+            showSuccess("Export successful".tl);
           }
         }
       }
     } catch (e) {
-      final l = await AppLogger.getInstance();
-      l.log("导出历史失败", level: LogLevel.error, source: LogSource.fileSystem, detail: "Path: $filePath\nError: $e");
-      debugPrint("Error exporting history: $e");
+      logger.error("[BloraChat] Failed to export history: $filePath, Error: $e", LogSource.fileSystem);
     }
   }
 
@@ -605,7 +596,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             children: [
               const Icon(Icons.output_rounded, size: 18),
               const SizedBox(width: 8),
-              Text(_tr("导出 JSON")),
+              Text("Export JSON".tl),
             ],
           ),
         ),
@@ -615,7 +606,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             children: [
               const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
               const SizedBox(width: 8),
-              Text(_tr("删除记录"), style: const TextStyle(color: Colors.redAccent)),
+              Text("Delete Record".tl, style: const TextStyle(color: Colors.redAccent)),
             ],
           ),
         ),
@@ -629,7 +620,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       final response = await dio.get(url, options: Options(responseType: ResponseType.bytes));
 
       String? outputFile = await FilePicker.platform.saveFile(
-        dialogTitle: _tr("保存图片"),
+        dialogTitle: "Save Image".tl,
         fileName: 'downloaded_image_${DateTime.now().millisecondsSinceEpoch}.png',
         type: FileType.image,
       );
@@ -637,10 +628,10 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       if (outputFile != null) {
         final file = File(outputFile);
         await file.writeAsBytes(response.data);
-        if (mounted) noticeManager.show(context, message: _tr("图片已保存"), icon: Icons.image);
+        if (mounted) showSuccess("Image Saved".tl);
       }
     } catch (e) {
-      if (mounted) noticeManager.show(context, message: _tr("下载失败: $e"), icon: Icons.error);
+      if (mounted) showError("${"Download Failed".tl}: $e");
     }
   }
 
@@ -691,10 +682,6 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     );
   }
 
-  String _tr(String text) {
-    return text.tl;
-  }
-
   Future<void> _pickFiles() async {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
@@ -713,7 +700,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           final bytes = await file.length();
           if (currentTotal + bytes > _maxTotalAttachmentSize) {
             if (mounted) {
-              noticeManager.show(context, message: _tr("附件总大小超过 5MB，无法添加更多文件"), icon: Icons.warning);
+              showWarning("Total attachment size exceeds 5MB, cannot add more files".tl);
             }
             break;
           }
@@ -765,7 +752,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     if (!_speechEnabled) {
       await _initSpeech();
       if (!_speechEnabled) {
-        if (mounted) noticeManager.show(context, message: _tr("语音权限未授予或不可用"), icon: Icons.warning);
+        if (mounted) showWarning("Voice permissions not granted or unavailable".tl);
         return;
       }
     }
@@ -805,13 +792,13 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           listenMode: ListenMode.dictation,
         ),
       );
-      if (mounted) noticeManager.show(context, message: _tr("正在聆听..."), icon: Icons.mic, continueOnHover: true, duration: 2000);
+      if (mounted) showInfo("Listening...".tl);
     } catch (e) {
       debugPrint("Speech listen error: $e");
       setState(() {
         _isRecording = false;
       });
-      if (mounted) noticeManager.show(context, message: _tr("语音识别启动失败"), icon: Icons.error);
+      if (mounted) showError("Speech recognition failed to start".tl);
     }
     _focusNode.requestFocus();
   }
@@ -843,7 +830,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
 
           if (currentTotal + bytes > _maxTotalAttachmentSize) {
              if (mounted) {
-               noticeManager.show(context, message: _tr("附件总大小超过 5MB，无法继续通过粘贴添加文件"), icon: Icons.warning);
+               showWarning("Total attachment size exceeds 5MB, cannot paste more files".tl);
              }
              break;
           }
@@ -870,7 +857,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         final finalBytes = compBytes ?? imageBytes;
         int currentTotal = await _calculateTotalAttachmentSize();
         if (currentTotal + finalBytes.length > _maxTotalAttachmentSize) {
-          if (mounted) noticeManager.show(context, message: _tr("附件总大小超过 5MB，无法粘贴此图片"), icon: Icons.warning);
+          if (mounted) showWarning("Total attachment size exceeds 5MB, cannot paste this image".tl);
           return;
         }
 
@@ -891,7 +878,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           final utf8Bytes = utf8.encode(plainText);
           int currentTotal = await _calculateTotalAttachmentSize();
           if (currentTotal + utf8Bytes.length > _maxTotalAttachmentSize) {
-            if (mounted) noticeManager.show(context, message: _tr("粘贴文本过长且附件总额已超 5MB"), icon: Icons.warning);
+            if (mounted) showWarning("Pasted text too long and attachment limit reached".tl);
             return;
           }
 
@@ -994,7 +981,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                 try {
                                   final text = await file.readAsString();
                                   if (text.length > 7500) {
-                                    if (mounted) noticeManager.show(context, message: _tr("粘贴文本过长，无法还原"), icon: Icons.warning, duration: 2000, continueOnHover: true);
+                                    if (mounted) showWarning("Pasted text too long, cannot restore".tl);
                                     return;
                                   }
                                   setState(() {
@@ -1004,7 +991,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                   _focusNode.requestFocus();
                                 } catch (_) {}
                               },
-                              tooltip: _tr("还原到输入框"),
+                              tooltip: "Restore to Input Box".tl,
                               constraints: const BoxConstraints(minHeight: 20, minWidth: 20),
                               padding: EdgeInsets.zero,
                               visualDensity: VisualDensity.compact,
@@ -1142,12 +1129,12 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       },
       "google_ai_studio": {
         "models": [
-          {"id": "none", "name": "未获取到模型", "tool_call": false},
+          {"id": "none", "name": "No models fetched".tl, "tool_call": false},
         ],
       },
       "custom_api": {
         "models": [
-          {"id": ConfigService.get("custom_ai_model") ?? "custom-model", "name": _tr("自定义模型"), "tool_call": true},
+          {"id": ConfigService.get("custom_ai_model") ?? "custom-model", "name": "Custom Model".tl, "tool_call": true},
         ],
       },
     };
@@ -1184,29 +1171,29 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(isGoogle ? _tr("配置 Google AI Studio") : _tr("配置自定义 API")),
+        title: Text(isGoogle ? "Configure Google AI Studio".tl : "Configure Custom API".tl),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (!isGoogle)
               TextField(
                 controller: urlController,
-                decoration: InputDecoration(labelText: _tr("Base URL"), hintText: "https://api.example.com/v1"),
+                decoration: InputDecoration(labelText: "Base URL".tl, hintText: "https://api.example.com/v1"),
               ),
             TextField(
               controller: keyController,
-              decoration: InputDecoration(labelText: _tr("API Key"), hintText: "AQ.xxxxxx"),
+              decoration: InputDecoration(labelText: "API Key".tl, hintText: "AQ.xxxxxx"),
               obscureText: true,
             ),
             if (!isGoogle)
               TextField(
                 controller: modelController,
-                decoration: InputDecoration(labelText: _tr("默认模型 ID"), hintText: "gpt-4o"),
+                decoration: InputDecoration(labelText: "Default Model ID".tl, hintText: "gpt-4o"),
               ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text(_tr("取消"))),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
           TextButton(
             onPressed: () async {
               if (isGoogle) {
@@ -1227,7 +1214,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                 });
               }
             },
-            child: Text(_tr("保存")),
+            child: Text("Save".tl),
           ),
         ],
       ),
@@ -1239,12 +1226,12 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       "bloret_passport": "Bloret PassPort",
       "opencode_zen": "OpenCode Zen",
       "google_ai_studio": "Google AI Studio",
-      "custom_api": "自定义 API",
+      "custom_api": "Custom API",
     };
 
     final List<Win11DropdownItem> menuItems = [
       Win11DropdownItem(
-        label: _tr("切换提供商"),
+        label: "Switch Provider".tl,
         value: "switch_provider",
         icon: Icons.hub_outlined,
         children: providers.entries.map((e) => Win11DropdownItem(
@@ -1260,7 +1247,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       )),
       if (_currentProviderKey == 'custom_api' || _currentProviderKey == 'google_ai_studio')
         Win11DropdownItem(
-          label: _tr("配置 API"),
+          label: "Configure API".tl,
           value: "config_api",
           icon: Icons.settings_outlined,
         ),
@@ -1366,7 +1353,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                       keyboardType: TextInputType.multiline,
                       enabled: !_agent.busy,
                       decoration: InputDecoration(
-                          hintText: _tr("向 ${Bloriko.type == "bloriko" ? _tr("络可") : _tr("Blora Agent")} 说些什么..."),
+                          hintText: "${"To".tl} ${Bloriko.type == "bloriko" ? "Bloriko".tl : "Blora Agent".tl} ${"say something".tl}...",
                           border: InputBorder.none,
                           isDense: true,
                           contentPadding: const EdgeInsets.symmetric(vertical: 8)
@@ -1388,7 +1375,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                   icon: const Icon(Icons.add_circle_outline_rounded, size: 22),
                   onPressed: _pickFiles,
                   visualDensity: VisualDensity.compact,
-                  tooltip: _tr("添加图片或文件"),
+                  tooltip: "Add Images or Files".tl,
                 ),
                 const SizedBox(width: 8),
                 _buildModelSelectorButton(theme),
@@ -1403,7 +1390,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                       );
                       if (result != null) _inputController.text = result;
                     },
-                    tooltip: _tr("全屏编辑"),
+                    tooltip: "Full-screen Edit".tl,
                   ),
                 if (!Platform.isLinux) IconButton(
                   icon: Icon(
@@ -1412,7 +1399,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                     size: 22
                   ),
                   onPressed: _agent.busy ? null : _toggleRecording,
-                  tooltip: _tr("语音输入"),
+                  tooltip: "Voice Input".tl,
                 ),
                 const SizedBox(width: 8),
                 AnimatedSize(
@@ -1499,9 +1486,9 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                             alignment: Alignment.centerLeft,
                             child: FadeTransition(opacity: animation, child: child),
                           ),
-                          child: Bloriko.type == "bloriko"
-                            ? Text(_tr("络可"), key: const ValueKey("bloriko"), style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: textColor))
-                            : Text(_tr("Blora Agent"), key: const ValueKey("blora"), style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: textColor)),
+                          child: Bloriko.type == "bloriko" || Bloriko.type == "bloriko_r18"
+                            ? Text("Bloriko".tl, key: const ValueKey("bloriko"), style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: textColor))
+                            : Text("Blora Agent".tl, key: const ValueKey("blora"), style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: textColor)),
                         ),
                         const SizedBox(width: 8),
                         ListenableBuilder(
@@ -1513,7 +1500,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                             if (_agent.connectionStatus == BlorikoConnectionStatus.idle || _agent.connectionStatus == BlorikoConnectionStatus.finished) {
                               if (isGoogle) {
                                 return Tooltip(
-                                  message: _tr("Google AI Studio 模式暂不支持执行工具/自动化任务"),
+                                  message: "Google AI Studio mode does not support tools/automation yet".tl,
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                     decoration: BoxDecoration(
@@ -1526,7 +1513,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                       children: [
                                         const Icon(Icons.warning_amber_rounded, size: 12, color: Colors.orange),
                                         const SizedBox(width: 4),
-                                        Text(_tr("纯文本模式"), style: const TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold)),
+                                        Text("Text Only".tl, style: const TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold)),
                                       ],
                                     ),
                                   ),
@@ -1538,10 +1525,10 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                             String statusText = "";
                             Color statusColor = accentColor;
                             switch (_agent.connectionStatus) {
-                              case BlorikoConnectionStatus.connecting: statusText = "正在连接..."; break;
-                              case BlorikoConnectionStatus.handshake: statusText = "正在响应..."; break;
-                              case BlorikoConnectionStatus.streaming: statusText = "接收数据中..."; break;
-                              case BlorikoConnectionStatus.error: statusText = "连接失败"; statusColor = Colors.red; break;
+                              case BlorikoConnectionStatus.connecting: statusText = "Connecting...".tl; break;
+                              case BlorikoConnectionStatus.handshake: statusText = "Responding...".tl; break;
+                              case BlorikoConnectionStatus.streaming: statusText = "Receiving...".tl; break;
+                              case BlorikoConnectionStatus.error: statusText = "Connection failed".tl; statusColor = Colors.red; break;
                               default: break;
                             }
                             return Container(
@@ -1578,9 +1565,9 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                             child: Win11Dropdown(
                               initialValue: Bloriko.mode,
                               items: [
-                                Win11DropdownItem(label: _tr("自动模式"), value: "auto"),
-                                Win11DropdownItem(label: _tr("辅助点击"), value: "help"),
-                                Win11DropdownItem(label: _tr("规划模式"), value: "plan"),
+                                Win11DropdownItem(label: "Auto Mode".tl, value: "auto"),
+                                Win11DropdownItem(label: "Assist Click".tl, value: "help"),
+                                Win11DropdownItem(label: "Planning Mode".tl, value: "plan"),
                               ],
                               onChanged: (value) { if (value != null) {
                                 setState(() {
@@ -1595,9 +1582,9 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                             child: Win11Dropdown(
                               initialValue: Bloriko.type,
                               items: [
-                                Win11DropdownItem(label: _tr("默认"), value: "default"),
-                                Win11DropdownItem(label: _tr("络可"), value: "bloriko"),
-                                if (ConfigService.get("develop_mode") ?? false) Win11DropdownItem(label: _tr("络可 (R18)"), value: "bloriko_r18"),
+                                Win11DropdownItem(label: "Default".tl, value: "default"),
+                                Win11DropdownItem(label: "Bloriko".tl, value: "bloriko"),
+                                if (ConfigService.get("develop_mode") ?? false) Win11DropdownItem(label: "Bloriko (R18)".tl, value: "bloriko_r18"),
                               ],
                               onChanged: (value) async {
                                 if (value != null && value != Bloriko.type) {
@@ -1605,16 +1592,16 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                     final bool? result = await showDialog<bool>(
                                       context: context,
                                       builder: (context) => AlertDialog(
-                                        title: Text(_tr("切换角色类型")),
-                                        content: Text(_tr("在对话中切换角色可能会导致 AI 上下文紊乱。是否开启新对话以获得最佳体验？")),
+                                        title: Text("Switch Character Type".tl),
+                                        content: Text("Switching characters during a conversation may cause AI context confusion. Start a new conversation for the best experience?".tl),
                                         actions: [
                                           TextButton(
                                             onPressed: () => Navigator.pop(context, false),
-                                            child: Text(_tr("忽略并保持"))
+                                            child: Text("Ignore and Keep".tl)
                                           ),
                                           TextButton(
                                             onPressed: () => Navigator.pop(context, true),
-                                            child: Text(_tr("开启新对话"))
+                                            child: Text("Start New Conversation".tl)
                                           ),
                                         ],
                                       ),
@@ -1630,7 +1617,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                           ),
                           const SizedBox(width: 8),
                         ],
-                        BloretButton(onPressed: _agent.busy ? null : _clearHistory, text: _tr("新对话")),
+                        BloretButton(onPressed: _agent.busy ? null : _clearHistory, text: "New Chat".tl),
                         const SizedBox(width: 8),
                         IconButton(
                           icon: AnimatedRotation(turns: _historyPanelOpen ? 0.25 : 0, duration: const Duration(milliseconds: 200), child: const Icon(Icons.menu, size: 20)),
@@ -1677,17 +1664,17 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                       child: SizedBox(width: 360, child: Column(mainAxisSize: MainAxisSize.min, children: [
                                         ClipRRect(borderRadius: BorderRadius.circular(36), child: Container(width: 72, height: 72, color: Colors.grey.shade300, child: const Icon(Icons.smart_toy, size: 36))),
                                         const SizedBox(height: 12),
-                                        Text(_tr("络可"), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
+                                        Text("Bloriko".tl, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
                                         const SizedBox(height: 12),
-                                        Text(_tr("${ConfigService.get("user_identity") == "sister" ? "姐姐" : ConfigService.get("user_identity") == "little_sister" ? "妹妹" : "哥哥"}好呀${Bloriko.type == "bloriko_r18" ? "♥" : "！"} 络可在这里等你很久啦~(开心地挥挥小手)\n\n试试跟 Bloriko 说：\n• 帮我创建一个文件\n• 搜索一下项目里的 TODO"), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
+                                        Text("${ConfigService.get("user_identity") == "sister" ? "Sister".tl : ConfigService.get("user_identity") == "little_sister" ? "Little Sister".tl : "Brother".tl} ${"Hello".tl}${Bloriko.type == "bloriko_r18" ? "♥" : "!"} ${"Bloriko has been waiting for you for a long time~ (waves happily)\n\nTry telling Bloriko:\n• Help me create a file\n• Search for TODOs in the project".tl}", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
                                         AnimatedSwitcher(
                                           duration: const Duration(milliseconds: 300),
                                           transitionBuilder: (child, anim) => SizeTransition(sizeFactor: anim, alignment: Alignment.center, child: FadeTransition(opacity: anim, child: child)),
                                           child: Bloriko.mode == "help"
-                                            ? Text(_tr("• 点击一下页面试试"), key: const ValueKey("bloriko_help"), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor))
+                                            ? Text("• Try clicking the page".tl, key: const ValueKey("bloriko_help"), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor))
                                             : const SizedBox.shrink(key: ValueKey("bloriko_no_help")),
                                         ),
-                                        Text(_tr("• 执行一个命令看看\n• 记住我的偏好是..."), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
+                                        Text("• Execute a command\n• Remember my preference is...".tl, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
                                       ])),
                                     )
                                   : Center(
@@ -1695,17 +1682,17 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                       child: SizedBox(width: 360, child: Column(mainAxisSize: MainAxisSize.min, children: [
                                         ClipRRect(borderRadius: BorderRadius.circular(36), child: Container(width: 72, height: 72, color: Colors.grey.shade300, child: const Icon(Icons.smart_toy, size: 36))),
                                         const SizedBox(height: 12),
-                                        Text(_tr("Blora Agent"), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
+                                        Text("Blora Agent".tl, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
                                         const SizedBox(height: 12),
-                                        Text(_tr("您好，我是Blora Agent，我可以协助您使用Bloret Launcher\n\n向 Blora Agent 发送：\n• 帮我创建文件\n• 搜索项目里的 TODO"), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
+                                        Text("Hello, I am Blora Agent. I can help you with Bloret Launcher.\n\nSend Blora Agent:\n• Help me create files\n• Search for TODOs in the project".tl, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
                                         AnimatedSwitcher(
                                           duration: const Duration(milliseconds: 300),
                                           transitionBuilder: (child, anim) => SizeTransition(sizeFactor: anim, alignment: Alignment.center, child: FadeTransition(opacity: anim, child: child)),
                                           child: Bloriko.mode == "help"
-                                            ? Text("• 帮我点击页面", key: const ValueKey("help_mode"), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor))
+                                            ? Text("• Help me click the page".tl, key: const ValueKey("help_mode"), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor))
                                             : const SizedBox.shrink(key: ValueKey("no_help")),
                                         ),
-                                        Text(_tr("• 执行一个命令\n• 记住我的偏好..."), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
+                                        Text("• Execute a command\n• Remember my preference...".tl, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
                                       ])),
                                     ),
                             )
@@ -1750,13 +1737,13 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                     builder: (context, child) {
                                       String text;
                                       if (isWaiting) {
-                                        text = _tr("等待中...");
+                                        text = "Waiting...".tl;
                                       } else {
                                         text = switch (_agent.connectionStatus) {
-                                          BlorikoConnectionStatus.connecting => _tr("正在连接..."),
-                                          BlorikoConnectionStatus.handshake => _tr("正在验证..."),
-                                          BlorikoConnectionStatus.streaming => _tr("正在接收..."),
-                                          _ => _tr("正在思考..."),
+                                          BlorikoConnectionStatus.connecting => "Connecting...".tl,
+                                          BlorikoConnectionStatus.handshake => "Verifying...".tl,
+                                          BlorikoConnectionStatus.streaming => "Receiving...".tl,
+                                          _ => "Thinking...".tl,
                                         };
                                       }
                                       return Text(text, style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: secondaryTextColor.withValues(alpha: 0.7)));
@@ -1819,7 +1806,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                           children: [
                                             Icon(Icons.security_rounded, size: 16, color: isWaiting ? Colors.orange : secondaryTextColor),
                                             const SizedBox(width: 8),
-                                            Text(_tr("安全拦截: 外部命令执行申请"), style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isWaiting ? Colors.orange.shade900 : secondaryTextColor)),
+                                            Text("Security Block: External Command Execution Request".tl, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isWaiting ? Colors.orange.shade900 : secondaryTextColor)),
                                             const Spacer(),
                                             if (!isWaiting) Icon(Icons.check_circle_rounded, size: 14, color: Colors.green.shade400),
                                           ],
@@ -1830,7 +1817,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Text(_tr("LLM 试图执行以下系统命令："), style: const TextStyle(fontSize: 12)),
+                                            Text("LLM is attempting to execute the following system command:".tl, style: const TextStyle(fontSize: 12)),
                                             const SizedBox(height: 8),
                                             Container(
                                               width: double.infinity,
@@ -1852,7 +1839,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                       _agent.handleSecurityAction('deny');
                                                     },
                                                     child: Text(
-                                                      _tr("拒绝"),
+                                                      "Deny".tl,
                                                       style: const TextStyle(color: Colors.redAccent),
                                                     ),
                                                   ),
@@ -1862,7 +1849,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                       hideSecurityCard();
                                                       _agent.handleSecurityAction('allow');
                                                     },
-                                                    child: Text(_tr("允许一次")),
+                                                    child: Text("Allow Once".tl),
                                                   ),
 
                                                   FilledButton.icon(
@@ -1874,17 +1861,17 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                       );
                                                     },
                                                     icon: const Icon(Icons.verified_user_rounded, size: 16),
-                                                    label: Text(_tr("总是允许")),
+                                                    label: Text("Always Allow".tl),
                                                   ),
                                                 ],
                                               )
                                             else
                                               Text(
                                                 msg['result'] == 'allow'
-                                                  ? _tr("已手动授权执行。")
+                                                  ? "Execution manually authorized.".tl
                                                   : msg['result'] == 'deny'
-                                                    ? _tr("已拒绝执行该命令。")
-                                                    : _tr("已永久加入白名单。"),
+                                                    ? "Execution of the command refused.".tl
+                                                    : "Permanently added to whitelist.".tl,
                                                 style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: secondaryTextColor),
                                               ),
                                           ],
@@ -2012,7 +1999,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                                 _focusNode.requestFocus();
                                                               } catch (_) {}
                                                             },
-                                                            child: Text(_tr("还原到输入框"), style: const TextStyle(color: Colors.white70, fontSize: 11, decoration: TextDecoration.underline)),
+                                                            child: Text("Restore to Input Box".tl, style: const TextStyle(color: Colors.white70, fontSize: 11, decoration: TextDecoration.underline)),
                                                           ),
                                                       ],
                                                     ),
@@ -2023,7 +2010,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                           }).toList(),
                                         ),
                                       SelectableText(
-                                        msg['displayText'] ?? (msg['content'] is String ? msg['content'] : _tr("[附件]")),
+                                        msg['displayText'] ?? (msg['content'] is String ? msg['content'] : "[Attachment]".tl),
                                         style: TextStyle(fontSize: 14, color: theme.colorScheme.onPrimary, height: 1.35),
                                         selectionColor: theme.colorScheme.onPrimary.withValues(alpha: 0.2),
                                       ),
@@ -2076,7 +2063,6 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                               crossAxisAlignment: CrossAxisAlignment.start,
                                               children: [
                                                 GptMarkdown(msg['content'] ?? '...', style: TextStyle(fontSize: 14, color: textColor, height: 1.35)),
-                                                // 提取并显示下载图片的按钮
                                                 Builder(builder: (context) {
                                                   final content = msg['content']?.toString() ?? "";
                                                   final regExp = RegExp(r'!\[.*?\]\((.*?)\)');
@@ -2092,7 +2078,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                         return IconButton.filledTonal(
                                                           icon: const Icon(Icons.download_rounded, size: 16),
                                                           onPressed: () => _downloadImage(url),
-                                                          tooltip: _tr("下载图片"),
+                                                          tooltip: "Download Image".tl,
                                                         );
                                                       }).toList(),
                                                     ),
@@ -2196,14 +2182,14 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                                     Icon(Icons.check_circle_outline_rounded, size: 14, color: accentColor),
                                                                     const SizedBox(width: 6),
                                                                     Flexible(
-                                                                      child: Text("${_tr("已选择")}: ${data['result'] ?? ''}", style: TextStyle(fontSize: 12, color: accentColor, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                                                      child: Text("${"Selected".tl}: ${data['result'] ?? ''}", style: TextStyle(fontSize: 12, color: accentColor, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
                                                                     ),
                                                                   ],
                                                                 ),
                                                               ),
                                                           ],
                                                         );
-                                                      } catch (_) { return const Text("解析问题失败"); }
+                                                      } catch (_) { return const Text("Failed to parse question"); }
                                                     }),
                                                   ] else if (msg['tool'] == 'ask_question_details' && data['args'] != null) ...[
                                                     Builder(builder: (context) {
@@ -2248,7 +2234,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                                       ),
                                                                     ),
                                                                     const SizedBox(width: 10),
-                                                                    IconButton.filled(padding: const EdgeInsets.all(2), icon: Icon(Icons.send, size: 20), onPressed: () {
+                                                                    IconButton.filled(padding: const EdgeInsets.all(2), icon: const Icon(Icons.send, size: 20), onPressed: () {
                                                                       data['result'] = _inputAnswerController.text;
                                                                       if (data['result'] != null) {
                                                                         _agent.answerDetailQuestion(data['result']);
@@ -2274,11 +2260,11 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                               ),
                                                           ],
                                                         );
-                                                      } catch (_) { return const Text("解析问题失败"); }
+                                                      } catch (_) { return const Text("Failed to parse question"); }
                                                     }),
                                                   ] else ...[
-                                                    if (data['args'] != null) ...[Text(_tr("输入参数:"), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), const SizedBox(height: 4), SelectableText(data['args'], style: const TextStyle(fontSize: 11, fontFamily: "monospace"))],
-                                                    if (data['result'] != null) ...[const SizedBox(height: 12), Text(_tr("执行结果:"), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), const SizedBox(height: 4), SelectableText(data['result'], style: const TextStyle(fontSize: 11, fontFamily: "monospace"))],
+                                                    if (data['args'] != null) ...[Text("Input Parameters:".tl, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), const SizedBox(height: 4), SelectableText(data['args'], style: const TextStyle(fontSize: 11, fontFamily: "monospace"))],
+                                                    if (data['result'] != null) ...[const SizedBox(height: 12), Text("Execution Result:".tl, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), const SizedBox(height: 4), SelectableText(data['result'], style: const TextStyle(fontSize: 11, fontFamily: "monospace"))],
                                                   ]
                                                 ],
                                               );
@@ -2291,7 +2277,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                   Row(
                                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                     children: [
-                                                      Text("${_tr("第")} ${currentIndex + 1} / $total ${_tr("次调用")}", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: secondaryTextColor.withValues(alpha: 0.6))),
+                                                      Text("${"Call".tl} ${currentIndex + 1} / $total", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: secondaryTextColor.withValues(alpha: 0.6))),
                                                       Row(
                                                         children: [
                                                           IconButton(
@@ -2336,7 +2322,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                               ),
                             );
                           } else if (role == 'error') {
-                            final String title = msg['title'] ?? "发生错误";
+                            final String title = msg['title'] ?? "Error Occurred".tl;
                             final String content = msg['content'] ?? "";
 
                             return Align(
@@ -2453,9 +2439,9 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           if (_isSelectMode) IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() { _isSelectMode = false; _selectedFiles.clear(); }))
           else Icon(Icons.history, size: 20, color: textColor),
           const SizedBox(width: 8),
-          Text(_isSelectMode ? "${_selectedFiles.length} ${_tr("已选择")}" : _tr("历史对话"), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+          Text(_isSelectMode ? "${_selectedFiles.length} ${"Selected".tl}" : "History".tl, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
           const Spacer(),
-          if (!_isSelectMode) ...[IconButton(icon: const Icon(Icons.checklist_rtl_rounded, size: 20), onPressed: _agent.busy ? null : () => setState(() => _isSelectMode = true), tooltip: _tr("批量操作")), IconButton(icon: Icon(Icons.refresh, size: 20, color: _agent.busy ? textColor.withValues(alpha: 0.3) : textColor), onPressed: _agent.busy ? null : _loadHistoryList, tooltip: _tr("刷新列表"))]
+          if (!_isSelectMode) ...[IconButton(icon: const Icon(Icons.checklist_rtl_rounded, size: 20), onPressed: _agent.busy ? null : () => setState(() => _isSelectMode = true), tooltip: "Batch Operations".tl), IconButton(icon: Icon(Icons.refresh, size: 20, color: _agent.busy ? textColor.withValues(alpha: 0.3) : textColor), onPressed: _agent.busy ? null : _loadHistoryList, tooltip: "Refresh List".tl)]
           else TextButton(
             onPressed: () {
               setState(() {
@@ -2466,7 +2452,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                 }
               });
             },
-            child: Text(_selectedFiles.length == _historyList.length ? _tr("取消全选") : _tr("全选"))
+            child: Text(_selectedFiles.length == _historyList.length ? "Deselect All".tl : "Select All".tl)
           ),
         ])),
         if (isPortrait)
@@ -2478,9 +2464,9 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                 Win11Dropdown(
                   initialValue: Bloriko.mode,
                   items: [
-                    Win11DropdownItem(label: _tr("自动模式"), value: "auto"),
-                    Win11DropdownItem(label: _tr("辅助点击"), value: "help"),
-                    Win11DropdownItem(label: _tr("规划模式"), value: "plan"),
+                    Win11DropdownItem(label: "Auto Mode".tl, value: "auto"),
+                    Win11DropdownItem(label: "Assist Click".tl, value: "help"),
+                    Win11DropdownItem(label: "Planning Mode".tl, value: "plan"),
                   ],
                   onChanged: (value) { if (value != null) setState(() => Bloriko.setMode(value)); },
                 ),
@@ -2488,9 +2474,9 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                 Win11Dropdown(
                   initialValue: Bloriko.type,
                   items: [
-                    Win11DropdownItem(label: _tr("默认"), value: "default"),
-                    Win11DropdownItem(label: _tr("络可"), value: "bloriko"),
-                    if (ConfigService.get("develop_mode") ?? false) Win11DropdownItem(label: _tr("络可 (R18)"), value: "bloriko_r18"),
+                    Win11DropdownItem(label: "Default".tl, value: "default"),
+                    Win11DropdownItem(label: "Bloriko".tl, value: "bloriko"),
+                    if (ConfigService.get("develop_mode") ?? false) Win11DropdownItem(label: "Bloriko (R18)".tl, value: "bloriko_r18"),
                   ],
                   onChanged: (value) async {
                     if (value != null && value != Bloriko.type) {
@@ -2498,11 +2484,11 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                         final bool? result = await showDialog<bool>(
                           context: context,
                           builder: (context) => AlertDialog(
-                            title: Text(_tr("切换角色类型")),
-                            content: Text(_tr("在对话中切换角色可能会导致 AI 上下文紊乱。是否开启新对话以获得最佳体验？")),
+                            title: Text("Switch Character Type".tl),
+                            content: Text("Switching characters during a conversation may cause AI context confusion. Start a new conversation for the best experience?".tl),
                             actions: [
-                              TextButton(onPressed: () => Navigator.pop(context, false), child: Text(_tr("忽略并保持"))),
-                              TextButton(onPressed: () => Navigator.pop(context, true), child: Text(_tr("开启新对话"))),
+                              TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Ignore and Keep".tl)),
+                              TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Start New Conversation".tl)),
                             ],
                           ),
                         );
@@ -2569,8 +2555,8 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
               )),
             );
           }),
-          if (_isSelectMode && _selectedFiles.isNotEmpty) Positioned(bottom: 16, left: 16, right: 16, child: Container(height: 50, decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(25), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))]), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [IconButton(icon: const Icon(Icons.output_rounded, color: Colors.blue), onPressed: _exportSelectedSessions, tooltip: _tr("批量导出")), const VerticalDivider(width: 1, indent: 12, endIndent: 12), IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: _deleteSelectedSessions, tooltip: _tr("批量删除"))]))),
-          if (_historyList.isEmpty) Center(child: Text(_tr("暂无历史记录"), style: TextStyle(fontSize: 13, color: secondaryTextColor))),
+          if (_isSelectMode && _selectedFiles.isNotEmpty) Positioned(bottom: 16, left: 16, right: 16, child: Container(height: 50, decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(25), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))]), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [IconButton(icon: const Icon(Icons.output_rounded, color: Colors.blue), onPressed: _exportSelectedSessions, tooltip: "Batch Export".tl), const VerticalDivider(width: 1, indent: 12, endIndent: 12), IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: _deleteSelectedSessions, tooltip: "Batch Delete".tl)]))),
+          if (_historyList.isEmpty) Center(child: Text("No history records".tl, style: TextStyle(fontSize: 13, color: secondaryTextColor))),
         ])),
       ]),
     ));
@@ -2606,11 +2592,11 @@ class _LongTextEditorDialogState extends State<_LongTextEditorDialog> {
     return Dialog.fullscreen(
       child: Scaffold(
         appBar: AppBar(
-          title: Text("编辑长文本".tl),
+          title: Text("Edit Long Text".tl),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, _controller.text),
-              child: Text("保存并返回".tl),
+              child: Text("Save and Return".tl),
             ),
           ],
         ),
@@ -2621,7 +2607,7 @@ class _LongTextEditorDialogState extends State<_LongTextEditorDialog> {
             maxLines: null,
             expands: true,
             decoration: InputDecoration(
-              hintText: "在此输入或粘贴长文本...".tl,
+              hintText: "Enter or paste long text here...".tl,
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               filled: true,
               fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),

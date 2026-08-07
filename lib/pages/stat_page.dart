@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../core/i18n.dart';
+
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key});
 
@@ -77,20 +79,20 @@ class _StatsPageState extends State<StatsPage> {
           bottom: 16,
         ),
         children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
             child: Text(
-              "统计信息",
-              style: TextStyle(
+              "Statistics".tl,
+              style: const TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
           const SizedBox(height: 24),
-          const Text(
-            "总览",
-            style: TextStyle(
+          Text(
+            "Overview".tl,
+            style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
             ),
@@ -101,37 +103,37 @@ class _StatsPageState extends State<StatsPage> {
             runSpacing: 12,
             children: [
               StatCard(
-                title: "总游戏时间",
+                title: "Total Play Time".tl,
                 value: formatTime(overview["total"]),
                 subtitle:
-                "前台 ${formatTime(overview["total_foreground"])} / 后台 ${formatTime(overview["total_background"])}",
+                "${"Foreground".tl} ${formatTime(overview["total_foreground"])} / ${"Background".tl} ${formatTime(overview["total_background"])}",
                 icon: Icons.timer,
               ),
               StatCard(
-                title: "今日游玩",
+                title: "Today".tl,
                 value: formatTime(
                   overview["today"]?["total"],
                 ),
                 subtitle:
-                "${overview["today"]?["sessions"] ?? 0} 次会话",
+                "${overview["today"]?["sessions"] ?? 0} ${"sessions".tl}",
                 icon: Icons.calendar_today_outlined,
               ),
               StatCard(
-                title: "本周游玩",
+                title: "This Week".tl,
                 value: formatTime(
                   overview["this_week"]?["total"],
                 ),
                 subtitle:
-                "${overview["this_week"]?["sessions"] ?? 0} 次会话",
+                "${overview["this_week"]?["sessions"] ?? 0} ${"sessions".tl}",
                 icon: Icons.calendar_today,
               ),
               StatCard(
-                title: "本月游玩",
+                title: "This Month".tl,
                 value: formatTime(
                   overview["this_month"]?["total"],
                 ),
                 subtitle:
-                "${overview["this_month"]?["sessions"] ?? 0} 次会话",
+                "${overview["this_month"]?["sessions"] ?? 0} ${"sessions".tl}",
                 icon: Icons.calendar_month,
               ),
             ],
@@ -142,17 +144,17 @@ class _StatsPageState extends State<StatsPage> {
             runSpacing: 12,
             children: [
               StatCard(
-                title: "游戏天数",
-                value: "${overview["unique_days"] ?? 0} 天",
+                title: "Days Played".tl,
+                value: "${overview["unique_days"] ?? 0} ${"days".tl}",
                 icon: Icons.timelapse,
               ),
               StatCard(
-                title: "日均游玩",
+                title: "Daily Average".tl,
                 value: formatTime(overview["avg_per_day"]),
                 icon: Icons.schedule,
               ),
               StatCard(
-                title: "最长单日",
+                title: "Longest Day".tl,
                 value: formatTime(
                   overview["longest_day_time"],
                 ),
@@ -160,16 +162,16 @@ class _StatsPageState extends State<StatsPage> {
                 icon: Icons.calendar_today,
               ),
               StatCard(
-                title: "总会话数",
-                value: "${overview["total_sessions"] ?? 0} 次",
+                title: "Total Sessions".tl,
+                value: "${overview["total_sessions"] ?? 0} ${"times".tl}",
                 icon: Icons.chat_bubble_outline,
               ),
             ],
           ),
           const SizedBox(height: 24),
-          const Text(
-            "版本统计",
-            style: TextStyle(
+          Text(
+            "Version Stats".tl,
+            style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
             ),
@@ -180,9 +182,9 @@ class _StatsPageState extends State<StatsPage> {
             formatTime: formatTime,
           ),
           const SizedBox(height: 24),
-          const Text(
-            "会话记录",
-            style: TextStyle(
+          Text(
+            "Session Logs".tl,
+            style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
             ),
@@ -281,11 +283,11 @@ class VersionStatsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (data.isEmpty) {
-      return const Card(
+      return Card(
         child: Padding(
-          padding: EdgeInsets.all(30),
+          padding: const EdgeInsets.all(30),
           child: Center(
-            child: Text("暂无数据"),
+            child: Text("No data available".tl),
           ),
         ),
       );
@@ -331,7 +333,7 @@ class VersionStatsList extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          "${item["sessions"] ?? 0} 次会话",
+                          "${item["sessions"] ?? 0} ${"sessions".tl}",
                           style: const TextStyle(
                             fontSize: 12,
                           ),
@@ -350,7 +352,7 @@ class VersionStatsList extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        "前 ${formatTime(item["foreground"])} / 后 ${formatTime(item["background"])}",
+                        "${"Fore".tl} ${formatTime(item["foreground"])} / ${"Back".tl} ${formatTime(item["background"])}",
                         style: const TextStyle(
                           fontSize: 11,
                         ),
@@ -380,11 +382,11 @@ class SessionList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (sessions.isEmpty) {
-      return const Card(
+      return Card(
         child: Padding(
-          padding: EdgeInsets.all(30),
+          padding: const EdgeInsets.all(30),
           child: Center(
-            child: Text("暂无会话记录"),
+            child: Text("No session logs".tl),
           ),
         ),
       );
@@ -447,7 +449,7 @@ class SessionList extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      "前 ${formatTime(item["foreground"])} / 后 ${formatTime(item["background"])}",
+                      "${"前".tl} ${formatTime(item["foreground"])} / ${"后".tl} ${formatTime(item["background"])}",
                       style:
                       const TextStyle(fontSize: 11),
                     ),

@@ -8,6 +8,8 @@ import 'package:pasteboard/pasteboard.dart';
 import '../services/live_service.dart';
 import '../services/config_service.dart';
 import '../core/i18n.dart';
+import '../core/logger.dart';
+import '../main.dart';
 
 class FullScreenVideoPage extends StatefulWidget {
   final RTCVideoRenderer? renderer;
@@ -58,7 +60,7 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
 
   void _startHideTimer() {
     _hideTimer?.cancel();
-    if (_showChat) return; // 聊天时由于要输入，不自动隐藏
+    if (_showChat) return;
     _hideTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _showControls = false);
     });
@@ -123,31 +125,35 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
   }
 
   Future<void> _uploadAndSendImage(Uint8List bytes, String filename) async {
-    final res = await LiveService.uploadImage(bytes, filename);
-    if (res != null && res['success'] == true) {
-      final url = "https://img.bloret.net${res['data']['url']}";
-      final markdown = "![image]($url)";
-      
-      final msg = {
-        "from": ConfigService.get("Bloret_PassPort_UserName"),
-        "payload": {"msg": markdown},
-        "time": DateTime.now().millisecondsSinceEpoch
-      };
+    try {
+      final res = await LiveService.uploadImage(bytes, filename);
+      if (res != null && res['success'] == true) {
+        final url = "https://img.bloret.net${res['data']['url']}";
+        final markdown = "![image]($url)";
+        
+        final msg = {
+          "from": ConfigService.get("Bloret_PassPort_UserName"),
+          "payload": {"msg": markdown},
+          "time": DateTime.now().millisecondsSinceEpoch
+        };
 
-      setState(() {
-        _messages.add(msg);
-      });
+        setState(() {
+          _messages.add(msg);
+        });
 
-      LiveService.sendSignal(widget.spaceId!, {
-        "type": "chat",
-        "payload": {"msg": markdown}
-      });
+        LiveService.sendSignal(widget.spaceId!, {
+          "type": "chat",
+          "payload": {"msg": markdown}
+        });
 
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
-        }
-      });
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+          }
+        });
+      }
+    } catch (e) {
+      logger.error("[Live] Upload error: $e", LogSource.network);
     }
   }
 
@@ -201,7 +207,7 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      resizeToAvoidBottomInset: false, // 关键：防止键盘弹出压缩视频
+      resizeToAvoidBottomInset: false,
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
@@ -213,7 +219,6 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
         },
         child: Stack(
           children: [
-            // Video Layer
             Center(
               child: Hero(
                 tag: 'video-${widget.title}',
@@ -225,8 +230,6 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
                 ),
               ),
             ),
-
-            // Chat Panel (Right Side)
             if (_showChat)
               Positioned(
                 top: 0, bottom: 0, right: 0,
@@ -246,7 +249,7 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
                             children: [
                               const Icon(Icons.chat_bubble_outline, color: Colors.white70, size: 18),
                               const SizedBox(width: 8),
-                              Text("实时聊天".tl, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, shadows: shadow)),
+                              Text("Real-time Chat".tl, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, shadows: shadow)),
                               const Spacer(),
                               IconButton(
                                 icon: const Icon(Icons.close, color: Colors.white70, size: 20),
@@ -298,7 +301,6 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
                             },
                           ),
                         ),
-                        // Input Area inside Chat Panel
                         Container(
                           padding: EdgeInsets.fromLTRB(8, 8, 8, MediaQuery.of(context).viewInsets.bottom + 8),
                           color: Colors.black26,
@@ -319,7 +321,7 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
                                     controller: _chatController,
                                     style: const TextStyle(color: Colors.white, fontSize: 14),
                                     decoration: InputDecoration(
-                                      hintText: "发送消息...".tl,
+                                      hintText: "Send message...".tl,
                                       hintStyle: const TextStyle(color: Colors.white38),
                                       isDense: true,
                                       border: InputBorder.none,
@@ -345,7 +347,6 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
                 ),
               ),
 
-            // Controls Overlay
             AnimatedOpacity(
               opacity: _showControls ? 1.0 : 0.0,
               duration: const Duration(milliseconds: 300),
@@ -381,14 +382,14 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
                               } else if (value == 'chat') {
                                 setState(() {
                                   _showChat = !_showChat;
-                                  if (_showChat) _showControls = true; // 开启聊天时保持控制条显示
+                                  if (_showChat) _showControls = true;
                                 });
                               }
                             },
                             itemBuilder: (context) => [
-                              PopupMenuItem(value: 'chat', child: ListTile(leading: const Icon(Icons.chat), title: Text(_showChat ? "隐藏聊天".tl : "显示聊天".tl), dense: true)),
-                              PopupMenuItem(value: 'rotate', child: ListTile(leading: const Icon(Icons.screen_rotation), title: Text(_isLandscape ? "切换竖屏".tl : "切换横屏".tl), dense: true)),
-                              PopupMenuItem(value: 'fit', child: ListTile(leading: Icon(_objectFit == RTCVideoViewObjectFit.RTCVideoViewObjectFitContain ? Icons.fullscreen : Icons.fullscreen_exit), title: Text("缩放模式".tl), dense: true)),
+                              PopupMenuItem(value: 'chat', child: ListTile(leading: const Icon(Icons.chat), title: Text(_showChat ? "Hide Chat".tl : "Show Chat".tl), dense: true)),
+                              PopupMenuItem(value: 'rotate', child: ListTile(leading: const Icon(Icons.screen_rotation), title: Text(_isLandscape ? "Portrait".tl : "Landscape".tl), dense: true)),
+                              PopupMenuItem(value: 'fit', child: ListTile(leading: Icon(_objectFit == RTCVideoViewObjectFit.RTCVideoViewObjectFitContain ? Icons.fullscreen : Icons.fullscreen_exit), title: Text("Scale Mode".tl), dense: true)),
                             ],
                           ),
                         ],

@@ -2,6 +2,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import '../core/i18n.dart';
+import '../core/grammer_candy.dart';
+import '../core/logger.dart';
+import '../main.dart';
 import '../services/bbbs.dart';
 import '../models/bbbs_post.dart';
 import 'bbbs_detail_page.dart';
@@ -18,7 +21,6 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
   List<dynamic> _leaderboardData = [];
   List<BbbsPost> _allPostsData = [];
   List<BbbsPost> _todayFeedData = [];
-  // Map<String, dynamic> _feedSettings = {};
 
   bool _isLoading = true;
   bool _isAuthenticated = false;
@@ -26,11 +28,9 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
 
   late TabController _tabController;
 
-  // Bloriko Chat State
   final List<Map<String, String>> _blorikoMessages = [];
   final TextEditingController _blorikoController = TextEditingController();
   final ScrollController _blorikoScrollController = ScrollController();
-  // bool _isBlorikoProcessing = false;
   final FocusNode _blorikoFocusNode = FocusNode();
 
   @override
@@ -89,107 +89,19 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
         
         if (todayFeed != null) {
           _todayFeedData = (todayFeed['items'] as List? ?? []).map((e) => BbbsPost.fromJson(e)).toList();
-          // _feedSettings = todayFeed['settings'] ?? {};
         }
 
         _isLoading = false;
       });
+      logger.info("[BBBS] Data refreshed successfully", LogSource.network);
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
-      debugPrint("[BBBS] Error: $e");
+      if (mounted) {
+        setState(() => _isLoading = false);
+        showError("Failed to fetch BBS data".tl);
+      }
+      logger.error("[BBBS] Data fetch error: $e", LogSource.network);
     }
   }
-
-  // void _showFeedSettings() {
-  //   showDialog(
-  //     context: context,
-  //     builder: (context) => AlertDialog(
-  //       title: Text("推荐设置".tl),
-  //       content: Column(
-  //         mainAxisSize: MainAxisSize.min,
-  //         crossAxisAlignment: CrossAxisAlignment.start,
-  //         children: [
-  //           _settingRow("启用推荐".tl, _feedSettings['enabled'] ?? false),
-  //           _settingRow("AI 增强".tl, _feedSettings['aiEnabled'] ?? false),
-  //           _settingRow("偏向多样性".tl, _feedSettings['preferDiversity'] ?? false),
-  //           if (_feedSettings['mutedBoards']?.isNotEmpty == true)
-  //             Padding(
-  //               padding: const EdgeInsets.only(top: 8),
-  //               child: Text("${"已屏蔽板块".tl}: ${_feedSettings['mutedBoards'].join(', ')}", style: const TextStyle(fontSize: 12)),
-  //             ),
-  //         ],
-  //       ),
-  //       actions: [
-  //         TextButton(onPressed: () => Navigator.pop(context), child: Text("确定".tl)),
-  //       ],
-  //     ),
-  //   );
-  // }
-
-  // Widget _settingRow(String label, bool value) {
-  //   return Padding(
-  //     padding: const EdgeInsets.symmetric(vertical: 4),
-  //     child: Row(
-  //       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-  //       children: [
-  //         Text(label),
-  //         Icon(
-  //           value ? Icons.check_circle_outline : Icons.highlight_off,
-  //           color: value ? Colors.green : Colors.grey,
-  //           size: 20,
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
-
-  // Future<void> _sendBlorikoMessage() async {
-  //   final text = _blorikoController.text.trim();
-  //   if (text.isEmpty || _isBlorikoProcessing) return;
-  //
-  //   _blorikoController.clear();
-  //   setState(() {
-  //     _blorikoMessages.add({"role": "user", "content": text});
-  //     _blorikoMessages.add({"role": "assistant", "content": ""});
-  //     _isBlorikoProcessing = true;
-  //   });
-  //   _scrollToBottom();
-  //
-  //   final lastIndex = _blorikoMessages.length - 1;
-  //
-  //   BbbsService.streamBlorikoChat(content: text).listen(
-  //     (chunk) {
-  //       if (!mounted) return;
-  //       setState(() {
-  //         _blorikoMessages[lastIndex]["content"] = (_blorikoMessages[lastIndex]["content"] ?? "") + chunk;
-  //       });
-  //       _scrollToBottom();
-  //     },
-  //     onDone: () {
-  //       if (!mounted) return;
-  //       setState(() => _isBlorikoProcessing = false);
-  //     },
-  //     onError: (e) {
-  //       if (!mounted) return;
-  //       setState(() {
-  //         _isBlorikoProcessing = false;
-  //         _blorikoMessages[lastIndex]["content"] = "Error: $e";
-  //       });
-  //     },
-  //   );
-  // }
-
-  // void _scrollToBottom() {
-  //   WidgetsBinding.instance.addPostFrameCallback((_) {
-  //     if (_blorikoScrollController.hasClients) {
-  //       _blorikoScrollController.animateTo(
-  //         _blorikoScrollController.position.maxScrollExtent,
-  //         duration: const Duration(milliseconds: 300),
-  //         curve: Curves.easeOut,
-  //       );
-  //     }
-  //   });
-  // }
 
   @override
   Widget build(BuildContext context) {
@@ -237,7 +149,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                             ),
                             const SizedBox(width: 10),
                             Text(
-                              "百络论坛".tl,
+                              "BBS".tl,
                               style: TextStyle(
                                 fontSize: 14,
                                 color: secondaryColor,
@@ -253,18 +165,18 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                                 color: Colors.green.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(
+                                  const Icon(
                                     Icons.forum_outlined,
                                     size: 13,
                                     color: Colors.green,
                                   ),
-                                  SizedBox(width: 4),
+                                  const SizedBox(width: 4),
                                   Text(
-                                    "Bloret BBS",
-                                    style: TextStyle(
+                                    "Bloret BBS".tl,
+                                    style: const TextStyle(
                                       fontSize: 11,
                                       color: Colors.green,
                                       fontWeight: FontWeight.bold,
@@ -275,15 +187,9 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                             ),
                             const Spacer(),
                             if (_isAuthenticated) ...[
-                              // if (_currentTab == 0 && _feedSettings.isNotEmpty)
-                              //   IconButton(
-                              //     icon: const Icon(Icons.settings_outlined, size: 20),
-                              //     tooltip: "推荐设置".tl,
-                              //     onPressed: () => _showFeedSettings(),
-                              //   ),
                               IconButton(
                                 icon: const Icon(Icons.refresh),
-                                tooltip: "刷新".tl,
+                                tooltip: "Refresh".tl,
                                 onPressed: _isLoading ? null : _fetchAllData,
                               ),
                             ],
@@ -311,7 +217,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                "请先登录 Bloret PassPort".tl,
+                                "Please log in to Bloret PassPort".tl,
                                 style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
@@ -320,8 +226,9 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                               ),
                               const SizedBox(height: 10),
                               Text(
-                                "登录后即可查看 BBBS 的每日摘要、热帖和最新内容".tl,
+                                "Log in to see summary, trending posts and latest content".tl,
                                 style: TextStyle(color: secondaryColor),
+                                textAlign: TextAlign.center,
                               ),
                             ],
                           ),
@@ -344,22 +251,22 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                                 ButtonSegment(
                                   value: 0,
                                   icon: isCompact ? null : const Icon(Icons.explore_outlined),
-                                  label: isCompact ? Text("推荐".tl, style: TextStyle(fontSize: 10),) : Text("今日推荐".tl),
+                                  label: isCompact ? Text("Feed".tl, style: const TextStyle(fontSize: 10),) : Text("Today Feed".tl),
                                 ),
                                 ButtonSegment(
                                   value: 1,
                                   icon: isCompact ? null : const Icon(Icons.auto_awesome),
-                                  label: isCompact ? Text("摘要".tl, style: TextStyle(fontSize: 10),) : Text("每日摘要".tl),
+                                  label: isCompact ? Text("Sum".tl, style: const TextStyle(fontSize: 10),) : Text("Daily Summary".tl),
                                 ),
                                 ButtonSegment(
                                   value: 2,
                                   icon: isCompact ? null : const Icon(Icons.local_fire_department),
-                                  label: isCompact ? Text("热帖".tl, style: TextStyle(fontSize: 10),) : Text("热帖排行".tl),
+                                  label: isCompact ? Text("Hot".tl, style: const TextStyle(fontSize: 10),) : Text("Trending".tl),
                                 ),
                                 ButtonSegment(
                                   value: 3,
                                   icon: isCompact ? null : const Icon(Icons.schedule),
-                                  label: isCompact ? Text("最新".tl, style: TextStyle(fontSize: 10),) : Text("最新帖子".tl),
+                                  label: isCompact ? Text("New".tl, style: const TextStyle(fontSize: 10),) : Text("Latest Posts".tl),
                                 ),
                               ],
                               selected: {_currentTab},
@@ -401,64 +308,6 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
     );
   }
 
-  // Widget _buildBlorikoInput(Color cardColor, Color borderColor, Color secondaryColor, ThemeData theme) {
-  //   return Container(
-  //     decoration: BoxDecoration(
-  //       color: cardColor,
-  //       border: Border(top: BorderSide(color: borderColor)),
-  //     ),
-  //     child: Padding(
-  //       padding: EdgeInsets.fromLTRB(12, 12, 12, MediaQuery.of(context).viewInsets.bottom + 12),
-  //       child: Row(
-  //         crossAxisAlignment: CrossAxisAlignment.end,
-  //         children: [
-  //           Expanded(
-  //             child: AnimatedContainer(
-  //               duration: const Duration(milliseconds: 300),
-  //               curve: Curves.easeInOutCubic,
-  //               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-  //               decoration: BoxDecoration(
-  //                 color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-  //                 borderRadius: BorderRadius.circular(12),
-  //                 border: Border.all(
-  //                   color: _blorikoFocusNode.hasFocus ? theme.colorScheme.primary : borderColor,
-  //                   width: _blorikoFocusNode.hasFocus ? 1.8 : 1.0,
-  //                 ),
-  //               ),
-  //               child: TextField(
-  //                 controller: _blorikoController,
-  //                 focusNode: _blorikoFocusNode,
-  //                 maxLines: 5,
-  //                 minLines: 1,
-  //                 onChanged: (v) => setState(() {}),
-  //                 onSubmitted: (_) => _sendBlorikoMessage(),
-  //                 decoration: InputDecoration(
-  //                   hintText: "向 Bloriko 提问...".tl,
-  //                   border: InputBorder.none,
-  //                   isDense: true,
-  //                   contentPadding: const EdgeInsets.symmetric(vertical: 6),
-  //                 ),
-  //                 style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
-  //               ),
-  //             ),
-  //           ),
-  //           const SizedBox(width: 10),
-  //           _isBlorikoProcessing
-  //               ? const Padding(
-  //                   padding: EdgeInsets.all(10.0),
-  //                   child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
-  //                 )
-  //               : BloretIconButton(
-  //                   onPressed: _blorikoController.text.trim().isEmpty ? null : _sendBlorikoMessage,
-  //                   icon: Icons.send,
-  //                   tooltip: "发送".tl,
-  //                 ),
-  //         ],
-  //       ),
-  //     ),
-  //   );
-  // }
-
   Widget _buildSliverContent(
       Color textColor,
       Color secondaryColor,
@@ -482,7 +331,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      "暂无推荐内容".tl,
+                      "No recommended content".tl,
                       style: TextStyle(
                         color: secondaryColor,
                       ),
@@ -556,7 +405,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          "AI 每日摘要".tl,
+                          "AI Daily Summary".tl,
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -568,7 +417,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                     const SizedBox(height: 12),
                     Text(
                       _summaryData.isEmpty
-                          ? "暂无每日摘要".tl
+                          ? "No summary available".tl
                           : (_summaryData['text'] ??
                           _summaryData['content'] ??
                           _summaryData['summary'] ??
@@ -601,7 +450,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      "暂无热帖数据".tl,
+                      "No trending data".tl,
                       style: TextStyle(
                         color: secondaryColor,
                       ),
@@ -651,7 +500,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                         Icon(Icons.forum_outlined, size: 64, color: secondaryColor.withValues(alpha: 0.3)),
                         const SizedBox(height: 16),
                         Text(
-                          "和 Bloriko 聊聊天吧".tl,
+                          "Chat with Bloriko".tl,
                           style: TextStyle(color: secondaryColor, fontSize: 16),
                         ),
                       ],
@@ -683,7 +532,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      "暂无帖子".tl,
+                      "No posts available".tl,
                       style: TextStyle(
                         color: secondaryColor,
                       ),
@@ -844,21 +693,21 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
               _statItem(
                 Icons.favorite_outline,
                 item['likesCount'] ?? item['likes'] ?? 0,
-                "赞".tl,
+                "Likes".tl,
                 secondaryColor,
               ),
               const SizedBox(width: 12),
               _statItem(
                 Icons.chat_bubble_outline,
                 item['commentsCount'] ?? item['comments'] ?? 0,
-                "评论".tl,
+                "Comments".tl,
                 secondaryColor,
               ),
               const SizedBox(width: 12),
               _statItem(
                 Icons.visibility_outlined,
                 item['views'] ?? 0,
-                "浏览".tl,
+                "Views".tl,
                 secondaryColor,
               ),
             ],
@@ -981,11 +830,11 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                     padding: const EdgeInsets.only(top: 6),
                     child: Row(
                       children: [
-                        Icon(Icons.auto_awesome, size: 12, color: Colors.blue.shade300),
+                        const Icon(Icons.auto_awesome, size: 12, color: Colors.blue),
                         const SizedBox(width: 4),
                         Text(
                           item.recommendationReason!,
-                          style: TextStyle(fontSize: 11, color: Colors.blue.shade300, fontStyle: FontStyle.italic),
+                          style: const TextStyle(fontSize: 11, color: Colors.blue, fontStyle: FontStyle.italic),
                         ),
                       ],
                     ),
@@ -1111,11 +960,4 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
       return t.toString();
     }
   }
-
-  // String _truncate(String text, int limit) {
-  //   if (text.length > limit) {
-  //     return '${text.substring(0, limit)}...';
-  //   }
-  //   return text;
-  // }
 }

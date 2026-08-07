@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -63,10 +64,11 @@ class ConfigService {
   }
 
   static String getLanguage() {
-    return get("language") ?? "zh-cn";
+    return get("language") ?? "zh_cn";
   }
 
-  static Future<void> setLanguage(String lang) {
+  static Future<void> setLanguage(String lang) async {
+    I18n.load(lang);
     return set("language", lang);
   }
 

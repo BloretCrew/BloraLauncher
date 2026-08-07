@@ -26,6 +26,7 @@ class NoticeManager {
     required IconData icon,
     bool continueOnHover = false,
     int duration = 5000,
+    NoticeType type = NoticeType.info,
   }) {
     bool isFirstTime = false;
     if (_overlayEntry == null) {
@@ -39,7 +40,13 @@ class NoticeManager {
       overlayState.insert(_overlayEntry!);
     }
 
-    final notice = Notice(message: message, icon: icon, continueOnHover: continueOnHover, durationMs: duration);
+    final notice = Notice(
+      message: message, 
+      icon: icon, 
+      continueOnHover: continueOnHover, 
+      durationMs: duration,
+      type: type,
+    );
 
     if (isFirstTime) {
       // Need one frame to ensure NoticeOverlay is mounted
@@ -57,6 +64,22 @@ class NoticeManager {
         });
       }
     }
+  }
+
+  void showError(BuildContext? context, String message, {int duration = 5000}) {
+    show(context, message: message, icon: Icons.error_outline, type: NoticeType.error, duration: duration);
+  }
+
+  void showWarning(BuildContext? context, String message, {int duration = 5000}) {
+    show(context, message: message, icon: Icons.warning_amber_rounded, type: NoticeType.warning, duration: duration);
+  }
+
+  void showSuccess(BuildContext? context, String message, {int duration = 5000}) {
+    show(context, message: message, icon: Icons.check_circle_outline, type: NoticeType.success, duration: duration);
+  }
+
+  void showInfo(BuildContext? context, String message, {int duration = 5000}) {
+    show(context, message: message, icon: Icons.info_outline, type: NoticeType.info, duration: duration);
   }
 
 

@@ -215,6 +215,7 @@ class Bloriko extends ChangeNotifier {
   FlutterAgentBridge? _uiAgent;
   ActionRegistry? _actionRegistry;
 
+  ///
   // ignore: unused_field
   AgentWorker? _worker;
 
@@ -231,6 +232,7 @@ class Bloriko extends ChangeNotifier {
     BuiltInActions.registerDefaults(
       subActionRegistry,
       performAction: (nodeId, action, {actionArgs}) async {
+        /// Must pipelineOwner, else it has no effect.
         // ignore: deprecated_member_use
         RendererBinding.instance.pipelineOwner.semanticsOwner?.performAction(nodeId, action, actionArgs);
       },
@@ -259,6 +261,7 @@ class Bloriko extends ChangeNotifier {
     BuiltInActions.registerDefaults(
       _actionRegistry!,
       performAction: (nodeId, action, {actionArgs}) async {
+        /// Must pipelineOwner, else it has no effect.
         // ignore: deprecated_member_use
         RendererBinding.instance.pipelineOwner.semanticsOwner?.performAction(nodeId, action, actionArgs);
       }

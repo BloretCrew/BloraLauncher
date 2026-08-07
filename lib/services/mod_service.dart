@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'package:bloret_launcher/core/logger.dart';
+import 'package:bloret_launcher/main.dart';
 import 'package:dio/dio.dart';
 
 class ModService {
@@ -28,7 +30,7 @@ class ModService {
 
       return res.data;
     } catch (e) {
-      print(e);
+      logger.error("[ModService] searchMods error: $e", LogSource.network);
       return null;
     }
   }
@@ -76,7 +78,7 @@ class ModService {
       final res = await dio.get("/project/$slugOrId");
       return res.data;
     } catch (e) {
-      print(e);
+      logger.error("[ModService] getProject error: $e", LogSource.network);
       return null;
     }
   }
@@ -111,7 +113,7 @@ class ModService {
         }
       }
     } catch (e) {
-      print(e);
+      logger.error("[ModService] getDownloadUrl error: $e", LogSource.network);
     }
 
     return null;
@@ -125,11 +127,16 @@ class ModService {
         ProgressCallback? onProgress,
       }) async {
 
-    await dio.download(
-      url,
-      savePath,
-      onReceiveProgress: onProgress,
-    );
+    try {
+      await dio.download(
+        url,
+        savePath,
+        onReceiveProgress: onProgress,
+      );
+    } catch (e) {
+      logger.error("[ModService] downloadFile error: $e", LogSource.download);
+      rethrow;
+    }
 
   }
 

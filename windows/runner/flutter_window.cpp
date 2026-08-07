@@ -10,8 +10,10 @@
 #include <flutter/encodable_value.h>
 #include <flutter/standard_message_codec.h>
 #include <dwmapi.h>
+#include <psapi.h>
 
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "psapi.lib")
 
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAYICON 1001
@@ -86,6 +88,109 @@ extern "C" __declspec(dllexport) void ShowTrayMenu(bool is_dark) {
 
 extern "C" __declspec(dllexport) void c_terminate_process() {
   TerminateProcess(GetCurrentProcess(), 0);
+}
+
+typedef LONG (NTAPI *pNtSuspendProcess)(HANDLE ProcessHandle);
+typedef LONG (NTAPI *pNtResumeProcess)(HANDLE ProcessHandle);
+
+extern "C" __declspec(dllexport) void SuspendProcess(uint32_t pid) {
+  HANDLE hProcess = OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, pid);
+  if (hProcess) {
+    HMODULE hNtdll = GetModuleHandleA("ntdll.dll");
+    if (hNtdll) {
+      auto NtSuspendProcess = (pNtSuspendProcess)GetProcAddress(hNtdll, "NtSuspendProcess");
+      if (NtSuspendProcess) NtSuspendProcess(hProcess);
+    }
+    CloseHandle(hProcess);
+  }
+}
+
+extern "C" __declspec(dllexport) void ResumeProcess(uint32_t pid) {
+  HANDLE hProcess = OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, pid);
+  if (hProcess) {
+    HMODULE hNtdll = GetModuleHandleA("ntdll.dll");
+    if (hNtdll) {
+      auto NtResumeProcess = (pNtResumeProcess)GetProcAddress(hNtdll, "NtResumeProcess");
+      if (NtResumeProcess) NtResumeProcess(hProcess);
+    }
+    CloseHandle(hProcess);
+  }
+}
+
+extern "C" __declspec(dllexport) void SetEfficiencyMode(uint32_t pid, bool enable) {
+  HANDLE hProcess = OpenProcess(PROCESS_SET_INFORMATION, FALSE, pid);
+  if (hProcess) {
+    PROCESS_POWER_THROTTLING_STATE powerThrottling = {0};
+    powerThrottling.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    powerThrottling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+    powerThrottling.StateMask = enable ? PROCESS_POWER_THROTTLING_EXECUTION_SPEED : 0;
+
+    SetProcessInformation(hProcess, ProcessPowerThrottling, &powerThrottling, sizeof(powerThrottling));
+
+    // Also set priority class as a fallback/complement
+    SetPriorityClass(hProcess, enable ? IDLE_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS);
+
+    CloseHandle(hProcess);
+  }
+}
+
+extern "C" __declspec(dllexport) void CleanProcessRAM(uint32_t pid) {
+  HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, FALSE, pid);
+  if (hProcess) {
+    EmptyWorkingSet(hProcess);
+    CloseHandle(hProcess);
+  }
+}
+
+extern "C" __declspec(dllexport) uint64_t GetProcessMemoryUsage(uint32_t pid) {
+  HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+  if (hProcess) {
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc))) {
+      CloseHandle(hProcess);
+      return pmc.WorkingSetSize;
+    }
+    CloseHandle(hProcess);
+  }
+  return 0;
+}
+
+extern "C" __declspec(dllexport) uint64_t GetProcessCpuTime(uint32_t pid) {
+  HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+  if (hProcess) {
+    FILETIME ftCreation, ftExit, ftKernel, ftUser;
+    if (GetProcessTimes(hProcess, &ftCreation, &ftExit, &ftKernel, &ftUser)) {
+      CloseHandle(hProcess);
+      ULARGE_INTEGER kernel, user;
+      kernel.LowPart = ftKernel.dwLowDateTime;
+      kernel.HighPart = ftKernel.dwHighDateTime;
+      user.LowPart = ftUser.dwLowDateTime;
+      user.HighPart = ftUser.dwHighDateTime;
+      return kernel.QuadPart + user.QuadPart;
+    }
+    CloseHandle(hProcess);
+  }
+  return 0;
+}
+
+extern "C" __declspec(dllexport) int GetCpuCoreCount() {
+  SYSTEM_INFO sysInfo;
+  GetSystemInfo(&sysInfo);
+  return sysInfo.dwNumberOfProcessors;
+}
+
+extern "C" __declspec(dllexport) bool IsProcessAlive(uint32_t pid) {
+  HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (hProcess == NULL) return false;
+
+  DWORD exitCode = 0;
+  if (GetExitCodeProcess(hProcess, &exitCode)) {
+    CloseHandle(hProcess);
+    return exitCode == STILL_ACTIVE;
+  }
+
+  CloseHandle(hProcess);
+  return false;
 }
 
 extern "C" __declspec(dllexport) void DestroyApp() { c_terminate_process(); }

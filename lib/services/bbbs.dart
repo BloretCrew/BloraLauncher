@@ -1,6 +1,10 @@
 import 'dart:convert';
+import 'package:bloret_launcher/core/logger.dart';
+import 'package:bloret_launcher/main.dart';
 import 'package:bloret_launcher/services/config_service.dart';
+import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
+import '../core/i18n.dart';
 
 class BbbsService {
   static String _getBaseUrl() {
@@ -36,11 +40,11 @@ class BbbsService {
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       } else {
-        print("[BBBS] 获取每日摘要失败，状态码: ${response.statusCode}");
+        logger.error("[BBBS] Failed to fetch daily summary, status code: ${response.statusCode}", LogSource.network);
         return null;
       }
     } catch (e) {
-      print("[BBBS] 获取每日摘要网络错误: $e");
+      logger.error("[BBBS] Network error fetching daily summary: $e", LogSource.network);
       return null;
     }
   }
@@ -58,11 +62,11 @@ class BbbsService {
         if (data is List) return data;
         return [];
       } else {
-        print("[BBBS] 获取热帖排行失败，状态码: ${response.statusCode}");
+        logger.error("[BBBS] Failed to fetch leaderboard posts, status code: ${response.statusCode}", LogSource.network);
         return [];
       }
     } catch (e) {
-      print("[BBBS] 获取热帖排行网络错误: $e");
+      logger.error("[BBBS] Network error fetching leaderboard posts: $e", LogSource.network);
       return [];
     }
   }
@@ -80,11 +84,11 @@ class BbbsService {
         if (data is List) return data;
         return [];
       } else {
-        print("[BBBS] 获取最新帖子失败，状态码: ${response.statusCode}");
+        logger.error("[BBBS] Failed to fetch latest posts, status code: ${response.statusCode}", LogSource.network);
         return [];
       }
     } catch (e) {
-      print("[BBBS] 获取最新帖子网络错误: $e");
+      logger.error("[BBBS] Network error fetching latest posts: $e", LogSource.network);
       return [];
     }
   }
@@ -101,7 +105,7 @@ class BbbsService {
         return jsonDecode(response.body);
       }
     } catch (e) {
-      print("[BBBS] 获取今日推荐失败: $e");
+      logger.error("[BBBS] Failed to fetch today's feed: $e", LogSource.network);
     }
     return null;
   }
@@ -118,7 +122,7 @@ class BbbsService {
         return jsonDecode(response.body);
       }
     } catch (e) {
-      print("[BBBS] 获取帖子详情失败: $e");
+      logger.error("[BBBS] Failed to fetch post details: $e", LogSource.network);
     }
     return null;
   }
@@ -136,7 +140,7 @@ class BbbsService {
         return jsonDecode(response.body);
       }
     } catch (e) {
-      print("[BBBS] 获取板块帖子列表失败: $e");
+      logger.error("[BBBS] Failed to fetch board posts: $e", LogSource.network);
     }
     return [];
   }
@@ -164,7 +168,7 @@ class BbbsService {
         return jsonDecode(response.body);
       }
     } catch (e) {
-      print("[BBBS] 获取用户信息失败: $e");
+      logger.error("[BBBS] Failed to fetch current user info: $e", LogSource.network);
     }
     return null;
   }
@@ -174,6 +178,7 @@ class BbbsService {
     required String board,
     required String section,
     required String filename,
+    BuildContext? context,
   }) async {
     final url = Uri.parse('${_getBaseUrl()}/api/post/like');
     final headers = _getSessionCookie()..addAll({'Content-Type': 'application/json'});
@@ -184,8 +189,18 @@ class BbbsService {
     });
     try {
       final resp = await http.post(url, headers: headers, body: body);
-      return jsonDecode(resp.body);
+      final data = jsonDecode(resp.body);
+      if (context != null) {
+        if (data['success'] == true && context.mounted) {
+          noticeManager.showSuccess(context, (data['message'] as String? ?? "Liked").tl);
+        } else {
+          if (context.mounted) noticeManager.showWarning(context, (data['message'] as String? ?? "Failed to like post").tl);
+        }
+      }
+      return data;
     } catch (e) {
+      logger.error("[BBBS] Like operation failed: $e", LogSource.network);
+      if (context != null && context.mounted) noticeManager.showError(context, "Network error, failed to like post".tl);
       return {"success": false, "message": e.toString()};
     }
   }
@@ -194,6 +209,7 @@ class BbbsService {
     required String board,
     required String section,
     required String filename,
+    BuildContext? context,
   }) async {
     final url = Uri.parse('${_getBaseUrl()}/api/post/share-record');
     final headers = _getSessionCookie()..addAll({'Content-Type': 'application/json'});
@@ -204,8 +220,13 @@ class BbbsService {
     });
     try {
       final resp = await http.post(url, headers: headers, body: body);
-      return jsonDecode(resp.body);
+      final data = jsonDecode(resp.body);
+      if (context != null && data['success'] == true && context.mounted) {
+        noticeManager.showSuccess(context, (data['message'] as String? ?? "Shared successfully").tl);
+      }
+      return data;
     } catch (e) {
+      logger.error("[BBBS] Share record failed: $e", LogSource.network);
       return {"success": false, "message": e.toString()};
     }
   }
@@ -216,42 +237,65 @@ class BbbsService {
     required String content,
     int? parentId,
     int? replyToId,
+    BuildContext? context,
   }) async {
     final url = Uri.parse('${_getBaseUrl()}/api/comment/add');
     final headers = _getSessionCookie()..addAll({'Content-Type': 'application/json'});
     final body = {
       "filename": filename,
       "content": content,
-      "parent_id": ?parentId,
-      "reply_to_id": ?replyToId,
+      "parent_id": parentId,
+      "reply_to_id": replyToId,
     };
     
     try {
       final resp = await http.post(url, headers: headers, body: jsonEncode(body));
-      return jsonDecode(resp.body);
+      final data = jsonDecode(resp.body);
+      if (context != null) {
+        if (data['success'] == true) {
+          if (context.mounted) noticeManager.showSuccess(context, "Comment posted successfully".tl);
+        } else {
+          if (context.mounted) noticeManager.showWarning(context, (data['message'] as String? ?? "Failed to post comment").tl);
+        }
+      }
+      return data;
     } catch (e) {
+      logger.error("[BBBS] Failed to post comment: $e", LogSource.network);
+      if (context != null && context.mounted) noticeManager.showError(context, "Network error, failed to post comment".tl);
       return {"success": false, "message": e.toString()};
     }
   }
 
-  static Future<Map<String, dynamic>> deleteComment(int id) async {
+  static Future<Map<String, dynamic>> deleteComment(int id, {BuildContext? context}) async {
     final url = Uri.parse('${_getBaseUrl()}/api/comment/delete');
     final headers = _getSessionCookie()..addAll({'Content-Type': 'application/json'});
     try {
       final resp = await http.post(url, headers: headers, body: jsonEncode({"id": id.toString()}));
-      return jsonDecode(resp.body);
+      final data = jsonDecode(resp.body);
+      if (context != null && data['success'] == true && context.mounted) {
+        noticeManager.showSuccess(context, "Comment deleted".tl);
+      }
+      return data;
     } catch (e) {
+      logger.error("[BBBS] Failed to delete comment: $e", LogSource.network);
+      if (context != null && context.mounted) noticeManager.showError(context, "Network error, failed to delete comment".tl);
       return {"success": false, "message": e.toString()};
     }
   }
 
-  static Future<Map<String, dynamic>> editComment(int id, String content) async {
+  static Future<Map<String, dynamic>> editComment(int id, String content, {BuildContext? context}) async {
     final url = Uri.parse('${_getBaseUrl()}/api/comment/edit');
     final headers = _getSessionCookie()..addAll({'Content-Type': 'application/json'});
     try {
       final resp = await http.post(url, headers: headers, body: jsonEncode({"id": id.toString(), "content": content}));
-      return jsonDecode(resp.body);
+      final data = jsonDecode(resp.body);
+      if (context != null && data['success'] == true && context.mounted) {
+        noticeManager.showSuccess(context, "Comment updated".tl);
+      }
+      return data;
     } catch (e) {
+      logger.error("[BBBS] Failed to edit comment: $e", LogSource.network);
+      if (context != null && context.mounted) noticeManager.showError(context, "Network error, failed to edit comment".tl);
       return {"success": false, "message": e.toString()};
     }
   }
@@ -302,7 +346,7 @@ class BbbsService {
         }
       }
     } catch (e) {
-      print("[BBBS AI] SSE error: $e");
+      logger.error("[BBBS AI] SSE error: $e", LogSource.network);
     } finally {
       client.close();
     }
@@ -332,14 +376,13 @@ class BbbsService {
     try {
       final response = await client.send(request);
       if (response.statusCode != 200) {
-        print("[Bloriko Chat] Error: ${response.statusCode}");
+        logger.error("[Bloriko Chat] Connection error: ${response.statusCode}", LogSource.network);
         return;
       }
 
       String buffer = "";
       await for (var chunk in response.stream.transform(utf8.decoder)) {
         buffer += chunk;
-        // 兼容 \n\n 或 \r\n\r\n 换行符
         while (buffer.contains('\n\n')) {
           final parts = buffer.split('\n\n');
           final eventString = parts.removeAt(0);
@@ -356,14 +399,14 @@ class BbbsService {
                 final data = jsonDecode(jsonStr);
                 if (data['text'] != null) yield data['text'];
               } catch (e) {
-                print("[Bloriko Chat] JSON Parse Error: $e");
+                logger.error("[Bloriko Chat] JSON Parse Error: $e", LogSource.network);
               }
             }
           }
         }
       }
     } catch (e) {
-      print("[Bloriko Chat] SSE error: $e");
+      logger.error("[Bloriko Chat] SSE error: $e", LogSource.network);
     } finally {
       client.close();
     }

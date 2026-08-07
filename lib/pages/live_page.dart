@@ -9,6 +9,8 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:pasteboard/pasteboard.dart';
 import '../core/i18n.dart';
+import '../core/grammer_candy.dart';
+import '../core/logger.dart';
 import '../services/bbbs.dart';
 import '../services/live_service.dart';
 import '../services/webrtc_service.dart';
@@ -27,7 +29,6 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   bool _isLoading = true;
   bool _isAuthenticated = false;
   
-  // In-Space State
   bool _inSpace = false;
   Map<String, dynamic> _currentSpace = {};
   List<dynamic> _chatMessages = [];
@@ -38,7 +39,6 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   final TextEditingController _chatController = TextEditingController();
   final ScrollController _chatScrollController = ScrollController();
 
-  // WebRTC State
   WebRTCManager? _rtcManager;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final Map<String, RTCVideoRenderer> _remoteRenderers = {};
@@ -48,7 +48,6 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
   bool _videoEnabled = false;
   bool _screenEnabled = false;
 
-  // EasyTier State
   Map<String, dynamic> _easytierState = {};
   bool _isStartingEasyTier = false;
   bool _isUploadingImage = false;
@@ -91,34 +90,40 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
     final String? spaceId = (space['id'] ?? space['spaceId'])?.toString();
     if (spaceId == null) {
       if (mounted) {
-        noticeManager.show(context, message: "空间 ID 异常".tl, icon: Icons.error);
+        showError("Invalid space ID".tl);
         setState(() => _isLoading = false);
       }
       return;
     }
 
     setState(() => _isLoading = true);
-    final res = await LiveService.verifyPassword(spaceId, password);
-    if (res['success'] == true) {
-      if (!mounted) return;
-      setState(() {
-        _inSpace = true;
-        _currentSpace = Map<String, dynamic>.from(space);
-        if (_currentSpace['id'] == null && _currentSpace['spaceId'] != null) {
-          _currentSpace['id'] = _currentSpace['spaceId'];
-        }
+    try {
+      final res = await LiveService.verifyPassword(spaceId, password);
+      if (res['success'] == true) {
+        if (!mounted) return;
+        setState(() {
+          _inSpace = true;
+          _currentSpace = Map<String, dynamic>.from(space);
+          if (_currentSpace['id'] == null && _currentSpace['spaceId'] != null) {
+            _currentSpace['id'] = _currentSpace['spaceId'];
+          }
 
-        _chatMessages = List.from(space['chatHistory'] ?? []);
-        _onlineUsers = List.from(space['users'] ?? []);
-        _easytierState = space['easytier'] ?? {};
-      });
-      _fetchAndStoreUserProfile(ConfigService.get("Bloret_PassPort_UserName") ?? "");
-      _initWebRTC(spaceId);
-      _startEventListener(spaceId);
-      _startHeartbeat(spaceId);
-    } else {
-      if (!mounted) return;
-      noticeManager.show(context, message: res['message'] ?? "加入失败".tl, icon: Icons.error);
+          _chatMessages = List.from(space['chatHistory'] ?? []);
+          _onlineUsers = List.from(space['users'] ?? []);
+          _easytierState = space['easytier'] ?? {};
+        });
+        _fetchAndStoreUserProfile(ConfigService.get("Bloret_PassPort_UserName") ?? "");
+        _initWebRTC(spaceId);
+        _startEventListener(spaceId);
+        _startHeartbeat(spaceId);
+        showSuccess("Joined space successfully".tl);
+      } else {
+        if (!mounted) return;
+        showError(res['message'] ?? "Failed to join space".tl);
+      }
+    } catch (e) {
+      logger.error("Join space error: $e", LogSource.network);
+      showError("Join space error".tl);
     }
     setState(() => _isLoading = false);
   }
@@ -128,7 +133,6 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       spaceId: spaceId,
       myUserId: ConfigService.get("Bloret_PassPort_UserName") ?? "",
       onAddRemoteStream: (userId, stream) async {
-        debugPrint("DEBUG [LivePage]: !!! Adding Remote Stream for $userId");
         final renderer = RTCVideoRenderer();
         await renderer.initialize();
         renderer.srcObject = stream;
@@ -139,19 +143,12 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           }
         }
 
-        final videoTracks = stream.getVideoTracks();
-        if (videoTracks.isNotEmpty) {
-          debugPrint("DEBUG: Video track enabled: ${videoTracks.first.enabled}");
-          debugPrint("DEBUG: Video track muted: ${videoTracks.first.muted}");
-          debugPrint("DEBUG: Video track label: ${videoTracks.first.label}");
-        }
         setState(() {
           _remoteRenderers[userId] = renderer;
         });
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted) setState(() {});
         });
-        debugPrint("DEBUG: Renderer set. Is valid: ${renderer.textureId != null}");
       },
       onRemoveRemoteStream: (userId) {
         setState(() {
@@ -161,7 +158,6 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
         });
       },
       onConnectionStateChanged: (userId, state) {
-        debugPrint("DEBUG [LivePage]: Connection State -> $state");
         setState(() => _peerStates[userId] = state);
       },
     );
@@ -187,9 +183,8 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       if (!mounted) return;
       final type = event['type'];
       
-      if (type == 'ping') return; // Ignore ping events
+      if (type == 'ping') return;
       
-      // Handle WebRTC Signaling
       if (['offer', 'answer', 'ice-candidate', 'ice'].contains(type)) {
         _rtcManager?.handleSignal(event);
         return;
@@ -388,8 +383,11 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           "payload": {"msg": markdown}
         });
       } else {
-        if (mounted) noticeManager.show(context, message: "图片上传失败".tl, icon: Icons.error);
+        if (mounted) showError("Image upload failed".tl);
       }
+    } catch (e) {
+      logger.error("Upload image error: $e", LogSource.network);
+      if (mounted) showError("Upload image error".tl);
     } finally {
       if (mounted) setState(() => _isUploadingImage = false);
     }
@@ -486,7 +484,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                   _buildBadge(profile!['title'], Colors.blue),
                 ],
                 const SizedBox(height: 12),
-                Text(profile?['bio']?.toString().isNotEmpty == true ? profile!['bio'] : "该用户未填写个人简介".tl,
+                Text(profile?['bio']?.toString().isNotEmpty == true ? profile!['bio'] : "Bio not set.".tl,
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
@@ -494,14 +492,14 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _buildProfileStat("帖子".tl, profile?['postCount'] ?? 0),
-                    _buildProfileStat("获赞".tl, profile?['receivedLikes'] ?? 0),
-                    _buildProfileStat("浏览".tl, profile?['totalViews'] ?? 0),
+                    _buildProfileStat("Posts".tl, profile?['postCount'] ?? 0),
+                    _buildProfileStat("Likes".tl, profile?['receivedLikes'] ?? 0),
+                    _buildProfileStat("Views".tl, profile?['totalViews'] ?? 0),
                   ],
                 ),
                   const SizedBox(height: 20),
                   BloretButton(
-                    text: "确定".tl,
+                    text: "OK".tl,
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -570,31 +568,37 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("创建 Live 空间".tl),
+        title: Text("Create Live Space".tl),
         content: TextField(
           controller: ctrl,
-          decoration: InputDecoration(hintText: "空间名称".tl),
+          decoration: InputDecoration(hintText: "Space Name".tl),
           autofocus: true,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text("取消".tl)),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
           ElevatedButton(
             onPressed: () async {
               final name = ctrl.text.trim();
               if (name.isNotEmpty) {
                 Navigator.pop(context);
                 setState(() => _isLoading = true);
-                final res = await LiveService.createSpace(name);
-                if (res != null && res['success'] != false) {
-                  _joinSpace(res);
-                } else {
+                try {
+                  final res = await LiveService.createSpace(name);
+                  if (res != null && res['success'] != false) {
+                    _joinSpace(res);
+                  } else {
+                    setState(() => _isLoading = false);
+                    if (!context.mounted) return;
+                    showError(res?['message'] ?? "Failed to create space".tl);
+                  }
+                } catch (e) {
                   setState(() => _isLoading = false);
-                  if (!context.mounted) return;
-                  noticeManager.show(context, message: res?['message'] ?? "创建失败".tl, icon: Icons.error);
+                  logger.error("Create space error: $e", LogSource.network);
+                  showError("Create space error".tl);
                 }
               }
             },
-            child: Text("创建".tl),
+            child: Text("Create".tl),
           ),
         ],
       ),
@@ -646,7 +650,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
         ),
         delegate: SliverChildListDelegate([
           _buildVideoCard(
-            ConfigService.get("Bloret_PassPort_UserName") ?? "我".tl, 
+            ConfigService.get("Bloret_PassPort_UserName") ?? "Me".tl, 
             _localRenderer, 
             isLocal: true
           ),
@@ -655,7 +659,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
             final username = u?['username'];
             return u != null && username != ConfigService.get("Bloret_PassPort_UserName");
           }).map((u) {
-            final username = u['username'] ?? "未知";
+            final username = u['username'] ?? "Unknown".tl;
             return _buildVideoCard(username, _remoteRenderers[username]);
           }),
         ]),
@@ -694,7 +698,6 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       },
       child: InkWell(
         onTap: () {
-          // 移除焦点，防止返回时自动聚焦
           FocusScope.of(context).unfocus();
           Navigator.of(context).push(MaterialPageRoute(
             builder: (context) => FullScreenVideoPage(
@@ -819,7 +822,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                     Text(displayTitle, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: textColor), maxLines: 1, overflow: TextOverflow.ellipsis),
                     Row(
                       children: [
-                        Text(_inSpace ? "正在通话".tl : "实时空间".tl, style: TextStyle(fontSize: 14, color: secondaryColor)),
+                        Text(_inSpace ? "In Call".tl : "Real-time Spaces".tl, style: TextStyle(fontSize: 14, color: secondaryColor)),
                         const SizedBox(width: 8),
                         _buildBadge("Bloret BBS", Colors.green),
                       ],
@@ -830,7 +833,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
             else ...[
               Text(displayTitle, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: textColor)),
               const SizedBox(width: 10),
-              Text(_inSpace ? "正在通话".tl : "实时空间".tl, style: TextStyle(fontSize: 14, color: secondaryColor)),
+              Text(_inSpace ? "In Call".tl : "Real-time Spaces".tl, style: TextStyle(fontSize: 14, color: secondaryColor)),
               const SizedBox(width: 10),
               _buildBadge("Bloret BBS", Colors.green),
               const Spacer(),
@@ -856,7 +859,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
         children: [
           PopupMenuButton<String>(
             icon: Icon(Icons.settings_input_component, shadows: shadows),
-            tooltip: "媒体控制".tl,
+            tooltip: "Media Controls".tl,
             offset: const Offset(0, 40),
             onSelected: (value) async {
               if (value == 'audio') {
@@ -895,7 +898,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 value: 'audio',
                 child: ListTile(
                   leading: Icon(_audioEnabled ? Icons.mic : Icons.mic_off, color: _audioEnabled ? Colors.green : null),
-                  title: Text("麦克风".tl),
+                  title: Text("Microphone".tl),
                   dense: true,
                 ),
               ),
@@ -903,7 +906,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 value: 'video',
                 child: ListTile(
                   leading: Icon(_videoEnabled ? Icons.videocam : Icons.videocam_off, color: _videoEnabled ? Colors.green : null),
-                  title: Text("摄像头".tl),
+                  title: Text("Camera".tl),
                   dense: true,
                 ),
               ),
@@ -911,7 +914,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 value: 'screen',
                 child: ListTile(
                   leading: Icon(_screenEnabled ? Icons.desktop_windows : Icons.desktop_access_disabled, color: _screenEnabled ? Colors.green : null),
-                  title: Text("屏幕共享".tl),
+                  title: Text("Screen Share".tl),
                   dense: true,
                 ),
               ),
@@ -920,7 +923,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           const SizedBox(width: 8),
           TextButton.icon(
             icon: const Icon(Icons.exit_to_app, shadows: shadows),
-            label: Text("离开".tl),
+            label: Text("Leave".tl),
             onPressed: () async {
               LiveService.sendSignal(_currentSpace['id'], {
                 "type": "leave",
@@ -959,7 +962,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
             const SizedBox(width: 8),
             BloretButton(
               icon: Icons.add,
-              text: "创建空间".tl,
+              text: "Create Space".tl,
               onPressed: _showCreateSpaceDialog,
               height: 42,
             ),
@@ -974,7 +977,14 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
-      child: Text(text, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.bold)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.videocam, size: 16, color: color),
+          const SizedBox(width: 4),
+          Text(text, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.bold))
+        ],
+      ),
     );
   }
 
@@ -988,9 +998,9 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           children: [
             const Icon(Icons.lock_outline, size: 48),
             const SizedBox(height: 12),
-            Text("请先登录 Bloret PassPort".tl, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
+            Text("Please login to Bloret PassPort first".tl, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
             const SizedBox(height: 8),
-            Text("登录后即可加入 Live 空间，进行实时聊天和联机。".tl, textAlign: TextAlign.center, style: TextStyle(color: secondaryColor)),
+            Text("After logging in, you can join Live Spaces for real-time chat and online play.".tl, textAlign: TextAlign.center, style: TextStyle(color: secondaryColor)),
           ],
         ),
       ),
@@ -1007,12 +1017,12 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
             children: [
               Icon(Icons.sensors_off, size: 48, color: secondaryColor.withValues(alpha: 0.5)),
               const SizedBox(height: 16),
-              Text("暂无活跃的 Live 空间".tl, style: TextStyle(color: secondaryColor)),
+              Text("No active Live Spaces".tl, style: TextStyle(color: secondaryColor)),
               const SizedBox(height: 24),
               BloretButton(
                 onPressed: _showCreateSpaceDialog,
                 icon: Icons.add,
-                text: "创建一个新空间".tl,
+                text: "Create a new space".tl,
                 height: 42,
               ),
             ],
@@ -1048,10 +1058,10 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
               child: ListTile(
                 leading: CircleAvatar(child: Text(space['name']?[0]?.toUpperCase() ?? "L")),
                 title: Text(space['name'] ?? "", style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text("${"在线: ".tl} ${space['userCount'] ?? 0}"),
+                subtitle: Text("${"Online: ".tl} ${space['userCount'] ?? 0}"),
                 trailing: BloretButton(
                   onPressed: () => _showJoinDialog(space),
-                  text: "加入".tl,
+                  text: "Join".tl,
                 ),
               ),
             ),
@@ -1067,14 +1077,14 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text("需要密码".tl),
-          content: TextField(controller: ctrl, decoration: InputDecoration(hintText: "请输入密码".tl), obscureText: true),
+          title: Text("Password Required".tl),
+          content: TextField(controller: ctrl, decoration: InputDecoration(hintText: "Please enter password".tl), obscureText: true),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: Text("取消".tl)),
+            TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
             TextButton(onPressed: () {
               Navigator.pop(context);
               _joinSpace(space, password: ctrl.text);
-            }, child: Text("加入".tl)),
+            }, child: Text("Join".tl)),
           ],
         ),
       );
@@ -1117,9 +1127,9 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
             children: [
               const Icon(Icons.network_check, size: 20),
               const SizedBox(width: 8),
-              const Text("EasyTier 联机网", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const Text("EasyTier Online", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const Spacer(),
-              _buildBadge(active ? (ready ? "就绪".tl : "启动中".tl) : "未启用".tl, active ? Colors.green : Colors.grey),
+              _buildBadge(active ? (ready ? "Ready".tl : "Starting".tl) : "Not Enabled".tl, active ? Colors.green : Colors.grey),
             ],
           ),
           const SizedBox(height: 12),
@@ -1127,12 +1137,12 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           if (!active) 
             Text(
               isOwner 
-                ? "1. 点击开始网络\n2. 启动 Minecraft 开放局域网\n3. 端口会自动同步给成员".tl 
-                : "房主尚未开启 EasyTier 网络，请等待房主启动。".tl,
+                ? "1. Click start network\n2. Start Minecraft Open LAN\n3. Port will be automatically synced to members".tl 
+                : "Host has not enabled EasyTier network yet, please wait for host to start.".tl,
               style: TextStyle(fontSize: 12, color: secondaryColor, height: 1.5),
             )
           else ...[
-            Text(ready ? "网络已就绪，成员可以直接连接".tl : "正在等待房主在游戏内开放局域网...".tl, 
+            Text(ready ? "Network ready, members can connect directly".tl : "Waiting for host to open LAN in game...".tl, 
               style: TextStyle(fontSize: 13, color: ready ? Colors.green : secondaryColor)),
             if (ready && !isOwner) ...[
               const SizedBox(height: 8),
@@ -1141,7 +1151,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(6)),
                 child: Row(
                   children: [
-                    Text("房主地址: ".tl, style: TextStyle(fontSize: 12, color: secondaryColor)),
+                    Text("Host Address: ".tl, style: TextStyle(fontSize: 12, color: secondaryColor)),
                     Text("$hostIp:$gamePort", style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'monospace')),
                   ],
                 ),
@@ -1156,10 +1166,16 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 ElevatedButton(
                   onPressed: _isStartingEasyTier ? null : () async {
                     setState(() => _isStartingEasyTier = true);
-                    await LiveService.startEasyTier(_currentSpace['id']);
+                    try {
+                      await LiveService.startEasyTier(_currentSpace['id']);
+                      showSuccess("EasyTier network started".tl);
+                    } catch (e) {
+                      logger.error("Start EasyTier error: $e", LogSource.network);
+                      showError("Failed to start EasyTier".tl);
+                    }
                     setState(() => _isStartingEasyTier = false);
                   },
-                  child: Text(active ? "重新启动".tl : "开始网络".tl),
+                  child: Text(active ? "Restart".tl : "Start Network".tl),
                 ),
                 if (active) ...[
                   const SizedBox(width: 12),
@@ -1167,7 +1183,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                     child: TextField(
                       decoration: InputDecoration(
                         isDense: true,
-                        labelText: "手动端口".tl,
+                        labelText: "Manual Port".tl,
                         hintText: "25565",
                         border: const OutlineInputBorder(),
                       ),
@@ -1195,7 +1211,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: borderColor)),
       child: Row(
         children: [
-          Text("${"在线".tl}: ", style: TextStyle(color: secondaryColor, fontSize: 12, fontWeight: FontWeight.bold)),
+          Text("${"Online".tl}: ", style: TextStyle(color: secondaryColor, fontSize: 12, fontWeight: FontWeight.bold)),
           const SizedBox(width: 8),
           Expanded(
             child: SingleChildScrollView(
@@ -1227,7 +1243,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
       decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: borderColor)),
       child: Row(
         children: [
-          Text("${"往期".tl}: ", style: TextStyle(color: secondaryColor, fontSize: 12, fontWeight: FontWeight.bold)),
+          Text("${"History".tl}: ", style: TextStyle(color: secondaryColor, fontSize: 12, fontWeight: FontWeight.bold)),
           const SizedBox(width: 8),
           Expanded(
             child: SingleChildScrollView(
@@ -1302,7 +1318,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                       item = Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Text(
-                          "$username ${"重进了空间".tl} ${reEntryCount > 1 ? ' x$reEntryCount' : ''}",
+                          "$username ${"rejoined the space".tl} ${reEntryCount > 1 ? ' x$reEntryCount' : ''}",
                           style: TextStyle(fontSize: 10, color: secondaryColor, fontStyle: FontStyle.italic),
                           textAlign: TextAlign.center,
                         ),
@@ -1327,7 +1343,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                       item = Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Text(
-                          "$username ${msg['type'] == 'user-joined' ? '加入了空间'.tl : '离开了空间'.tl} ${count > 1 ? ' x$count' : ''}",
+                          "$username ${msg['type'] == 'user-joined' ? 'joined the space'.tl : 'left the space'.tl} ${count > 1 ? ' x$count' : ''}",
                           style: TextStyle(fontSize: 10, color: secondaryColor, fontStyle: FontStyle.italic),
                           textAlign: TextAlign.center,
                         ),
@@ -1337,7 +1353,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                     item = Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Text(
-                        "$username ${msg['type'] == 'user-joined' ? '加入了空间'.tl : '离开了空间'.tl}",
+                        "$username ${msg['type'] == 'user-joined' ? 'joined the space'.tl : 'left the space'.tl}",
                         style: TextStyle(fontSize: 10, color: secondaryColor, fontStyle: FontStyle.italic),
                         textAlign: TextAlign.center,
                       ),
@@ -1346,7 +1362,6 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 } else {
                   final sender = msg['from'] ?? msg['user'] ?? "?";
                   
-                  // 安全解析消息内容：payload 可能是 Map 或是 String
                   String text = "";
                   final dynamic payload = msg['payload'];
                   if (payload is Map) {
@@ -1472,7 +1487,6 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                             final isCtrl = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlRight) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.metaLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.metaRight);
                             if (isCtrl) {
                               _handlePaste();
-                              // return ignored to allow normal text paste if it's text
                               return KeyEventResult.ignored;
                             }
                           }
@@ -1486,14 +1500,14 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                         keyboardType: TextInputType.multiline,
                         textAlignVertical: TextAlignVertical.center,
                         decoration: InputDecoration(
-                          hintText: _isUploadingImage ? "正在上传图片...".tl : "输入消息...".tl,
+                          hintText: _isUploadingImage ? "Uploading image...".tl : "Type a message...".tl,
                           border: InputBorder.none,
                           isDense: true,
                           contentPadding: const EdgeInsets.symmetric(vertical: 0),
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.image_outlined, size: 20),
                             onPressed: _isUploadingImage ? null : _pickImage,
-                            tooltip: "发送图片".tl,
+                            tooltip: "Send Image".tl,
                           ),
                         ),
                         onChanged: (_) => setState(() {}),

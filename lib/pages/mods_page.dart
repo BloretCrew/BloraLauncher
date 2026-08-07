@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:bloret_launcher/core/i18n.dart';
+import 'package:bloret_launcher/core/grammer_candy.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/mod_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
@@ -10,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
+import '../services/config_service.dart';
 import '../widgets/windows_widgets.dart';
 
 class ModsPage extends StatefulWidget {
@@ -91,12 +93,9 @@ class _ModsPageState extends State<ModsPage> {
     final prompt = _agentController.text.trim();
     if (prompt.isEmpty) return;
     
-    // Switch to Chat Page with initial prompt
-    Bloriko.instance.initialPrompt = "帮我找一下这些 Mod: $prompt".tl;
-    // Assuming there's a way to navigate or it's handled by main shell
-    // For now, just clear and focus
+    Bloriko.instance.initialPrompt = "Help me find these mods: $prompt".tl;
     _agentController.clear();
-    noticeManager.show(context, message: "正在调起 Blora Agent...".tl, icon: Icons.smart_toy);
+    showInfo("Calling Blora Agent...".tl);
   }
 
   Future<void> searchModrinth() async {
@@ -110,7 +109,7 @@ class _ModsPageState extends State<ModsPage> {
     if (category.isNotEmpty) {
       facets.add(["project_type:$category"]);
     } else {
-      facets.add(["project_type:mod"]); // Default to mod if empty? or leave empty?
+      facets.add(["project_type:mod"]);
     }
 
     try {
@@ -122,7 +121,11 @@ class _ModsPageState extends State<ModsPage> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => searching = false);
+      if (mounted) {
+        setState(() => searching = false);
+        showError("Search failed".tl);
+      }
+      logger.error("Modrinth search error: $e", .network);
     }
   }
 
@@ -137,15 +140,20 @@ class _ModsPageState extends State<ModsPage> {
     final slug = mod['slug'];
     if (slug == null) return;
 
-    noticeManager.show(context, message: "正在获取下载链接...".tl, icon: Icons.downloading);
-    final url = await _modService.getDownloadUrl(slug);
-    
-    if (!mounted) return;
-    if (url != null) {
-      // For now just launch the URL, actual download logic can be more complex (selecting path)
-      launchUrl(Uri.parse(url));
-    } else {
-      noticeManager.show(context, message: "未找到合适的下载文件".tl, icon: Icons.error);
+    showInfo("Fetching download link...".tl);
+    try {
+      final url = await _modService.getDownloadUrl(slug);
+      
+      if (!mounted) return;
+      if (url != null) {
+        launchUrl(Uri.parse(url));
+        showSuccess("Download link retrieved".tl);
+      } else {
+        showError("No suitable download found".tl);
+      }
+    } catch (e) {
+      showError("Download error".tl);
+      logger.error("Mod download error: $e", .network);
     }
   }
 
@@ -158,28 +166,55 @@ class _ModsPageState extends State<ModsPage> {
     setState(() => _translatingSlugs.add(slug));
 
     try {
+      String lang = ConfigService.getLanguage().toLowerCase();
+      if (lang.contains("zh_tw") || lang.contains("zh_hk")) {
+        lang = "zh-TW";
+      } else if (lang.contains("zh")) {
+        lang = "zh-CN";
+      } else {
+        lang = lang.split('_').first;
+      }
+
+      // Use placeholders to protect brands from being merged or mistranslated
+      final source = desc
+          .replaceAll("百络谷", "___BLORET_P___")
+          .replaceAll("络可", "___BLORIKO_P___")
+          .replaceAll("ロコ", "___BLORIKO_P___")
+          .replaceAll("Блорико", "___BLORIKO_P___")
+          .replaceAll("Blora", "___BLORA_P___");
+
       final dio = Dio();
       final response = await dio.get(
         "https://translate.googleapis.com/translate_a/single",
         queryParameters: {
           "client": "gtx",
           "sl": "auto",
-          "tl": "zh-CN",
+          "tl": lang,
           "dt": "t",
-          "q": desc,
+          "q": source,
         },
       );
 
       if (response.statusCode == 200 && response.data is List) {
         final List parts = response.data[0];
-        final translatedText = parts.map((p) => p[0]).join();
-        
+        var result = parts.map((p) => p[0]).join();
+
+        // Robust restoration function that handles spaces and case changes
+        String restore(String content, String placeholder, String brand) {
+          final escaped = placeholder.replaceAll('_', r'[_ ]*');
+          return content.replaceAll(RegExp(escaped, caseSensitive: false), brand);
+        }
+
+        result = restore(result, "___BLORET_P___", "Bloret");
+        result = restore(result, "___BLORIKO_P___", "Bloriko");
+        result = restore(result, "___BLORA_P___", "Blora");
+
         setState(() {
-          _translatedDescriptions[slug] = translatedText;
+          _translatedDescriptions[slug] = result;
         });
       }
     } catch (e) {
-      debugPrint("翻译失败: $e");
+      debugPrint("Translation failed: $e");
     } finally {
       if (mounted) setState(() => _translatingSlugs.remove(slug));
     }
@@ -242,7 +277,7 @@ class _ModsPageState extends State<ModsPage> {
   @override
   Widget build(BuildContext context) {
     final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
-    final agentName = Bloriko.type == "bloriko" ? "络可".tl : "Blora Agent".tl;
+    final agentName = Bloriko.type == "bloriko" ? "Bloriko".tl : "Blora Agent".tl;
 
     return Scaffold(
       body: ListView(
@@ -260,7 +295,7 @@ class _ModsPageState extends State<ModsPage> {
               ),
               if (!_apiAvailable)
                 Tooltip(
-                  message: "翻译 API 不可用".tl,
+                  message: "Translation API unavailable".tl,
                   child: const Padding(
                     padding: EdgeInsets.only(right: 16),
                     child: Icon(Icons.error_outline, color: Colors.red),
@@ -277,8 +312,8 @@ class _ModsPageState extends State<ModsPage> {
 
           Text(
             isPortrait 
-                ? "$agentName ${"依靠 AI，请核实重要信息。".tl}"
-                : "$agentName ${"依靠 AI，".tl}$agentName ${"也可能犯错，请核实重要信息。".tl}",
+                ? "$agentName ${"Powered by AI, please verify important information.".tl}"
+                : "$agentName ${"Powered by AI, ".tl}$agentName ${"may also make mistakes, please verify important information.".tl}",
             style: const TextStyle(
               fontSize: 12,
               color: Colors.grey,
@@ -341,13 +376,13 @@ class _ModsPageState extends State<ModsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isPortrait ? "让 $agentName 帮你找 Mod".tl : "让 $agentName 帮你挑选合适的 Mod".tl,
+                      isPortrait ? "Let $agentName help you find mods".tl : "Let $agentName help you pick suitable mods".tl,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     Text(
-                      isPortrait ? "让 AI 帮你找齐 Mod。".tl : "无需一个一个找 Mod，让 AI 帮你找齐。".tl,
+                      isPortrait ? "Let AI find all mods for you.".tl : "No need to find mods one by one, let AI do it for you.".tl,
                       style: const TextStyle(
                         color: Colors.grey,
                         fontSize: 13,
@@ -387,7 +422,7 @@ class _ModsPageState extends State<ModsPage> {
                       maxLines: 1,
                       focusNode: _focusNodeBloriko,
                       decoration: InputDecoration(
-                    hintText: "告诉我你的需求...".tl,
+                    hintText: "Tell me what you need...".tl,
                     border: InputBorder.none,
                     isDense: true,
                     contentPadding: EdgeInsets.zero,
@@ -403,7 +438,7 @@ class _ModsPageState extends State<ModsPage> {
           const SizedBox(width: 10),
 
           BloretButton(
-            text: "发送".tl,
+            text: "Send".tl,
             onPressed: askBlora,
           ),
             ],
@@ -423,12 +458,12 @@ class _ModsPageState extends State<ModsPage> {
                 Expanded(
                   child: Win11Dropdown(
                     items: [
-                      Win11DropdownItem(label: "全部".tl, value: ""),
+                      Win11DropdownItem(label: "All".tl, value: ""),
                       Win11DropdownItem(label: "Mod".tl, value: "mod"),
-                      Win11DropdownItem(label: "资源包".tl, value: "resourcepack"),
-                      Win11DropdownItem(label: "光影包".tl, value: "shader"),
-                      Win11DropdownItem(label: "数据包".tl, value: "datapack"),
-                      Win11DropdownItem(label: "模组包".tl, value: "modpack"),
+                      Win11DropdownItem(label: "Resource Pack".tl, value: "resourcepack"),
+                      Win11DropdownItem(label: "Shader Pack".tl, value: "shader"),
+                      Win11DropdownItem(label: "Data Pack".tl, value: "datapack"),
+                      Win11DropdownItem(label: "Modpack".tl, value: "modpack"),
                     ],
                     initialValue: category,
                     onChanged: (value) {
@@ -440,7 +475,7 @@ class _ModsPageState extends State<ModsPage> {
                 ),
                 const SizedBox(width: 8),
                 BloretButton(
-                  text: "搜索".tl,
+                  text: "Search".tl,
                   onPressed: searchModrinth,
                 ),
               ],
@@ -469,7 +504,7 @@ class _ModsPageState extends State<ModsPage> {
                   maxLines: 1,
                   focusNode: _focusNode,
                   decoration: InputDecoration(
-                    hintText: "在 Modrinth 上搜索...".tl,
+                    hintText: "Search on Modrinth...".tl,
                     border: InputBorder.none,
                     isDense: true,
                     contentPadding: EdgeInsets.zero,
@@ -492,12 +527,12 @@ class _ModsPageState extends State<ModsPage> {
             width: 120,
             child: Win11Dropdown(
               items: [
-                Win11DropdownItem(label: "全部".tl, value: ""),
+                Win11DropdownItem(label: "All".tl, value: ""),
                 Win11DropdownItem(label: "Mod".tl, value: "mod"),
-                Win11DropdownItem(label: "资源包".tl, value: "resourcepack"),
-                Win11DropdownItem(label: "光影包".tl, value: "shader"),
-                Win11DropdownItem(label: "数据包".tl, value: "datapack"),
-                Win11DropdownItem(label: "模组包".tl, value: "modpack"),
+                Win11DropdownItem(label: "Resource Pack".tl, value: "resourcepack"),
+                Win11DropdownItem(label: "Shader Pack".tl, value: "shader"),
+                Win11DropdownItem(label: "Data Pack".tl, value: "datapack"),
+                Win11DropdownItem(label: "Modpack".tl, value: "modpack"),
               ],
               initialValue: category,
               onChanged: (value) {
@@ -534,7 +569,7 @@ class _ModsPageState extends State<ModsPage> {
                   maxLines: 1,
                   focusNode: _focusNode,
                   decoration: InputDecoration(
-                    hintText: "在 Modrinth 上搜索...".tl,
+                    hintText: "Search on Modrinth...".tl,
                     border: InputBorder.none,
                     isDense: true,
                     contentPadding: EdgeInsets.zero,
@@ -639,7 +674,7 @@ class _ModsPageState extends State<ModsPage> {
                             child: _translatingSlugs.contains(mod['slug'])
                               ? const SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5))
                               : Text(
-                                  "翻译简介".tl,
+                                  "Translate Description".tl,
                                   style: TextStyle(
                                     fontSize: 10, 
                                     color: Theme.of(context).colorScheme.primary,
@@ -685,13 +720,13 @@ class _ModsPageState extends State<ModsPage> {
             Column(
               children: [
                 BloretButton(
-                  text: "查看".tl,
+                  text: "View".tl,
                   onPressed: () => openMod(mod),
                 ),
                 const SizedBox(height: 8),
                 if (!isPortrait)
                   BloretButton(
-                    text: "下载".tl,
+                    text: "Download".tl,
                     onPressed: () => downloadMod(mod),
                   ),
               ],
@@ -701,7 +736,7 @@ class _ModsPageState extends State<ModsPage> {
                 padding: const EdgeInsets.only(left: 4),
                 child: BloretIconButton(
                   icon: Icons.download,
-                  tooltip: "下载".tl,
+                  tooltip: "Download".tl,
                   onPressed: () => downloadMod(mod),
                 ),
               ),

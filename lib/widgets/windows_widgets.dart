@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:bloret_launcher/core/i18n.dart';
 import 'package:flutter/material.dart';
 
 class Win11DropdownItem {
@@ -208,31 +210,37 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
               ),
               borderRadius: widget.borderRadius ?? BorderRadius.circular(6),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Flexible(
-                  child: Text(
-                    selectedItem?.label ?? '请选择',
-                    style: widget.textStyle ?? TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: isDarkMode ? const Color(0xFFF3F3F3) : const Color(0xFF1A1A1A),
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Flexible(
+                    child: Text(
+                      selectedItem?.label ?? 'Choose one'.tl,
+                      style: widget.textStyle ?? TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: isDarkMode ? const Color(0xFFF3F3F3) : const Color(0xFF1A1A1A),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                const SizedBox(width: 6),
-                RotationTransition(
-                  turns: Tween(begin: 0.0, end: 0.5).animate(_animController),
-                  child: widget.dropdownIcon ?? Icon(
-                    Icons.keyboard_arrow_down,
-                    size: 16,
-                    color: isDarkMode ? Colors.white70 : themeColor,
+                  const SizedBox(width: 6),
+                  RotationTransition(
+                    turns: Tween(begin: 0.0, end: 0.5).animate(_animController),
+                    child: widget.dropdownIcon ?? Icon(
+                      Icons.keyboard_arrow_down,
+                      size: 16,
+                      color: isDarkMode ? Colors.white70 : themeColor,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -269,7 +277,7 @@ class _Win11MenuContent extends StatelessWidget {
       width: width,
       constraints: const BoxConstraints(maxHeight: 400, minWidth: 120),
       decoration: decoration ?? BoxDecoration(
-        color: isDarkMode ? const Color(0xFF2C2C2C) : Colors.white,
+        color: isDarkMode ? const Color(0xFF191A1C) : Colors.white,
         border: Border.all(
           color: isDarkMode ? Colors.white.withValues(alpha: 0.3) : Colors.black.withValues(alpha: 0.15),
           width: 1,
@@ -364,6 +372,9 @@ class _Win11MenuItemState extends State<_Win11MenuItem> {
               if (widget.item.icon != null) ...[
                 Icon(widget.item.icon, size: 16, color: isDarkMode ? Colors.white70 : Colors.black54),
                 const SizedBox(width: 8),
+              ] else if (widget.isSelected) ...[
+                  Icon(Icons.check, size: 16, color: isDarkMode ? Colors.white70 : Colors.black54),
+                const SizedBox(width: 8),
               ],
               Expanded(
                 child: Text(
@@ -376,8 +387,6 @@ class _Win11MenuItemState extends State<_Win11MenuItem> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (widget.isSelected)
-                Icon(Icons.check, size: 14, color: widget.themeColor),
             ],
           ),
         ),
@@ -405,64 +414,113 @@ class _Win11SubmenuItem extends StatefulWidget {
   State<_Win11SubmenuItem> createState() => _Win11SubmenuItemState();
 }
 
-class _Win11SubmenuItemState extends State<_Win11SubmenuItem> {
+class _Win11SubmenuItemState extends State<_Win11SubmenuItem> with SingleTickerProviderStateMixin {
   OverlayEntry? _submenuEntry;
   bool _isHovered = false;
+  bool _isMouseInSubmenu = false;
   final LayerLink _submenuLink = LayerLink();
+  late AnimationController _animController;
+  late Animation<double> _fadeAnimation;
+  Timer? _closeTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeOut,
+    );
+  }
 
   void _showSubmenu() {
-    if (_submenuEntry != null) return;
+    _closeTimer?.cancel();
+    if (_submenuEntry != null) {
+      _animController.forward();
+      return;
+    }
     
     final RenderBox renderBox = context.findRenderObject() as RenderBox;
     final size = renderBox.size;
     final RenderBox overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox;
     final globalPosition = renderBox.localToGlobal(Offset.zero);
 
-    // 探测空间，宽度假设为160
     final bool canShowRight = globalPosition.dx + size.width + 160 < overlayBox.size.width - 10;
 
     _submenuEntry = OverlayEntry(
       builder: (context) {
-        return Stack(
-          children: [
-            GestureDetector(
-              onTap: _hideSubmenu,
-              behavior: HitTestBehavior.translucent,
-              child: Container(color: Colors.transparent),
-            ),
-            CompositedTransformFollower(
-              link: _submenuLink,
-              showWhenUnlinked: false,
-              targetAnchor: canShowRight ? Alignment.topRight : Alignment.topLeft,
-              followerAnchor: canShowRight ? Alignment.topLeft : Alignment.topRight,
-              offset: Offset(canShowRight ? 4 : -4, -4),
-              child: IntrinsicWidth(
-                child: _Win11MenuContent(
-                  items: widget.item.children!,
-                  selectedValue: widget.selectedValue,
-                  themeColor: widget.themeColor,
-                  onChanged: (val) {
-                    widget.onChanged(val);
-                    _hideSubmenu();
-                  },
+        return Align(
+          alignment: Alignment.topLeft,
+          child: CompositedTransformFollower(
+            link: _submenuLink,
+            showWhenUnlinked: false,
+            targetAnchor: canShowRight ? Alignment.topRight : Alignment.topLeft,
+            followerAnchor: canShowRight ? Alignment.topLeft : Alignment.topRight,
+            offset: Offset(canShowRight ? 4 : -4, -4),
+            child: MouseRegion(
+              onEnter: (_) {
+                if (mounted) setState(() => _isMouseInSubmenu = true);
+                _closeTimer?.cancel();
+              },
+              onExit: (_) {
+                if (mounted) setState(() => _isMouseInSubmenu = false);
+                _handleMouseExit();
+              },
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: Material(
+                  color: Colors.transparent,
+                  child: IntrinsicWidth(
+                    child: _Win11MenuContent(
+                      items: widget.item.children!,
+                      selectedValue: widget.selectedValue,
+                      themeColor: widget.themeColor,
+                      onChanged: (val) {
+                        widget.onChanged(val);
+                        _hideSubmenu();
+                      },
+                      textStyle: widget.textStyle,
+                    ),
+                  ),
                 ),
               ),
             ),
-          ],
+          ),
         );
       },
     );
     Overlay.of(context).insert(_submenuEntry!);
+    _animController.forward();
+  }
+
+  void _handleMouseExit() {
+    _closeTimer?.cancel();
+    _closeTimer = Timer(const Duration(milliseconds: 150), () {
+      if (mounted && !_isHovered && !_isMouseInSubmenu) {
+        _hideSubmenu();
+      }
+    });
   }
 
   void _hideSubmenu() {
-    _submenuEntry?.remove();
-    _submenuEntry = null;
+    if (_submenuEntry == null) return;
+    _animController.reverse().then((_) {
+      if (mounted && _submenuEntry != null) {
+        _submenuEntry?.remove();
+        _submenuEntry = null;
+      }
+    });
   }
 
   @override
   void dispose() {
-    _hideSubmenu();
+    _closeTimer?.cancel();
+    _animController.dispose();
+    _submenuEntry?.remove();
+    _submenuEntry = null;
     super.dispose();
   }
 
@@ -471,40 +529,52 @@ class _Win11SubmenuItemState extends State<_Win11SubmenuItem> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     return CompositedTransformTarget(
       link: _submenuLink,
-      child: MouseRegion(
-        onEnter: (_) {
-          setState(() => _isHovered = true);
-          _showSubmenu();
+      child: GestureDetector(
+        onTap: () {
+          if (_submenuEntry == null) {
+            _showSubmenu();
+          } else {
+            _hideSubmenu();
+          }
         },
-        onExit: (event) {
-          setState(() => _isHovered = false);
-        },
-        child: Container(
-          height: 32,
-          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-          decoration: BoxDecoration(
-            color: _isHovered ? (isDarkMode ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05)) : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              if (widget.item.icon != null) ...[
-                Icon(widget.item.icon, size: 16, color: isDarkMode ? Colors.white70 : Colors.black54),
-                const SizedBox(width: 8),
-              ],
-              Expanded(
-                child: Text(
-                  widget.item.label,
-                  style: widget.textStyle ?? TextStyle(
-                    fontSize: 13,
-                    color: isDarkMode ? const Color(0xFFF3F3F3) : const Color(0xFF1A1A1A),
+        child: MouseRegion(
+          onEnter: (_) {
+            setState(() => _isHovered = true);
+            _showSubmenu();
+          },
+          onExit: (event) {
+            setState(() => _isHovered = false);
+            _handleMouseExit();
+          },
+          child: Container(
+            height: 32,
+            margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: _isHovered || _isMouseInSubmenu
+                  ? (isDarkMode ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05)) 
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                if (widget.item.icon != null) ...[
+                  Icon(widget.item.icon, size: 16, color: isDarkMode ? Colors.white70 : Colors.black54),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Text(
+                    widget.item.label,
+                    style: widget.textStyle ?? TextStyle(
+                      fontSize: 13,
+                      color: isDarkMode ? const Color(0xFFF3F3F3) : const Color(0xFF1A1A1A),
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              Icon(Icons.keyboard_arrow_right, size: 16, color: isDarkMode ? Colors.white38 : Colors.black38),
-            ],
+                Icon(Icons.keyboard_arrow_right, size: 16, color: isDarkMode ? Colors.white38 : Colors.black38),
+              ],
+            ),
           ),
         ),
       ),
