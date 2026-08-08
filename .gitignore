@@ -47,3 +47,5 @@ app.*.map.json
 # BL Python
 /modules
 /qml
+
+/--obfuscate
