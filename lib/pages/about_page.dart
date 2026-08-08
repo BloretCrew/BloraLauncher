@@ -51,7 +51,7 @@ class AboutPageState extends State<AboutPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text("$name Launcher", style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: isPortrait ? 22 : 28)),
+                              Text("$name Launcher: Flutter Edition", style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: isPortrait ? 22 : 28)),
                               MouseRegion(
                                 cursor: SystemMouseCursors.click,
                                 child: GestureDetector(
