@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:archive/archive.dart';
+import 'package:bloret_launcher/services/config_service.dart';
+import 'package:bloret_launcher/services/launch_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/windows_widgets.dart';
 import 'package:dio/dio.dart';
@@ -8,6 +10,7 @@ import 'package:path/path.dart' as p;
 import '../core/i18n.dart';
 import '../core/grammer_candy.dart';
 import '../core/java_config.dart';
+import '../core/logger.dart';
 import '../main.dart';
 import '../services/download_service.dart';
 import '../widgets/google_widgets.dart';
@@ -25,11 +28,22 @@ class _DownloadPageState extends State<DownloadPage> {
   List<String> forgeVersions = [];
   List<String> neoForgeVersions = [];
   List<String> javaVersions = [];
+  String? selectedTargetDir;
 
   @override
   void initState() {
     super.initState();
     _loadVersions();
+    _loadTargetDirs();
+  }
+
+  void _loadTargetDirs() {
+    final List<dynamic> dirs = ConfigService.get('minecraft_dirs') ?? [];
+    if (dirs.isNotEmpty) {
+      selectedTargetDir = dirs.first.toString();
+    } else {
+      selectedTargetDir = LaunchService.instance.getPreferredDownloadDir();
+    }
   }
 
   Future<void> _loadVersions() async {
@@ -58,7 +72,7 @@ class _DownloadPageState extends State<DownloadPage> {
         }
       }
     } catch (e) {
-      logger.error("Failed to load versions: $e", .network);
+      logger.error("Failed to load versions: $e", LogSource.network);
       if (mounted) {
         setState(() {
           vanillaVersions = ["Fetch Failed".tl];
@@ -75,6 +89,7 @@ class _DownloadPageState extends State<DownloadPage> {
   Widget build(BuildContext context) {
     final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
     return Scaffold(
+      backgroundColor: Colors.transparent,
       body: ListView(
         padding: EdgeInsets.only(left: isPortrait ? 16 : 32, right: 16, top: 16, bottom: 16),
         children: [
@@ -92,7 +107,7 @@ class _DownloadPageState extends State<DownloadPage> {
           AnimatedBuilder(
             animation: DownloadService.instance,
             builder: (context, _) {
-              final activeTasks = DownloadService.instance.getTasks().where((t) => t.isDownloading).toList();
+              final activeTasks = DownloadService.instance.activeTasks;
               return AnimatedSize(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
@@ -127,8 +142,9 @@ class _DownloadPageState extends State<DownloadPage> {
               );
             },
           ),
-          Text("  ${"Source".tl}: bangbang93/BMCLAPI"),
           const SizedBox(height: 8),
+          _buildTargetDirSelector(),
+          const SizedBox(height: 16),
           DownloadCard(
             image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/mc_be.png", scale: 0.9,)),
             title: "Minecraft Versions".tl,
@@ -136,13 +152,14 @@ class _DownloadPageState extends State<DownloadPage> {
             versions: vanillaVersions,
             onDownload: (version) async {
               final url = "https://raw.gitcode.com/Bloret/$version/archive/refs/heads/main.zip";
-              final targetDir = Directory('C:/Users/Administrator/AppData/Roaming/.minecraft');
+              final String targetPath = selectedTargetDir ?? LaunchService.instance.getPreferredDownloadDir();
+              final targetDir = Directory(targetPath);
 
               await DownloadService.instance.downloadFile(
                 "Minecraft_$version",
                 url,
                 "minecraft_source.zip",
-                    (path, updateStatus) async {
+                (path, updateStatus) async {
                   updateStatus("Extracting...".tl);
 
                   try {
@@ -164,7 +181,7 @@ class _DownloadPageState extends State<DownloadPage> {
                     showSuccess("Minecraft $version installed".tl);
                     return true;
                   } catch (e) {
-                    logger.error("Extraction failed: $e", .tool);
+                    logger.error("Extraction failed: $e", LogSource.tool);
                     updateStatus("Extraction Failed".tl);
                     showError("Failed to install Minecraft $version".tl);
                     return false;
@@ -219,6 +236,18 @@ class _DownloadPageState extends State<DownloadPage> {
             versions: javaVersions,
             onDownload: (v) async {
               final version = v.replaceAll("Java ", "");
+              
+              updateStatus(String status) {
+                DownloadService.instance.getTask("Java_$version").update(0.0, status);
+              }
+
+              updateStatus("Checking device...".tl);
+              final existingPath = await DownloadService.instance.findExistingJava(version);
+              if (existingPath != null) {
+                showInfo("${"Java".tl} $version ${"is already installed at".tl}: $existingPath");
+                return;
+              }
+
               final url = JavaConfig.versions[version]?["Windows"]?["x64"];
               if (url != null) {
                 await DownloadService.instance.downloadFile(
@@ -255,6 +284,29 @@ class _DownloadPageState extends State<DownloadPage> {
             buttonText: "Import Modpack".tl,
             onPressed: () {
               // TODO: Backend.importMrpack()
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTargetDirSelector() {
+    final List<dynamic> dirs = ConfigService.get('minecraft_dirs') ?? [];
+    if (dirs.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text("Download Target Directory".tl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+          const SizedBox(height: 4),
+          Win11Dropdown(
+            initialValue: selectedTargetDir,
+            items: dirs.map((d) => Win11DropdownItem(value: d.toString(), label: d.toString())).toList(),
+            onChanged: (v) {
+              setState(() => selectedTargetDir = v);
             },
           ),
         ],

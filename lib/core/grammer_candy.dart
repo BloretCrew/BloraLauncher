@@ -36,3 +36,7 @@ extension NoticeContextExtension on BuildContext {
   void showInfo(String message, {int duration = 5000}) =>
       noticeManager.showInfo(this, message, duration: duration);
 }
+
+extension WithOpacity on Color {
+  Color withOpacityEx(double opacity) => withAlpha((opacity * 255).toInt());
+}

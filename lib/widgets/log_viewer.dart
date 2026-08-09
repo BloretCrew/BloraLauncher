@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../core/i18n.dart';
 import '../core/logger.dart';
-import '../tools/grammer_candy.dart';
+import '../core/grammer_candy.dart';
 
 class AdvancedLogViewer extends StatefulWidget {
   final bool embedded;

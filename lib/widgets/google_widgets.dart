@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'package:bloret_launcher/tools/grammer_candy.dart';
+import 'package:bloret_launcher/core/grammer_candy.dart';
 import 'package:flutter/material.dart';
 
 // Google's Sperm Slider

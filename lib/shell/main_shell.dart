@@ -10,6 +10,7 @@ import 'package:bloret_launcher/pages/stat_page.dart';
 import 'package:bloret_launcher/pages/tools_page.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/config_service.dart';
+import 'package:bloret_launcher/services/download_service.dart';
 import 'package:bloret_launcher/services/win32_icon_service.dart';
 import 'package:bloret_launcher/core/window_bridge.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -35,6 +36,7 @@ class MainShell extends StatefulWidget {
 class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int selectedIndex = 0;
   bool _isExtended = true;
+  bool _isDownloadExpanded = false;
   Timer? _timer;
   final Set<int> _renderedIndices = {0};
 
@@ -116,7 +118,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     (_NavDestination("Agent".tl, Icons.smart_toy_outlined, Icons.smart_toy, keepAlive: true), () => const BloraChatPage()),
     "divider",
     (_NavDestination("Download".tl, Icons.file_download_outlined, Icons.file_download, keepAlive: true), () => const DownloadPage()),
-    (_NavDestination("Cores".tl, Icons.view_in_ar_outlined, Icons.view_in_ar), () => const CoresPage()),
+    (_NavDestination("Cores".tl, Icons.view_in_ar_outlined, Icons.view_in_ar, keepAlive: true), () => const CoresPage()),
     (_NavDestination("Tools".tl, Icons.handyman_outlined, Icons.handyman), () => const ToolsPage()),
     (_NavDestination("Stats".tl, Icons.bar_chart_outlined, Icons.bar_chart), () => const StatsPage()),
     (_NavDestination("Mods".tl, Icons.extension_outlined, Icons.extension), () => const ModsPage()),
@@ -128,6 +130,209 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     (_NavDestination("Settings".tl, Icons.settings_outlined, Icons.settings), () => const SettingsPage()),
     (_NavDestination("About".tl, Icons.info_outline, Icons.info), () => const AboutPage()),
   ];
+
+  Widget _buildAgentOverlay(BuildContext context, bool isPortrait) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _onPageChanged(1),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(25),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))],
+            border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2)),
+                  Icon(_getEmotionIcon(Bloriko.instance.emotion), size: 16),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(Bloriko.instance.currentTool != null && Bloriko.instance.currentTool! != "set_user_identity"
+                      ? Bloriko.instance.currentTool!
+                      : agentName.tl,
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onPrimaryContainer)
+                  ),
+                  if (Bloriko.instance.currentTool == null)
+                    Row(
+                      children: [
+                        Text(
+                            switch (Bloriko.instance.connectionStatus) {
+                              BlorikoConnectionStatus.connecting => "Connecting...".tl,
+                              BlorikoConnectionStatus.handshake => "Verifying...".tl,
+                              BlorikoConnectionStatus.streaming => "Thinking...".tl,
+                              BlorikoConnectionStatus.error => "Error".tl,
+                              _ => "Running".tl,
+                            },
+                            style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.7))
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDownloadOverlay(BuildContext context) {
+    final activeTasks = DownloadService.instance.activeTasks;
+    final progress = DownloadService.instance.totalProgress;
+
+    return GestureDetector(
+      onTap: () => setState(() => _isDownloadExpanded = !_isDownloadExpanded),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutQuart,
+        width: _isDownloadExpanded ? 300 : 48,
+        height: _isDownloadExpanded ? 350 : 48,
+        padding: _isDownloadExpanded ? const EdgeInsets.all(12) : EdgeInsets.zero,
+        decoration: BoxDecoration(
+          color: _isDownloadExpanded 
+              ? Theme.of(context).colorScheme.surface.withValues(alpha: 0.95)
+              : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(_isDownloadExpanded ? 20 : 24),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))],
+          border: Border.all(color: (_isDownloadExpanded ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline).withValues(alpha: 0.3)),
+        ),
+        child: _isDownloadExpanded 
+            ? _buildExpandedDownload(context, activeTasks, progress)
+            : _buildCompactDownload(progress),
+      ),
+    );
+  }
+
+  Widget _buildCompactDownload(double progress) {
+    final speed = DownloadService.instance.totalSpeed;
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        SizedBox(
+          width: 36, height: 36, 
+          child: CircularProgressIndicator(
+            value: progress,
+            strokeWidth: 3,
+            color: Colors.blueAccent,
+          )
+        ),
+        Icon(speed > 0 ? Icons.downloading : Icons.file_download_outlined, size: 18, color: Colors.blueAccent),
+      ],
+    );
+  }
+
+  Widget _buildExpandedDownload(BuildContext context, List<DownloadTask> activeTasks, double progress) {
+    // 仅显示正在下载或已有进度（或报错）的任务，过滤掉纯排队/准备中的任务
+    final tasks = DownloadService.instance.getTasks().where((t) {
+      return t.isDownloading || (t.progress > 0 && t.progress < 1.0) || t.status.contains("失败");
+    }).toList();
+    
+    final totalSpeed = DownloadService.instance.totalSpeed;
+    final remaining = DownloadService.instance.remainingTasks;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.file_download, color: Theme.of(context).colorScheme.primary, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    activeTasks.length > 1 
+                        ? "${activeTasks.length} ${"Downloads".tl}"
+                        : "Downloading".tl, 
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)
+                  ),
+                  if (totalSpeed > 0)
+                    Text(
+                      "${DownloadService.instance.formatSpeed(totalSpeed)} · $remaining ${"files left".tl}",
+                      style: const TextStyle(fontSize: 9, color: Colors.grey),
+                    )
+                  else
+                    Text(
+                      "$remaining ${"files queued".tl}",
+                      style: const TextStyle(fontSize: 9, color: Colors.grey),
+                    ),
+                ],
+              ),
+            ),
+            Text("${(progress * 100).toInt()}%", style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () => setState(() => _isDownloadExpanded = false),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+          ],
+        ),
+        const Divider(height: 12),
+        Expanded(
+          child: tasks.isEmpty 
+            ? Center(child: Text("No tasks".tl))
+            : ListView.builder(
+                padding: EdgeInsets.zero,
+                itemCount: tasks.length,
+                itemBuilder: (context, index) {
+                  final task = tasks[index];
+                  return ListenableBuilder(
+                    listenable: task,
+                    builder: (context, child) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(child: Text(task.id, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                                if (task.isDownloading) ...[
+                                  Text(DownloadService.instance.formatSpeed(task.speed), style: const TextStyle(fontSize: 9, color: Colors.blueAccent)),
+                                  const SizedBox(width: 4),
+                                  IconButton(
+                                    icon: const Icon(Icons.cancel_outlined, size: 14, color: Colors.redAccent),
+                                    onPressed: () => DownloadService.instance.cancelTask(task.id),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(2),
+                              child: LinearProgressIndicator(value: task.progress, minHeight: 3, backgroundColor: Colors.grey.withValues(alpha: 0.1)),
+                            ),
+                            if (task.isDownloading)
+                              Text(task.status, style: const TextStyle(fontSize: 9, color: Colors.grey)),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+        ),
+      ],
+    );
+  }
 
   void _onPageChanged(int index) {
     if (selectedIndex == index) return;
@@ -304,76 +509,45 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 ],
               ),
 
-              ListenableBuilder(
-                listenable: Bloriko.instance,
-                builder: (context, child) {
-                  if (!Bloriko.instance.busy || selectedIndex == 1) return const SizedBox.shrink();
-
-                  return Positioned(
-                    bottom: isPortrait ? 100 : 100,
-                    right: 24,
-                    child: TweenAnimationBuilder<double>(
-                      duration: const Duration(milliseconds: 400),
-                      tween: Tween(begin: 0.0, end: 1.0),
-                      curve: Curves.easeOutBack,
-                      builder: (context, value, child) => Transform.scale(scale: value, child: child),
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        child: GestureDetector(
-                          onTap: () => _onPageChanged(1),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.9),
-                              borderRadius: BorderRadius.circular(25),
-                              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))],
-                              border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2)),
-                                    Icon(_getEmotionIcon(Bloriko.instance.emotion), size: 16),
-                                  ],
-                                ),
-                                const SizedBox(width: 12),
-                                Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(Bloriko.instance.currentTool != null && Bloriko.instance.currentTool! != "set_user_identity"
-                                        ? "${agentName.tl} ${"is:".tl} ${Bloriko.instance.currentTool}"
-                                        : "${agentName.tl} ${"is running...".tl}",
-                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onPrimaryContainer)
-                                    ),
-                                    if (Bloriko.instance.currentTool == null)
-                                      Row(
-                                        children: [
-                                          Text(
-                                              switch (Bloriko.instance.connectionStatus) {
-                                                BlorikoConnectionStatus.connecting => "Connecting to server...".tl,
-                                                BlorikoConnectionStatus.handshake => "Verifying...".tl,
-                                                BlorikoConnectionStatus.streaming => "Receiving response...".tl,
-                                                BlorikoConnectionStatus.error => "Connection Error".tl,
-                                                _ => "Please wait...".tl,
-                                              },
-                                              style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.7))
-                                          ),
-                                        ],
-                                      ),
-                                  ],
-                                ),
-                              ],
-                            ),
+              // Floating Overlays (Download & Agent)
+              Positioned(
+                bottom: isPortrait ? 100 : 100,
+                right: 24,
+                child: ListenableBuilder(
+                  listenable: Listenable.merge([DownloadService.instance, Bloriko.instance]),
+                  builder: (context, child) {
+                    final showDownload = DownloadService.instance.activeTasks.isNotEmpty;
+                    final showAgent = Bloriko.instance.busy && selectedIndex != 1;
+                    
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 500),
+                          transitionBuilder: (child, animation) => FadeTransition(
+                            opacity: animation,
+                            child: ScaleTransition(scale: animation, child: child),
                           ),
+                          child: showDownload 
+                            ? _buildDownloadOverlay(context)
+                            : const SizedBox.shrink(key: ValueKey("no_download")),
                         ),
-                      ),
-                    ),
-                  );
-                },
+                        if (showDownload && showAgent) const SizedBox(width: 12),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 500),
+                          transitionBuilder: (child, animation) => FadeTransition(
+                            opacity: animation,
+                            child: ScaleTransition(scale: animation, child: child),
+                          ),
+                          child: showAgent 
+                            ? _buildAgentOverlay(context, isPortrait)
+                            : const SizedBox.shrink(key: ValueKey("no_agent")),
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ],
           ),

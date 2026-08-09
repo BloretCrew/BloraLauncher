@@ -6,6 +6,9 @@ import 'package:path/path.dart' as p;
 import 'package:crypto/crypto.dart';
 import 'package:archive/archive_io.dart';
 
+import '../core/i18n.dart';
+import '../core/java_config.dart';
+
 class MavenArtifact {
   final String name;
   final String url;
@@ -29,12 +32,28 @@ class DownloadTask extends ChangeNotifier {
   double progress = 0.0;
   String status = "准备中...";
   bool isDownloading = false;
+  int receivedBytes = 0;
+  int totalBytes = 0;
+  double speed = 0.0; // bytes per second
+  DateTime lastUpdate = DateTime.now();
+  int lastReceived = 0;
 
   DownloadTask(this.id);
 
-  void update(double p, String s) {
+  void update(double p, String s, {int? received, int? total}) {
     progress = p;
     status = s;
+    if (received != null) {
+      final now = DateTime.now();
+      final duration = now.difference(lastUpdate).inMilliseconds;
+      if (duration > 500) { // Update speed every 0.5s
+        speed = (received - lastReceived) / (duration / 1000.0);
+        lastUpdate = now;
+        lastReceived = received;
+      }
+      receivedBytes = received;
+    }
+    if (total != null) totalBytes = total;
     notifyListeners();
   }
 }
@@ -54,6 +73,24 @@ class DownloadService extends ChangeNotifier {
   ));
 
   List<DownloadTask> getTasks() => _tasks.values.toList();
+  List<DownloadTask> get activeTasks => _tasks.values.where((t) => t.isDownloading).toList();
+  int get remainingTasks => _tasks.values.where((t) => t.progress < 1.0 && !t.status.contains("已取消")).length;
+
+  double get totalProgress {
+    final active = activeTasks;
+    if (active.isEmpty) return 0.0;
+    return active.fold(0.0, (sum, t) => sum + t.progress) / active.length;
+  }
+
+  double get totalSpeed {
+    return activeTasks.fold(0.0, (sum, t) => sum + t.speed);
+  }
+
+  String formatSpeed(double speed) {
+    if (speed < 1024) return "${speed.toStringAsFixed(1)} B/s";
+    if (speed < 1024 * 1024) return "${(speed / 1024).toStringAsFixed(1)} KB/s";
+    return "${(speed / (1024 * 1024)).toStringAsFixed(1)} MB/s";
+  }
 
   DownloadTask getTask(String id) {
     return _tasks.putIfAbsent(id, () {
@@ -90,7 +127,9 @@ class DownloadService extends ChangeNotifier {
 
     try {
       await _dio.download(artifact.url, savePath, onReceiveProgress: (count, total) {
-        if (total != -1) task.update(count / total, "下载库: ${(count / total * 100).toInt()}%");
+        if (total != -1) {
+          task.update(count / total, "Transferring...".tl, received: count, total: total);
+        }
       });
       return true;
     } catch (e) {
@@ -244,7 +283,7 @@ class DownloadService extends ChangeNotifier {
         cancelToken: cancelToken,
         onReceiveProgress: (count, total) {
           if (total != -1) {
-            task.update(count / total, "下载中: ${(count / total * 100).toInt()}%");
+            task.update(count / total, "Downloading...".tl, received: count, total: total);
           }
         },
       );
@@ -266,14 +305,12 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
-  Future<bool> installMinecraftVersion(String versionId, String targetDir) async {
-    debugPrint("正在安装 Minecraft $versionId 到 $targetDir");
-    try {
-      debugPrint("安装流程初始化完成...");
-      return true;
-    } catch (e) {
-      debugPrint("安装失败: $e");
-      return false;
+  Future<String?> findExistingJava(String version) async {
+    await for (final java in JavaConfig.detectJava(includeDetails: false)) {
+      if (java['version'] == version || (java['version'] != null && java['version']!.startsWith(version))) {
+        return java['path'];
+      }
     }
+    return null;
   }
 }

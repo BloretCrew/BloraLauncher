@@ -8,6 +8,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:dio/dio.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 import '../core/i18n.dart';
 import '../core/logger.dart';
@@ -18,6 +19,7 @@ import '../main.dart';
 import '../services/bloriko.dart';
 import '../services/config_service.dart';
 import '../services/launch_service.dart';
+import '../services/passport_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/button.dart';
 import '../widgets/sliding_text.dart';
@@ -43,6 +45,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   bool _showRunningHandle = false;
   bool _isHandleExtended = false;
   bool _showLogsInRunning = false;
+
+  String? _selectedVersion;
+  String? _selectedVersionDir;
 
   RunningCore? _selectedCore;
 
@@ -251,6 +256,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _checkApi();
+    _loadSelectedVersion();
     I18n.instance.addListener(_onLanguageChanged);
     
     // Resume selected core if any exists in manager
@@ -340,7 +346,100 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
   }
 
+  void _loadSelectedVersion() {
+    _selectedVersion = ConfigService.get("selected_version");
+    _selectedVersionDir = ConfigService.get("selected_version_dir");
+    
+    if (_selectedVersion == null) {
+      // Try to pick first available
+      LaunchService.instance.getAllAvailableVersions().then((versions) {
+        if (versions.isNotEmpty && mounted) {
+          setState(() {
+            _selectedVersion = versions.first['id'];
+            _selectedVersionDir = versions.first['directory'];
+            ConfigService.set("selected_version", _selectedVersion);
+            ConfigService.set("selected_version_dir", _selectedVersionDir);
+          });
+        }
+      });
+    }
+  }
+
+  Future<void> _showVersionSelector() async {
+    final versions = await LaunchService.instance.getAllAvailableVersions();
+    if (!mounted) return;
+
+    if (versions.isEmpty) {
+      showWarning("No cores found. Please download one first.".tl);
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text("Select Minecraft Core".tl, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView.builder(
+                itemCount: versions.length,
+                itemBuilder: (context, index) {
+                  final v = versions[index];
+                  final isSelected = v['id'] == _selectedVersion;
+                  return ListTile(
+                    leading: Icon(Icons.layers, color: isSelected ? Theme.of(context).colorScheme.primary : null),
+                    title: Text(v['id']!, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                    subtitle: Text(v['directory']!, style: const TextStyle(fontSize: 10)),
+                    trailing: isSelected ? const Icon(Icons.check_circle, size: 18) : null,
+                    onTap: () {
+                      setState(() {
+                        _selectedVersion = v['id'];
+                        _selectedVersionDir = v['directory'];
+                      });
+                      ConfigService.set("selected_version", _selectedVersion);
+                      ConfigService.set("selected_version_dir", _selectedVersionDir);
+                      Navigator.pop(context);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openGameDir() {
+    if (_selectedVersionDir == null) {
+      showWarning("Please select a core first.".tl);
+      return;
+    }
+    final path = _selectedVersionDir!;
+    if (Platform.isWindows) {
+      Process.run("explorer.exe", [path]);
+    } else if (Platform.isMacOS) {
+      Process.run("open", [path]);
+    } else {
+      launchUrlString("file://$path");
+    }
+  }
+
   Future<void> _startLaunch() async {
+    if (_selectedVersion == null || _selectedVersionDir == null) {
+      showWarning("Please select a core first.".tl);
+      return;
+    }
+
     final shellState = context.findAncestorStateOfType<MainShellState>();
     if (shellState != null) {
       shellState.setNavExtended(false);
@@ -353,16 +452,68 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _homeState = HomeState.launching;
       _launchError = null;
       _launchProgress = 0.0;
-      _launchStatus = "Preparing to launch...".tl;
+      _launchStatus = "Checking file integrity...".tl;
     });
 
     _pageController.animateToPage(1, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
 
     try {
+      // 1. 账户验证 (Microsoft Account Validation)
       final List<dynamic> accountListRaw = ConfigService.get("MinecraftAccountList") ?? [];
       final int chosenIndex = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
       
       Map<String, dynamic> account = {};
+      if (accountListRaw.isNotEmpty && chosenIndex < accountListRaw.length) {
+        account = accountListRaw[chosenIndex] is String 
+            ? jsonDecode(accountListRaw[chosenIndex]) 
+            : accountListRaw[chosenIndex];
+      }
+
+      if (account['type'] == "Microsoft") {
+        setState(() => _launchStatus = "Verifying Microsoft account...".tl);
+        final bool refreshSuccess = await PassportService.refreshMinecraftToken();
+        if (!refreshSuccess) {
+          throw Exception("Microsoft session expired. Please re-login in Passport page.".tl);
+        }
+        await PassportService.syncMinecraftAccounts();
+      }
+
+      setState(() => _launchStatus = "Checking file integrity...".tl);
+      final missing = await LaunchService.instance.getMissingFiles(_selectedVersionDir!, _selectedVersion!);
+      if (missing.isNotEmpty) {
+        if (mounted) {
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text("Missing Files".tl),
+              content: Text("Current core is missing ${missing.length} files. Download and complete them before launch?".tl),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Skip".tl)),
+                TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Download & Launch".tl)),
+              ],
+            ),
+          );
+
+          if (confirm == true) {
+            setState(() => _launchStatus = "Downloading missing files...".tl);
+            await LaunchService.instance.downloadMissingFiles(_selectedVersionDir!, _selectedVersion!, onStatus: (status, p) {
+              if (mounted) {
+                setState(() {
+                _launchStatus = status;
+                _launchProgress = p * 0.5;
+              });
+              }
+            });
+            showInfo("Download tasks submitted. Please wait for completion in the overlay.".tl);
+          }
+        }
+      }
+
+      setState(() {
+        _launchStatus = "Preparing to launch...".tl;
+        _launchProgress = 0.1;
+      });
+
       if (accountListRaw.isNotEmpty && chosenIndex < accountListRaw.length) {
         account = accountListRaw[chosenIndex] is String 
             ? jsonDecode(accountListRaw[chosenIndex]) 
@@ -379,8 +530,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           : "https://mc-heads.net/avatar/$mcUsername/100";
 
       final process = await LaunchService.instance.launch(
-        version: "1.21.8",
-        minecraftDir: r"C:\Users\Administrator\AppData\Roaming\Bloret-Launcher\.minecraft",
+        version: _selectedVersion!,
+        minecraftDir: _selectedVersionDir!,
         onStatus: (status, progress) {
           if (mounted) {
             setState(() {
@@ -706,7 +857,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ],
           ),
         ),
-        _BottomActionRail(onLaunch: _startLaunch),
+        _BottomActionRail(
+          onLaunch: _startLaunch,
+          onSwitchCore: _showVersionSelector,
+          onOpenFolder: _openGameDir,
+          selectedVersion: _selectedVersion,
+        ),
       ],
     );
   }
@@ -742,7 +898,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 child: const Icon(Icons.inventory_2, size: 40),
               ),
               const SizedBox(height: 24),
-              Text("1.21.8", style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+              Text(_selectedVersion ?? "...", style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
               Text("Minecraft Core".tl, style: theme.textTheme.bodyMedium),
               const SizedBox(height: 48),
               Row(
@@ -1472,12 +1628,31 @@ class _SmoothChartPainter extends CustomPainter {
 
 class _BottomActionRail extends StatelessWidget {
   final VoidCallback onLaunch;
-  const _BottomActionRail({required this.onLaunch});
+  final VoidCallback onSwitchCore;
+  final VoidCallback onOpenFolder;
+  final String? selectedVersion;
+
+  const _BottomActionRail({
+    required this.onLaunch,
+    required this.onSwitchCore,
+    required this.onOpenFolder,
+    this.selectedVersion,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+
+    final List<dynamic> accountListRaw = ConfigService.get("MinecraftAccountList") ?? [];
+    final int chosenIndex = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
+    String username = "None";
+    if (accountListRaw.isNotEmpty && chosenIndex < accountListRaw.length) {
+      final account = accountListRaw[chosenIndex] is String 
+          ? jsonDecode(accountListRaw[chosenIndex]) 
+          : accountListRaw[chosenIndex];
+      username = account['username'] ?? "None";
+    }
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -1507,8 +1682,8 @@ class _BottomActionRail extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("1.20.1-Forge-47.2.0", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        Text("${"As".tl} Bloret ${"launch".tl} Minecraft", style: theme.textTheme.bodySmall?.copyWith(fontSize: 11)),
+                        Text(selectedVersion ?? "No Core Selected".tl, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
+                        Text("${"As".tl} $username ${"launch".tl} Minecraft", style: theme.textTheme.bodySmall?.copyWith(fontSize: 11)),
                       ],
                     ),
                   ),
@@ -1518,14 +1693,14 @@ class _BottomActionRail extends StatelessWidget {
               Row(
                 children: [
                   BloretIconButton(
-                    icon: Icons.settings,
-                    tooltip: "Core Settings".tl,
-                    onPressed: () {},
+                    icon: Icons.folder_open,
+                    tooltip: "Game Directory".tl,
+                    onPressed: onOpenFolder,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: BloretButton(
-                      onPressed: () {},
+                      onPressed: onSwitchCore,
                       icon: Icons.swap_horiz,
                       text: "Switch Core".tl,
                     ),
@@ -1550,23 +1725,25 @@ class _BottomActionRail extends StatelessWidget {
                 child: const Icon(Icons.inventory_2),
               ),
               const SizedBox(width: 16),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text("26.2", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  Text("${"As".tl} ${jsonDecode(ConfigService.get("MinecraftAccountList")[ConfigService.get("MinecraftAccount_Chosen") ?? 0])["username"] ?? "None"} ${"launch".tl} Minecraft", style: theme.textTheme.bodySmall),
-                ],
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(selectedVersion ?? "No Core Selected".tl, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16), overflow: TextOverflow.ellipsis),
+                    Text("${"As".tl} $username ${"launch".tl} Minecraft", style: theme.textTheme.bodySmall),
+                  ],
+                ),
               ),
               const Spacer(),
               BloretIconButton(
                 icon: Icons.folder_open,
                 tooltip: "Game Directory".tl,
-                onPressed: () {},
+                onPressed: onOpenFolder,
               ),
               const SizedBox(width: 12),
               BloretButton(
-                onPressed: () {},
+                onPressed: onSwitchCore,
                 icon: Icons.swap_horiz,
                 text: "Switch Core".tl,
                 height: 48,

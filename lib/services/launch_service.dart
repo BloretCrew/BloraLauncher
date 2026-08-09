@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:bloret_launcher/services/config_service.dart';
+import 'package:bloret_launcher/services/download_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:archive/archive.dart';
 
@@ -316,6 +317,168 @@ class LaunchService {
     }
   }
 
+  /// 获取首选的下载目录
+  String getPreferredDownloadDir() {
+    final List<dynamic> dirs = ConfigService.get('minecraft_dirs') ?? [];
+    if (dirs.isNotEmpty) {
+      return dirs.first.toString();
+    }
+    // 默认回退路径
+    if (Platform.isWindows) {
+      return p.join(Platform.environment['APPDATA']!, ".minecraft");
+    }
+    return p.join(Directory.systemTemp.path, ".minecraft");
+  }
+
+  Future<List<String>> getAvailableVersions(String minecraftDir, {String? query}) async {
+    final versionsDir = Directory(p.join(minecraftDir, "versions"));
+    if (!await versionsDir.exists()) return [];
+
+    final List<String> versions = [];
+    try {
+      final List<FileSystemEntity> entities = await versionsDir.list().toList();
+      for (var entity in entities) {
+        if (entity is Directory) {
+          final id = p.basename(entity.path);
+          final jsonFile = File(p.join(entity.path, "$id.json"));
+          if (await jsonFile.exists()) {
+            if (query == null || query.isEmpty || id.toLowerCase().contains(query.toLowerCase())) {
+              versions.add(id);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      stderr.writeln("扫描版本目录失败: $e");
+    }
+    return versions;
+  }
+
+  /// 获取所有已配置目录下的所有核心
+  Future<List<Map<String, String>>> getAllAvailableVersions({String? query}) async {
+    final List<dynamic> dirsRaw = ConfigService.get('minecraft_dirs') ?? [];
+    final List<String> dirs = List<String>.from(dirsRaw);
+    final List<Map<String, String>> allVersions = [];
+    for (var dir in dirs) {
+      final versions = await getAvailableVersions(dir, query: query);
+      for (var v in versions) {
+        allVersions.add({
+          "id": v,
+          "directory": dir,
+        });
+      }
+    }
+    return allVersions;
+  }
+
+  Future<List<Map<String, dynamic>>> getMissingFiles(String minecraftDir, String versionId) async {
+    final versionData = await loadMergedVersionJson(minecraftDir, versionId);
+    final List<Map<String, dynamic>> missing = [];
+
+    // 检查核心 Jar
+    final clientJarName = versionData['jar'] ?? versionId;
+    final relativeJarPath = p.join('versions', clientJarName, '$clientJarName.jar');
+    final clientJar = p.join(minecraftDir, relativeJarPath);
+    if (!await File(clientJar).exists()) {
+      final downloads = versionData['downloads'] as Map<String, dynamic>?;
+      missing.add({
+        "type": "jar",
+        "id": clientJarName,
+        "path": clientJar,
+        "relativePath": relativeJarPath,
+        "url": downloads?['client']?['url'],
+        "sha1": downloads?['client']?['sha1'],
+      });
+    }
+
+    // 检查库文件
+    final libraries = versionData['libraries'] as List? ?? [];
+    for (var lib in libraries) {
+      if (!_rulesAllow(lib['rules'])) continue;
+      
+      final libName = lib['name'] as String?;
+      if (libName == null) continue;
+      
+      // Calculate relative path for library
+      final parts = libName.split(':');
+      final group = parts[0].replaceAll('.', p.separator);
+      final artifact = parts[1];
+      final version = parts[2];
+      
+      String extension = "jar";
+      String? classifier;
+      final natives = lib['natives'] as Map<String, dynamic>?;
+      if (natives != null) {
+        final currentOs = Platform.isWindows ? "windows" : (Platform.isMacOS ? "osx" : "linux");
+        classifier = natives[currentOs]?.replaceAll("\${arch}", "64");
+      }
+      final filename = "$artifact-$version${classifier != null ? "-$classifier" : ""}.$extension";
+      final relativeLibPath = p.join('libraries', group, artifact, version, filename);
+      
+      final libPath = p.join(minecraftDir, relativeLibPath);
+      if (!await File(libPath).exists()) {
+        final downloads = lib['downloads'] as Map<String, dynamic>?;
+        final artifactData = downloads?['artifact'];
+        missing.add({
+          "type": "library",
+          "id": libName,
+          "path": libPath,
+          "relativePath": relativeLibPath,
+          "url": artifactData?['url'],
+          "sha1": artifactData?['sha1'],
+        });
+      }
+    }
+
+    // 检查资源索引
+    final assetIndex = versionData['assetIndex'];
+    if (assetIndex != null && assetIndex['id'] != null) {
+      final relativeIndexPath = p.join("assets", "indexes", "${assetIndex['id']}.json");
+      final assetIndexPath = p.join(minecraftDir, relativeIndexPath);
+      if (!await File(assetIndexPath).exists()) {
+        missing.add({
+          "type": "asset_index",
+          "id": assetIndex['id'],
+          "path": assetIndexPath,
+          "relativePath": relativeIndexPath,
+          "url": assetIndex['url'],
+          "sha1": assetIndex['sha1'],
+        });
+      }
+    }
+
+    return missing;
+  }
+
+  Future<void> downloadMissingFiles(String minecraftDir, String versionId, {Function(String status, double progress)? onStatus}) async {
+    final missing = await getMissingFiles(minecraftDir, versionId);
+    if (missing.isEmpty) {
+      onStatus?.call("所有文件已完整", 1.0);
+      return;
+    }
+
+    onStatus?.call("发现 ${missing.length} 个缺失文件，准备下载...", 0.0);
+    
+    final List<DownloadItem> items = [];
+    for (var m in missing) {
+      if (m['url'] == null) continue;
+      items.add(DownloadItem(
+        id: m['id'],
+        url: m['url'],
+        savePath: m['relativePath'],
+        sha1: m['sha1'],
+      ));
+    }
+
+    if (items.isEmpty) {
+      onStatus?.call("部分文件缺失但没有下载链接", 1.0);
+      return;
+    }
+    
+    await DownloadService.instance.downloadBatch(items, Directory(minecraftDir));
+    onStatus?.call("下载任务已提交", 1.0);
+  }
+
   Future<Process> launch({
     required String version,
     required String minecraftDir,
@@ -566,5 +729,12 @@ class LaunchService {
 
     onStatus?.call("正在启动 Minecraft...", 0.95);
     return await Process.start(javaExe, args, workingDirectory: variables['game_directory']);
+  }
+
+  /// 补全文件的逻辑 (Completing missing files)
+  /// 此方法仅返回缺失文件列表，具体的下载应由 DownloadService 处理
+  Future<bool> isVersionComplete(String minecraftDir, String versionId) async {
+    final missing = await getMissingFiles(minecraftDir, versionId);
+    return missing.isEmpty;
   }
 }
