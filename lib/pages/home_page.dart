@@ -1195,7 +1195,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                     children: [
                                       Row(
                                         children: [
-                                          Text("Real-time Performance".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : (isEfficiency ? Colors.green : null))),
+                                          Text(isCrashed ? "Performance Snapshot".tl : "Real-time Performance".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : (isEfficiency ? Colors.green : null))),
                                         ],
                                       ),
                                       const SizedBox(height: 24),
@@ -1361,7 +1361,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               children: [
                 Row(
                   children: [
-                    Text("Process Control".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : null)),
+                    Text(isCrashed ? "Process unabled".tl : "Process Control".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : null)),
                   ],
                 ),
                 const SizedBox(height: 16),
