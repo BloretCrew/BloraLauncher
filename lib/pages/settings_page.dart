@@ -334,7 +334,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildSettingItem(
             "Java Selection Mode".tl, 
             (ConfigService.get("java_selection_mode") ?? "auto") == "auto" 
-              ? "Auto-match paths".tl
+              ? "Automatically match the best Java version based on your Minecraft version (e.g., Java 21 for 1.20.5+)".tl
               : "${"Fixed path mode".tl}: ${ConfigService.get("java_path") ?? "Not set".tl}", 
             Icons.code,
             itemKey: "java_main",

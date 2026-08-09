@@ -1,10 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/download_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:archive/archive.dart';
+
+import '../core/java_config.dart';
+import '../core/logger.dart';
+import '../main.dart';
 
 class RunningCore {
   final String id;
@@ -18,6 +23,8 @@ class RunningCore {
   final List<double> cpuUsage = List.generate(30, (_) => 0.0);
   final List<double> memUsage = List.generate(30, (_) => 0.0);
   final Process process;
+  int? exitCode;
+  bool isManuallyTerminated = false;
 
   bool isSuspended = false;
   bool isEfficiencyMode = false;
@@ -34,6 +41,7 @@ class RunningCore {
     required this.accountType,
     required this.identityName,
     required this.process,
+    this.exitCode,
   });
 }
 
@@ -66,6 +74,126 @@ class LaunchService {
   static final LaunchService instance = LaunchService._();
   LaunchService._();
 
+  Future<void> updateBlJson(String minecraftDir, String versionId, {bool fabricLoader = false, String? iconPath}) async {
+    try {
+      final blJsonPath = p.join(minecraftDir, "versions", ".BLF.json");
+      final file = File(blJsonPath);
+      Map<String, dynamic> blData = {"versions": {}};
+
+      if (await file.exists()) {
+        try {
+          blData = jsonDecode(await file.readAsString());
+        } catch (e) {
+          blData = {"versions": {}};
+        }
+      }
+
+      if (blData["versions"] == null || blData["versions"] is! Map) {
+        blData["versions"] = {};
+      }
+
+      final baseVersion = versionId.contains("-") ? versionId.split("-")[0] : versionId;
+
+      final versionEntry = {
+        "Fabric": fabricLoader,
+        "client": true,
+        "version": baseVersion,
+        "setup_time": DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      };
+
+      if (iconPath != null) {
+        versionEntry["icon"] = iconPath;
+      }
+
+      (blData["versions"] as Map<String, dynamic>)[versionId] = versionEntry;
+
+      await Directory(p.dirname(blJsonPath)).create(recursive: true);
+      await file.writeAsString(JsonEncoder.withIndent("    ").convert(blData));
+    } catch (e) {
+      stderr.writeln("Failed to update .BLF.json: $e");
+    }
+  }
+
+  Future<void> repairBlJson(String minecraftDir) async {
+    try {
+      final versionsPath = p.join(minecraftDir, "versions");
+      if (!await Directory(versionsPath).exists()) return;
+
+      final blJsonPath = p.join(versionsPath, ".BLF.json");
+      Map<String, dynamic> blData = {"versions": {}};
+
+      if (await File(blJsonPath).exists()) {
+        try {
+          blData = jsonDecode(await File(blJsonPath).readAsString());
+        } catch (e) {
+          blData = {"versions": {}};
+        }
+      }
+
+      if (blData["versions"] == null || blData["versions"] is! Map) {
+        blData["versions"] = {};
+      }
+
+      final versionsMap = Map<String, dynamic>.from(blData["versions"] as Map);
+      bool changed = false;
+
+      final List<FileSystemEntity> entities = await Directory(versionsPath).list().toList();
+      for (var entity in entities) {
+        if (entity is Directory) {
+          final id = p.basename(entity.path);
+          if (id == ".BLF.json") continue;
+
+          if (!versionsMap.containsKey(id)) {
+            final isFabric = id.toLowerCase().contains("fabric");
+            final baseVersion = id.contains("-") ? id.split("-")[0] : id;
+
+            versionsMap[id] = {
+              "Fabric": isFabric,
+              "client": true,
+              "version": baseVersion,
+              "setup_time": DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            };
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        blData["versions"] = versionsMap;
+        await File(blJsonPath).writeAsString(JsonEncoder.withIndent("    ").convert(blData));
+      }
+    } catch (e) {
+      stderr.writeln("Failed to repair .BLF.json: $e");
+    }
+  }
+
+  Future<void> _ensureLauncherProfile(String minecraftDir) async {
+    try {
+      final profilePath = p.join(minecraftDir, "launcher_profiles.json");
+      final file = File(profilePath);
+      if (await file.exists()) return;
+
+      final defaultProfile = {
+        "profiles": {
+          "BloretLauncher": {
+            "name": "BloretLauncher",
+            "type": "custom",
+            "created": "1970-01-01T00:00:00.000Z",
+            "lastUsed": "1970-01-01T00:00:00.000Z",
+            "gameDir": minecraftDir
+          }
+        },
+        "selectedProfile": "BloretLauncher",
+        "clientToken": "00000000000000000000000000000000"
+      };
+
+      await Directory(p.dirname(profilePath)).create(recursive: true);
+      await file.writeAsString(JsonEncoder.withIndent("    ").convert(defaultProfile));
+    } catch (e) {
+      stderr.writeln("Failed to create launcher_profiles.json: $e");
+    }
+  }
+
   int _compareVersions(String v1, String v2) {
     final p1 = v1.split(RegExp(r'[.-]'));
     final p2 = v2.split(RegExp(r'[.-]'));
@@ -85,14 +213,14 @@ class LaunchService {
   Future<Map<String, dynamic>> loadMergedVersionJson(String minecraftDir, String versionId, [Set<String>? seen]) async {
     seen ??= {};
     if (seen.contains(versionId)) {
-      throw Exception("版本继承循环: $versionId");
+      throw Exception("Version inheritance loop: $versionId");
     }
     seen.add(versionId);
 
     final versionJsonPath = p.join(minecraftDir, "versions", versionId, "$versionId.json");
     final file = File(versionJsonPath);
     if (!await file.exists()) {
-      throw Exception("找不到版本 JSON: $versionJsonPath");
+      throw Exception("Version JSON not found: $versionJsonPath");
     }
 
     final data = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
@@ -144,8 +272,6 @@ class LaunchService {
           mergedArgs[field] = [...pList, ...cList];
         }
         merged['arguments'] = mergedArgs;
-      } else if (k == "assetIndex" && v is Map && v['id'] == null && merged['assetIndex'] != null) {
-        // Keep parent's complete assetIndex if child's is partial
       } else {
         merged[k] = v;
       }
@@ -172,22 +298,14 @@ class LaunchService {
         } else if (Platform.isAndroid) {
           currentArch = "arm";
         }
-        
-        // Match Mojang architecture tags
+
         if (arch == "x86" && currentArch == "x64") {
-           // On 64-bit Windows, we can often run x86 but Mojang JSONs usually have separate rules.
-           // However, if the rule ONLY specifies x86, we might allow it depending on the library.
-           // To be safe and match Python's logic:
-           // return false if they don't match exactly.
            return false;
         }
         if (arch != currentArch) return false;
       }
       final versionRegex = osRule['version'] as String?;
       if (versionRegex != null) {
-        // Dart's Platform.version is usually "version (date) on "os""
-        // Mojang's version rule is for the OS version. 
-        // We skip it for now or return true if we can't reliably check OS version.
       }
     }
     
@@ -213,24 +331,9 @@ class LaunchService {
   }
 
   String _getLibraryPath(String minecraftDir, Map<String, dynamic> lib) {
-    final name = lib['name'] as String?;
-    if (name == null) return "";
-    final parts = name.split(':');
-    if (parts.length < 3) return "";
-    final group = parts[0].replaceAll('.', p.separator);
-    final artifact = parts[1];
-    final version = parts[2];
-    
-    String extension = "jar";
-    String? classifier;
-    final natives = lib['natives'] as Map<String, dynamic>?;
-    if (natives != null) {
-      final currentOs = Platform.isWindows ? "windows" : (Platform.isMacOS ? "osx" : "linux");
-      classifier = natives[currentOs]?.replaceAll("\${arch}", "64");
-    }
-
-    final filename = "$artifact-$version${classifier != null ? "-$classifier" : ""}.$extension";
-    return p.join(minecraftDir, 'libraries', group, artifact, version, filename);
+    final relPath = _getLibraryRelativePath(lib);
+    if (relPath.isEmpty) return "";
+    return p.join(minecraftDir, relPath);
   }
 
   Future<String> buildClasspath(String minecraftDir, Map<String, dynamic> versionData, {Function(double)? onProgress}) async {
@@ -313,17 +416,15 @@ class LaunchService {
         }
       }
     } catch (e) {
-      stderr.writeln("提取原生库失败 ($zipPath): $e");
+      stderr.writeln("Failed to extract native library ($zipPath): $e");
     }
   }
 
-  /// 获取首选的下载目录
   String getPreferredDownloadDir() {
     final List<dynamic> dirs = ConfigService.get('minecraft_dirs') ?? [];
     if (dirs.isNotEmpty) {
       return dirs.first.toString();
     }
-    // 默认回退路径
     if (Platform.isWindows) {
       return p.join(Platform.environment['APPDATA']!, ".minecraft");
     }
@@ -349,12 +450,11 @@ class LaunchService {
         }
       }
     } catch (e) {
-      stderr.writeln("扫描版本目录失败: $e");
+      stderr.writeln("Failed to scan versions directory: $e");
     }
     return versions;
   }
 
-  /// 获取所有已配置目录下的所有核心
   Future<List<Map<String, String>>> getAllAvailableVersions({String? query}) async {
     final List<dynamic> dirsRaw = ConfigService.get('minecraft_dirs') ?? [];
     final List<String> dirs = List<String>.from(dirsRaw);
@@ -375,108 +475,195 @@ class LaunchService {
     final versionData = await loadMergedVersionJson(minecraftDir, versionId);
     final List<Map<String, dynamic>> missing = [];
 
-    // 检查核心 Jar
+    // 1. Client JAR
     final clientJarName = versionData['jar'] ?? versionId;
-    final relativeJarPath = p.join('versions', clientJarName, '$clientJarName.jar');
+    final relativeJarPath = p.join('versions', versionId, '$versionId.jar');
     final clientJar = p.join(minecraftDir, relativeJarPath);
+    
+    final downloads = versionData['downloads'] as Map<String, dynamic>?;
+    final clientInfo = downloads?['client'] as Map<String, dynamic>?;
+    
     if (!await File(clientJar).exists()) {
-      final downloads = versionData['downloads'] as Map<String, dynamic>?;
       missing.add({
         "type": "jar",
         "id": clientJarName,
         "path": clientJar,
         "relativePath": relativeJarPath,
-        "url": downloads?['client']?['url'],
-        "sha1": downloads?['client']?['sha1'],
+        "url": clientInfo?['url'],
+        "sha1": clientInfo?['sha1'],
+        "size": clientInfo?['size'],
       });
     }
 
-    // 检查库文件
+    // 2. Libraries and Natives
     final libraries = versionData['libraries'] as List? ?? [];
     for (var lib in libraries) {
-      if (!_rulesAllow(lib['rules'])) continue;
+      final libData = lib as Map<String, dynamic>;
+      if (!_rulesAllow(libData['rules'])) continue;
       
-      final libName = lib['name'] as String?;
+      final libName = libData['name'] as String?;
       if (libName == null) continue;
       
-      // Calculate relative path for library
-      final parts = libName.split(':');
-      final group = parts[0].replaceAll('.', p.separator);
-      final artifact = parts[1];
-      final version = parts[2];
-      
-      String extension = "jar";
-      String? classifier;
-      final natives = lib['natives'] as Map<String, dynamic>?;
-      if (natives != null) {
-        final currentOs = Platform.isWindows ? "windows" : (Platform.isMacOS ? "osx" : "linux");
-        classifier = natives[currentOs]?.replaceAll("\${arch}", "64");
-      }
-      final filename = "$artifact-$version${classifier != null ? "-$classifier" : ""}.$extension";
-      final relativeLibPath = p.join('libraries', group, artifact, version, filename);
-      
-      final libPath = p.join(minecraftDir, relativeLibPath);
+      final relPath = _getLibraryRelativePath(libData);
+      final libPath = p.join(minecraftDir, relPath);
+      final libDownloads = libData['downloads'] as Map<String, dynamic>?;
+      final artifact = libDownloads?['artifact'] as Map<String, dynamic>?;
+
       if (!await File(libPath).exists()) {
-        final downloads = lib['downloads'] as Map<String, dynamic>?;
-        final artifactData = downloads?['artifact'];
         missing.add({
           "type": "library",
           "id": libName,
           "path": libPath,
-          "relativePath": relativeLibPath,
-          "url": artifactData?['url'],
-          "sha1": artifactData?['sha1'],
+          "relativePath": relPath,
+          "url": artifact?['url'] ?? (libData['url'] != null ? "${libData['url']}${relPath.replaceAll(p.separator, '/')}" : null),
+          "sha1": artifact?['sha1'],
+          "size": artifact?['size'],
         });
+      }
+      
+      // Natives Classifier
+      final currentOs = Platform.isWindows ? "windows" : (Platform.isMacOS ? "osx" : "linux");
+      final natives = libData['natives'] as Map<String, dynamic>?;
+      if (natives != null && natives.containsKey(currentOs)) {
+        final classifier = natives[currentOs].replaceAll("\${arch}", "64");
+        final classifiers = libDownloads?['classifiers'] as Map<String, dynamic>?;
+        final nativeArtifact = classifiers?[classifier] as Map<String, dynamic>?;
+        
+        if (nativeArtifact != null) {
+          final nativeRelPath = nativeArtifact['path'] ?? _getMavenArtifactPath(libName, classifier: classifier);
+          final nativePath = p.join(minecraftDir, nativeRelPath);
+          if (!await File(nativePath).exists()) {
+            missing.add({
+              "type": "library",
+              "id": "$libName-$classifier",
+              "path": nativePath,
+              "relativePath": nativeRelPath,
+              "url": nativeArtifact['url'],
+              "sha1": nativeArtifact['sha1'],
+              "size": nativeArtifact['size'],
+              "isNative": true,
+            });
+          }
+        }
       }
     }
 
-    // 检查资源索引
+    // 3. Asset Index
     final assetIndex = versionData['assetIndex'];
     if (assetIndex != null && assetIndex['id'] != null) {
-      final relativeIndexPath = p.join("assets", "indexes", "${assetIndex['id']}.json");
+      final assetIndexId = assetIndex['id'];
+      final relativeIndexPath = p.join("assets", "indexes", "$assetIndexId.json");
       final assetIndexPath = p.join(minecraftDir, relativeIndexPath);
+      
       if (!await File(assetIndexPath).exists()) {
         missing.add({
           "type": "asset_index",
-          "id": assetIndex['id'],
+          "id": assetIndexId,
           "path": assetIndexPath,
           "relativePath": relativeIndexPath,
           "url": assetIndex['url'],
           "sha1": assetIndex['sha1'],
+          "size": assetIndex['size'],
         });
+      } else {
+        // 4. Asset Objects
+        try {
+          final indexContent = await File(assetIndexPath).readAsString();
+          final indexData = jsonDecode(indexContent);
+          final objects = indexData['objects'] as Map<String, dynamic>? ?? {};
+          
+          for (var entry in objects.entries) {
+            final assetMeta = entry.value as Map<String, dynamic>;
+            final hash = assetMeta['hash'] as String?;
+            if (hash == null) continue;
+            
+            final relObjPath = p.join("assets", "objects", hash.substring(0, 2), hash);
+            final objPath = p.join(minecraftDir, relObjPath);
+            
+            if (!await File(objPath).exists()) {
+              missing.add({
+                "type": "asset_object",
+                "id": entry.key,
+                "path": objPath,
+                "relativePath": relObjPath,
+                "url": "https://resources.download.minecraft.net/${hash.substring(0, 2)}/$hash",
+                "sha1": hash,
+                "size": assetMeta['size'],
+              });
+            }
+          }
+        } catch (e) {
+          stderr.writeln("Failed to check asset objects: $e");
+        }
       }
     }
 
     return missing;
   }
 
+  String _getLibraryRelativePath(Map<String, dynamic> lib) {
+    final name = lib['name'] as String?;
+    if (name == null) return "";
+
+    final downloads = lib['downloads'] as Map<String, dynamic>?;
+    final artifact = downloads?['artifact'] as Map<String, dynamic>?;
+    if (artifact != null && artifact['path'] != null) {
+      return artifact['path'];
+    }
+
+    return _getMavenArtifactPath(name);
+  }
+
+  String _getMavenArtifactPath(String name, {String? classifier, String extension = "jar"}) {
+    final parts = name.split(":");
+    if (parts.length < 3) return "";
+    final group = parts[0].replaceAll(".", p.separator);
+    final artifact = parts[1];
+    final version = parts[2];
+    final filename = "$artifact-$version${classifier != null ? "-$classifier" : ""}.$extension";
+    return p.join("libraries", group, artifact, version, filename);
+  }
+
   Future<void> downloadMissingFiles(String minecraftDir, String versionId, {Function(String status, double progress)? onStatus}) async {
-    final missing = await getMissingFiles(minecraftDir, versionId);
+    List<Map<String, dynamic>> missing = await getMissingFiles(minecraftDir, versionId);
     if (missing.isEmpty) {
-      onStatus?.call("所有文件已完整", 1.0);
+      onStatus?.call("All files are complete".tl, 1.0);
       return;
     }
 
-    onStatus?.call("发现 ${missing.length} 个缺失文件，准备下载...", 0.0);
+    bool indexDownloaded = false;
+    int totalDownloaded = 0;
     
-    final List<DownloadItem> items = [];
-    for (var m in missing) {
-      if (m['url'] == null) continue;
-      items.add(DownloadItem(
-        id: m['id'],
-        url: m['url'],
-        savePath: m['relativePath'],
-        sha1: m['sha1'],
-      ));
-    }
+    while (missing.isNotEmpty) {
+      onStatus?.call("Completing files (${missing.length} pending)...".tl, 0.0);
+      
+      final List<DownloadItem> items = [];
+      for (var m in missing) {
+        if (m['url'] == null) continue;
+        items.add(DownloadItem(
+          id: m['id'],
+          url: m['url'],
+          savePath: m['relativePath'],
+          sha1: m['sha1'],
+        ));
+        if (m['type'] == 'asset_index') indexDownloaded = true;
+      }
 
-    if (items.isEmpty) {
-      onStatus?.call("部分文件缺失但没有下载链接", 1.0);
-      return;
+      if (items.isEmpty) break;
+      
+      await DownloadService.instance.downloadBatch(items, Directory(minecraftDir));
+      totalDownloaded += items.length;
+      
+      // If index was downloaded, need to re-scan objects
+      if (indexDownloaded) {
+        indexDownloaded = false; 
+        missing = await getMissingFiles(minecraftDir, versionId);
+      } else {
+        break; 
+      }
     }
     
-    await DownloadService.instance.downloadBatch(items, Directory(minecraftDir));
-    onStatus?.call("下载任务已提交", 1.0);
+    onStatus?.call("Completed $totalDownloaded files".tl, 1.0);
   }
 
   Future<Process> launch({
@@ -484,13 +671,50 @@ class LaunchService {
     required String minecraftDir,
     Function(String status, double progress)? onStatus,
   }) async {
-    onStatus?.call("正在加载版本配置...", 0.05);
+    // 1. Repair metadata and configuration files
+    onStatus?.call("Checking version metadata...".tl, 0.0);
+    await repairBlJson(minecraftDir);
+    await _ensureLauncherProfile(minecraftDir);
+
+    // 2. Complete missing files
+    onStatus?.call("Checking game integrity...".tl, 0.02);
+    await downloadMissingFiles(minecraftDir, version, onStatus: (s, p) => onStatus?.call(s, 0.02 + p * 0.03));
+
+    onStatus?.call("Loading version configuration...".tl, 0.05);
     final versionData = await loadMergedVersionJson(minecraftDir, version);
     
-    onStatus?.call("正在校验 Java 环境...", 0.1);
-    String? javaPath = ConfigService.get('java_path');
+    onStatus?.call("Verifying Java environment...".tl, 0.1);
+    String? javaPath;
+    String javaVersionStr = ConfigService.get("java_version") ?? "8";
+
+    final String selectionMode = ConfigService.get('java_selection_mode') ?? "auto";
+    
+    if (selectionMode == "auto") {
+      final String? cachedJava = ConfigService.get('detected_java_list');
+      if (cachedJava != null) {
+        try {
+          final List<Map<String, String>> detectedJavas = (jsonDecode(cachedJava) as List)
+              .map((e) => Map<String, String>.from(e))
+              .toList();
+          final bestMatch = JavaConfig.findBestJavaMatch(version, detectedJavas);
+          if (bestMatch != null) {
+            javaPath = bestMatch['path'];
+            javaVersionStr = bestMatch['version'] ?? "8";
+            logger.info("Auto-selected Java for $version: ${bestMatch['detail']} at $javaPath", LogSource.system);
+          }
+        } catch (e) {
+          logger.error("Auto Java selection failed: $e", LogSource.system);
+        }
+      }
+    }
+
     if (javaPath == null || javaPath.isEmpty) {
-      throw Exception("未配置 Java 路径，请在设置中选择或自动检测。");
+      javaPath = ConfigService.get('java_path');
+      javaVersionStr = ConfigService.get("java_version") ?? "8";
+    }
+
+    if (javaPath == null || javaPath.isEmpty) {
+      throw Exception("Java path not configured, please select or auto-detect in settings.");
     }
     
     String javaExe = p.join(javaPath, 'bin', Platform.isWindows ? 'java.exe' : 'java');
@@ -498,19 +722,18 @@ class LaunchService {
       if (await File(javaPath).exists() && (javaPath.toLowerCase().endsWith("java.exe") || javaPath.toLowerCase().endsWith("java"))) {
         javaExe = javaPath;
       } else {
-        throw Exception("Java 执行文件不存在: $javaExe\n请确保设置中的 Java 路径是正确的 JDK/JRE 根目录或直接指向 java 可执行文件。");
+        throw Exception("Java executable does not exist: $javaExe\nPlease ensure the Java path in settings is a correct JDK/JRE root directory or points directly to the java executable.");
       }
     }
 
-    final String javaVersionStr = ConfigService.get("java_version") ?? "8";
     final int javaVersion = int.tryParse(javaVersionStr) ?? 8;
 
-    onStatus?.call("正在加载账户信息...", 0.15);
+    onStatus?.call("Loading account information...".tl, 0.15);
     final List<dynamic> accountListRaw = ConfigService.get("MinecraftAccountList") ?? [];
     final int chosenIndex = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
     
     if (accountListRaw.isEmpty || chosenIndex >= accountListRaw.length) {
-      throw Exception("未找到有效的账户，请先登录。");
+      throw Exception("No valid account found, please log in first.");
     }
 
     final Map<String, dynamic> account = accountListRaw[chosenIndex] is String 
@@ -523,15 +746,15 @@ class LaunchService {
     final String clientId = account['clientId'] ?? "";
     final bool isMicrosoft = account['type'] == "Microsoft";
 
-    onStatus?.call("正在扫描库文件...", 0.2);
+    onStatus?.call("Scanning library files...".tl, 0.2);
     final cp = await buildClasspath(minecraftDir, versionData, onProgress: (p) {
-      onStatus?.call("正在扫描库文件 ($version)...", 0.2 + (p * 0.3));
+      onStatus?.call("Scanning library files ($version)...".tl, 0.2 + (p * 0.3));
     });
 
     final clientJarName = versionData['jar'] ?? version;
     final clientJar = p.join(minecraftDir, 'versions', clientJarName, '$clientJarName.jar');
     if (!await File(clientJar).exists()) {
-      throw Exception("找不到游戏核心 JAR: $clientJar\n请检查该版本是否已完整安装。");
+      throw Exception("Game core JAR not found: $clientJar\nPlease check if this version is fully installed.");
     }
 
     final fullClasspath = '$clientJar${Platform.isWindows ? ';' : ':'}$cp';
@@ -540,7 +763,7 @@ class LaunchService {
       await Directory(nativesDir).create(recursive: true);
     }
 
-    onStatus?.call("正在准备原生库...", 0.55);
+    onStatus?.call("Preparing native libraries...".tl, 0.55);
     final libraries = versionData['libraries'] as List? ?? [];
     for (var lib in libraries) {
       if (!_rulesAllow(lib['rules'])) continue;
@@ -727,12 +950,10 @@ class LaunchService {
       }
     }
 
-    onStatus?.call("正在启动 Minecraft...", 0.95);
+    onStatus?.call("Launching Minecraft...".tl, 0.95);
     return await Process.start(javaExe, args, workingDirectory: variables['game_directory']);
   }
 
-  /// 补全文件的逻辑 (Completing missing files)
-  /// 此方法仅返回缺失文件列表，具体的下载应由 DownloadService 处理
   Future<bool> isVersionComplete(String minecraftDir, String versionId) async {
     final missing = await getMissingFiles(minecraftDir, versionId);
     return missing.isEmpty;

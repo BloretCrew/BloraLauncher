@@ -299,7 +299,7 @@ class NoticeOverlayState extends State<NoticeOverlay> {
                               ),
                             ),
                           );
-                        }).toList().reversed.toList(),
+                        }).toList(),
                       ),
                     ),
                   ),

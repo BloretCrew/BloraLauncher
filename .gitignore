@@ -45,7 +45,6 @@ app.*.map.json
 /android/app/release
 
 # BL Python
-/modules
 /qml
 
 /--obfuscate

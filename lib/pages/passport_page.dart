@@ -153,7 +153,8 @@ class _PassPortPageState extends State<PassPortPage> {
                     onPressed: () async {
                       await ConfigService.set('Bloret_PassPort_Login', false);
                       await ConfigService.set('Bloret_PassPort_UserName', '');
-                      await ConfigService.set('Bloret_PassPort_PassWord', '');
+                      await ConfigService.set('Bloret_PassPort_Token', '');
+                      await ConfigService.set('Bloret_PassPort_Avatar', '');
                       await ConfigService.set('MinecraftAccountList', []);
                       setState(() {});
                       showInfo("Logged out".tl);

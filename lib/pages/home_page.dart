@@ -45,16 +45,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   bool _showRunningHandle = false;
   bool _isHandleExtended = false;
   bool _showLogsInRunning = false;
+  bool _isTransitioningToRunning = false;
+
+  Timer? _logUpdateTimer;
 
   String? _selectedVersion;
   String? _selectedVersionDir;
 
   RunningCore? _selectedCore;
+  Process? _activeLaunchingProcess;
+  bool _isLaunchCancelled = false;
 
   double _launchProgress = 0.0;
   String _launchStatus = "";
   String? _launchError;
   final ScrollController _logScrollController = ScrollController();
+
+  bool get _anyCrashed => CoreManager.instance.runningCores.any((c) => (c.exitCode ?? 0) != 0 && !c.isManuallyTerminated);
 
   bool get _isChinese => ConfigService.getLanguage().toLowerCase().startsWith("zh");
 
@@ -299,6 +306,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _pageController.dispose();
     timer?.cancel();
     _statsTimer?.cancel();
+    _logUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -314,7 +322,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
           for (var core in CoreManager.instance.runningCores) {
             final isAlive = WinProcess.isAlive(core.process.pid);
-            if (!isAlive) continue;
+            if (!isAlive || core.exitCode != null || core.isSuspended) continue;
 
             final currentCpuTime = WinProcess.getCpuTime(core.process.pid);
             if (currentCpuTime == 0 && core.lastCpuTime != 0) {
@@ -453,12 +461,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _launchError = null;
       _launchProgress = 0.0;
       _launchStatus = "Checking file integrity...".tl;
+      _isLaunchCancelled = false;
+      _activeLaunchingProcess = null;
+      _isTransitioningToRunning = false; // Reset flag
     });
 
     _pageController.animateToPage(1, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
 
     try {
-      // 1. 账户验证 (Microsoft Account Validation)
+      // Check for cancellation before expensive tasks
+      if (_isLaunchCancelled) return;
+
+      // 1. Account validation (Microsoft Account Validation)
       final List<dynamic> accountListRaw = ConfigService.get("MinecraftAccountList") ?? [];
       final int chosenIndex = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
       
@@ -471,15 +485,26 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
       if (account['type'] == "Microsoft") {
         setState(() => _launchStatus = "Verifying Microsoft account...".tl);
-        final bool refreshSuccess = await PassportService.refreshMinecraftToken();
-        if (!refreshSuccess) {
+        try {
+          await PassportService.refreshMinecraftToken();
+        } catch (e) {
+          logger.warning("Microsoft token refresh failed: $e", .network);
+        }
+        if (_isLaunchCancelled) return;
+        
+        final bool syncSuccess = await PassportService.syncMinecraftAccounts();
+        if (_isLaunchCancelled) return;
+        
+        if (!syncSuccess && (account['access_token'] == null || account['access_token'].isEmpty)) {
           throw Exception("Microsoft session expired. Please re-login in Passport page.".tl);
         }
-        await PassportService.syncMinecraftAccounts();
       }
 
+      if (_isLaunchCancelled) return;
       setState(() => _launchStatus = "Checking file integrity...".tl);
       final missing = await LaunchService.instance.getMissingFiles(_selectedVersionDir!, _selectedVersion!);
+      if (_isLaunchCancelled) return;
+
       if (missing.isNotEmpty) {
         if (mounted) {
           final confirm = await showDialog<bool>(
@@ -495,6 +520,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           );
 
           if (confirm == true) {
+            if (_isLaunchCancelled) return;
             setState(() => _launchStatus = "Downloading missing files...".tl);
             await LaunchService.instance.downloadMissingFiles(_selectedVersionDir!, _selectedVersion!, onStatus: (status, p) {
               if (mounted) {
@@ -504,11 +530,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               });
               }
             });
+            if (_isLaunchCancelled) return;
             showInfo("Download tasks submitted. Please wait for completion in the overlay.".tl);
           }
         }
       }
 
+      if (_isLaunchCancelled) return;
       setState(() {
         _launchStatus = "Preparing to launch...".tl;
         _launchProgress = 0.1;
@@ -542,13 +570,29 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         },
       );
 
+      _activeLaunchingProcess = process;
+      if (_isLaunchCancelled) {
+        process.kill();
+        return;
+      }
+
       final identityId = ConfigService.get("user_identity");
       final identityName = identityId == "sister" ? "Sister".tl : identityId == "little_sister" ? "Little Sister".tl : "Brother".tl;
 
+      // Parse version and loader from selected version string
+      String displayVersion = _selectedVersion!;
+      String displayLoader = "Vanilla".tl;
+      
+      if (_selectedVersion!.contains("-")) {
+        final parts = _selectedVersion!.split("-");
+        displayVersion = parts[0];
+        displayLoader = parts[1];
+      }
+
       final newCore = RunningCore(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        version: "1.21.8",
-        loader: "Forge-47.2.0",
+        version: displayVersion,
+        loader: displayLoader,
         userName: mcUsername,
         avatar: mcAvatar,
         accountType: mcType,
@@ -587,12 +631,64 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       process.exitCode.then((code) {
         debugPrint("Minecraft exited with code $code");
         logger.info("Minecraft exited with code $code", LogSource.tool);
+        newCore.exitCode = code;
+        if (_isLaunchCancelled && _activeLaunchingProcess == process) {
+          newCore.isManuallyTerminated = true;
+        }
+
         if (mounted) {
-          setState(() {
-            CoreManager.instance.removeCore(newCore);
-            if (_selectedCore == newCore) {
-              _selectedCore = CoreManager.instance.runningCores.isNotEmpty ? CoreManager.instance.runningCores.last : null;
+          final isActualCrash = code != 0 && !newCore.isManuallyTerminated;
+
+          if (isActualCrash && !_isTransitioningToRunning) {
+            _isTransitioningToRunning = true;
+            setState(() {
+              _showLogsInRunning = true;
+              _selectedCore = newCore;
+              _showRunningHandle = true;
+            });
+            
+            if (_homeState == HomeState.normal) {
+              setState(() => _homeState = HomeState.running);
+              _pageController.animateToPage(1, duration: const Duration(milliseconds: 800), curve: Curves.easeOutExpo).then((_) {
+                _isTransitioningToRunning = false;
+              });
+            } else if (_homeState == HomeState.launching) {
+              _pageController.animateToPage(2, duration: const Duration(milliseconds: 800), curve: Curves.easeOutExpo).then((_) {
+                if (mounted) {
+                  setState(() {
+                    _homeState = HomeState.running;
+                    _isTransitioningToRunning = false;
+                  });
+                  _pageController.jumpToPage(1);
+                }
+              });
             }
+          }
+
+          // Transition logic for launching state
+          if (_homeState == HomeState.launching && _selectedCore == newCore && !_isTransitioningToRunning) {
+            _isTransitioningToRunning = true;
+            _pageController.animateToPage(2, duration: const Duration(milliseconds: 800), curve: Curves.easeOutExpo).then((_) {
+              if (mounted) {
+                setState(() {
+                  _homeState = HomeState.running;
+                  _showRunningHandle = true;
+                  _isTransitioningToRunning = false;
+                });
+                _pageController.jumpToPage(1);
+              }
+            });
+          }
+
+          setState(() {
+            if (!isActualCrash) {
+              // Normal exit or manual kill: always remove to close running layout
+              CoreManager.instance.removeCore(newCore);
+              if (_selectedCore == newCore) {
+                _selectedCore = CoreManager.instance.runningCores.isNotEmpty ? CoreManager.instance.runningCores.last : null;
+              }
+            }
+            
             if (CoreManager.instance.runningCores.isEmpty) {
               _showRunningHandle = false;
               if (_homeState == HomeState.running) {
@@ -616,38 +712,57 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _addLogToCore(RunningCore core, String line) {
     if (!mounted) return;
-    setState(() {
-      core.logs.add(line);
-      if (core.logs.length > 500) core.logs.removeAt(0);
-    });
     
-    // Only scroll if this core is currently selected
-    if (_selectedCore == core) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_logScrollController.hasClients) {
-          _logScrollController.animateTo(
-            _logScrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    }
-  }
-
-  void _onWindowCreated() {
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo).then((_) {
-          if (mounted) {
-            setState(() {
-              _homeState = HomeState.normal;
-              _showRunningHandle = true;
-            });
+    core.logs.add(line);
+    if (core.logs.length > 500) core.logs.removeAt(0);
+    
+    // Throttled UI update for logs
+    _logUpdateTimer ??= Timer(const Duration(milliseconds: 100), () {
+      if (mounted) setState(() {});
+      _logUpdateTimer = null;
+      
+      // Only scroll if this core is currently selected
+      if (_selectedCore == core) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_logScrollController.hasClients) {
+            _logScrollController.animateTo(
+              _logScrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            );
           }
         });
       }
     });
+  }
+
+  void _onWindowCreated() {
+    if (!mounted || _isTransitioningToRunning) return;
+    
+    if (_homeState == HomeState.launching) {
+      _isTransitioningToRunning = true;
+      // We are at index 1 (launching). Animate to index 2 (running) while still in launching state.
+      _pageController.animateToPage(2, duration: const Duration(milliseconds: 800), curve: Curves.easeOutExpo).then((_) {
+        if (mounted) {
+          setState(() {
+            _homeState = HomeState.running;
+            _showRunningHandle = true;
+            _isTransitioningToRunning = false;
+          });
+          // Silently jump to index 1 as the middle page is now removed.
+          _pageController.jumpToPage(1);
+        }
+      });
+    } else if (_homeState == HomeState.normal) {
+      _isTransitioningToRunning = true;
+      setState(() {
+        _homeState = HomeState.running;
+        _showRunningHandle = true;
+      });
+      _pageController.animateToPage(1, duration: const Duration(milliseconds: 800), curve: Curves.easeOutExpo).then((_) {
+        _isTransitioningToRunning = false;
+      });
+    }
   }
 
   @override
@@ -697,7 +812,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       width: _isHandleExtended ? 42 : 12,
                       height: 140,
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.85),
+                        color: (_anyCrashed ? Colors.redAccent : theme.colorScheme.primary).withValues(alpha: 0.85),
                         borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
                         boxShadow: [
                           BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 8, offset: const Offset(-2, 2))
@@ -937,6 +1052,44 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 8),
                 Text("${(_launchProgress * 100).toInt()}%", style: theme.textTheme.bodySmall),
+                const SizedBox(height: 32),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    BloretButton(
+                      onPressed: () {
+                        setState(() {
+                          _isLaunchCancelled = true;
+                          _activeLaunchingProcess?.kill();
+                          if (_selectedCore != null && _selectedCore!.process == _activeLaunchingProcess) {
+                            _selectedCore!.isManuallyTerminated = true;
+                          }
+                          _homeState = HomeState.normal;
+                        });
+                        _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+                        showInfo("Launch cancelled.".tl);
+                      }, 
+                      text: "Cancel Launch".tl,
+                      icon: Icons.cancel_outlined,
+                    ),
+                    const SizedBox(width: 16),
+                    BloretButton(
+                      onPressed: () {
+                        if (_selectedCore != null) {
+                          setState(() {
+                            _homeState = HomeState.running;
+                            _showRunningHandle = true;
+                          });
+                          _pageController.animateToPage(1, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+                        } else {
+                          showWarning("Game core not initialized yet.".tl);
+                        }
+                      },
+                      text: "View Details".tl,
+                      icon: Icons.insights_outlined,
+                    ),
+                  ],
+                ),
               ] else ...[
                 const Icon(Icons.error_outline, color: Colors.red, size: 48),
                 const SizedBox(height: 12),
@@ -958,6 +1111,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildRunningLayout(ThemeData theme, bool isPortrait) {
     final core = _selectedCore;
     if (core == null) return Center(child: Text("No running cores".tl));
+    final isExited = core.exitCode != null;
+    final isCrashed = isExited && core.exitCode != 0 && !core.isManuallyTerminated;
+    final isSuspended = core.isSuspended;
+    final isEfficiency = core.isEfficiencyMode;
 
     return Container(
       padding: const EdgeInsets.all(32),
@@ -1001,40 +1158,102 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         children: [
                           _buildProcessActions(theme, core),
                           const SizedBox(height: 24),
-                          FluentCard(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text("Real-time Performance".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 24),
-                                SizedBox(
-                                  height: 180,
-                                  child: Row(
+                          Stack(
+                            children: [
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 500),
+                                curve: Curves.easeInOut,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(20),
+                                  gradient: isCrashed ? LinearGradient(
+                                    colors: [
+                                      Colors.redAccent.withValues(alpha: 0.15),
+                                      Colors.redAccent.withValues(alpha: 0.05),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ) : (isSuspended ? LinearGradient(
+                                    colors: [
+                                      Colors.grey.withValues(alpha: 0.15),
+                                      Colors.grey.withValues(alpha: 0.05),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ) : (isEfficiency ? LinearGradient(
+                                    colors: [
+                                      Colors.greenAccent.withValues(alpha: 0.1),
+                                      Colors.greenAccent.withValues(alpha: 0.02),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ) : null)),
+                                ),
+                                child: FluentCard(
+                                  color: Colors.transparent,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Expanded(
-                                        child: Column(
-                                          children: [
-                                            Text("CPU Usage".tl, style: theme.textTheme.bodySmall),
-                                            const SizedBox(height: 8),
-                                            Expanded(child: _CoreStatsChart(data: core.cpuUsage, color: Colors.blueAccent, animation: _chartAnimationController, unit: "%")),
-                                          ],
-                                        ),
+                                      Row(
+                                        children: [
+                                          Text("Real-time Performance".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : (isEfficiency ? Colors.green : null))),
+                                        ],
                                       ),
-                                      const SizedBox(width: 32),
-                                      Expanded(
-                                        child: Column(
+                                      const SizedBox(height: 24),
+                                      SizedBox(
+                                        height: 180,
+                                        child: Row(
                                           children: [
-                                            Text("Memory Usage".tl, style: theme.textTheme.bodySmall),
-                                            const SizedBox(height: 8),
-                                            Expanded(child: _CoreStatsChart(data: core.memUsage, color: Colors.greenAccent, animation: _chartAnimationController, unit: "GB", scaleFactor: 8.0)),
+                                            Expanded(
+                                              child: Column(
+                                                children: [
+                                                  Text("CPU Usage".tl, style: theme.textTheme.bodySmall?.copyWith(color: isSuspended ? Colors.grey : null)),
+                                                  const SizedBox(height: 8),
+                                                  Expanded(child: _CoreStatsChart(data: core.cpuUsage, color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : Colors.blueAccent), animation: _chartAnimationController, unit: "%", isStopped: isCrashed || isSuspended)),
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 32),
+                                            Expanded(
+                                              child: Column(
+                                                children: [
+                                                  Text("Memory Usage".tl, style: theme.textTheme.bodySmall?.copyWith(color: isSuspended ? Colors.grey : null)),
+                                                  const SizedBox(height: 8),
+                                                  Expanded(child: _CoreStatsChart(data: core.memUsage, color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : Colors.greenAccent), animation: _chartAnimationController, unit: "GB", scaleFactor: 8.0, isStopped: isCrashed || isSuspended)),
+                                                ],
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),
                                     ],
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                              Positioned(
+                                right: 20, top: 20,
+                                child: AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 500),
+                                  opacity: isCrashed ? 0.1 : 0.0,
+                                  child: Icon(Icons.warning_amber_outlined, size: 100, color: Colors.redAccent),
+                                ),
+                              ),
+                              Positioned(
+                                right: 15, top: 15,
+                                child: AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 500),
+                                  opacity: (isEfficiency && !isCrashed) ? 0.08 : 0.0,
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 500),
+                                    child: Icon(
+                                      Icons.energy_savings_leaf, 
+                                      key: ValueKey("leaf_${isSuspended}"), 
+                                      size: 110, 
+                                      color: isSuspended ? Colors.grey : Colors.green
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 24),
                           _buildLogPanel(theme),
@@ -1057,18 +1276,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     key: ValueKey("player_card_${core.id}"),
                     child: Row(
                       children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: core.avatar != null && core.avatar!.isNotEmpty
-                              ? CachedNetworkImage(imageUrl: core.avatar!, width: 36, height: 36, fit: BoxFit.cover, errorWidget: (_,_,_) => const Icon(Icons.account_circle, size: 36))
-                              : const Icon(Icons.account_circle, size: 36),
+                        Opacity(
+                          opacity: isSuspended ? 0.5 : 1.0,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: core.avatar != null && core.avatar!.isNotEmpty
+                                ? CachedNetworkImage(imageUrl: core.avatar!, width: 36, height: 36, fit: BoxFit.cover, errorWidget: (_,_,_) => const Icon(Icons.account_circle, size: 36))
+                                : const Icon(Icons.account_circle, size: 36),
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(core.userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), overflow: TextOverflow.ellipsis),
+                              Text(core.userName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isSuspended ? Colors.grey : null), overflow: TextOverflow.ellipsis),
                               Text("${core.accountType} ${"Account".tl}", style: const TextStyle(fontSize: 10, color: Colors.grey)),
                             ],
                           ),
@@ -1083,7 +1305,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text("Running Cores".tl, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text("Running Cores".tl, style: TextStyle(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : null)),
                         const SizedBox(height: 16),
                         Expanded(
                           child: ListView.builder(
@@ -1104,91 +1326,159 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildProcessActions(ThemeData theme, RunningCore core) {
-    return FluentCard(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("Process Control".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              _buildActionButton(
-                theme,
-                icon: Icons.stop_circle_outlined,
-                label: "Kill".tl,
-                tooltip: "Forcefully terminate the game process.".tl,
-                color: Colors.redAccent,
-                onTap: () {
-                  if (!WinProcess.isAlive(core.process.pid)) {
-                    showError("Process already terminated.".tl);
-                    return;
-                  }
-                  if (!WinProcess.isAlive(core.process.pid)) {
-                    showError("Process already terminated.".tl);
-                    return;
-                  }
-                  core.process.kill();
-                  showSuccess("${"Terminating game process...".tl} (PID: ${core.process.pid})");
-                },
-              ),
-              const SizedBox(width: 6),
-              _buildActionButton(
-                theme,
-                icon: core.isSuspended ? Icons.play_circle_outline : Icons.pause_circle_outline,
-                label: core.isSuspended ? "Resume".tl : "Suspend".tl,
-                tooltip: "Freeze or thaw the game process to save CPU resources.".tl,
-                color: Colors.orangeAccent,
-                onTap: () {
-                  if (core.isSuspended) {
-                    WinProcess.resume(core.process.pid);
-                    setState(() => core.isSuspended = false);
-                    showSuccess("Process resumed.".tl);
-                  } else {
-                    WinProcess.suspend(core.process.pid);
-                    setState(() => core.isSuspended = true);
-                    showSuccess("Process suspended.".tl);
-                  }
-                },
-              ),
-              const SizedBox(width: 6),
-              _buildActionButton(
-                theme,
-                icon: Icons.bolt,
-                label: "Efficiency".tl,
-                tooltip: "Enable Windows Efficiency Mode to reduce power consumption.".tl,
-                color: core.isEfficiencyMode ? Colors.green : Colors.greenAccent,
-                onTap: () {
-                  setState(() => core.isEfficiencyMode = !core.isEfficiencyMode);
-                  WinProcess.setEfficiencyMode(core.process.pid, core.isEfficiencyMode);
-                  showSuccess(core.isEfficiencyMode ? "Efficiency mode enabled.".tl : "Efficiency mode disabled.".tl);
-                },
-              ),
-              const SizedBox(width: 6),
-              _buildActionButton(
-                theme,
-                icon: Icons.cleaning_services_outlined,
-                label: "Clean RAM".tl,
-                tooltip: "Trim process working set. May cause temporary disk I/O lag as memory is swapped back from disk.".tl,
-                color: Colors.blueAccent,
-                onTap: () {
-                  WinProcess.cleanRAM(core.process.pid);
-                  showSuccess("Memory working set trimmed.".tl);
-                },
-              ),
-            ],
+    final isExited = core.exitCode != null;
+    final isCrashed = isExited && core.exitCode != 0 && !core.isManuallyTerminated;
+    final isSuspended = core.isSuspended;
+
+    return Stack(
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: isCrashed ? LinearGradient(
+              colors: [
+                Colors.redAccent.withValues(alpha: 0.2),
+                Colors.redAccent.withValues(alpha: 0.05),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ) : (isSuspended ? LinearGradient(
+              colors: [
+                Colors.grey.withValues(alpha: 0.2),
+                Colors.grey.withValues(alpha: 0.05),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ) : null),
           ),
-        ],
-      ),
+          child: FluentCard(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            color: Colors.transparent,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text("Process Control".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : null)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    _buildActionButton(
+                      theme,
+                      icon: Icons.stop_circle_outlined,
+                      label: "Kill".tl,
+                      tooltip: "Forcefully terminate the game process.".tl,
+                      color: isExited ? theme.disabledColor : Colors.redAccent,
+                      onTap: isExited ? null : () {
+                        if (!WinProcess.isAlive(core.process.pid)) {
+                          showError("Process already terminated.".tl);
+                          return;
+                        }
+                        core.isManuallyTerminated = true;
+                        core.process.kill();
+                        showSuccess("${"Terminating game process...".tl} (PID: ${core.process.pid})");
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    _buildActionButton(
+                      theme,
+                      icon: core.isSuspended ? Icons.play_circle_outline : Icons.pause_circle_outline,
+                      label: core.isSuspended ? "Resume".tl : "Suspend".tl,
+                      tooltip: "Freeze or thaw the game process to save CPU resources.".tl,
+                      color: isExited ? theme.disabledColor : Colors.orangeAccent,
+                      onTap: isExited ? null : () {
+                        if (core.isSuspended) {
+                          WinProcess.resume(core.process.pid);
+                          setState(() => core.isSuspended = false);
+                          showSuccess("Process resumed.".tl);
+                        } else {
+                          WinProcess.suspend(core.process.pid);
+                          setState(() => core.isSuspended = true);
+                          showSuccess("Process suspended.".tl);
+                        }
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    _buildActionButton(
+                      theme,
+                      icon: Icons.bolt,
+                      label: "Efficiency".tl,
+                      tooltip: "Enable Windows Efficiency Mode to reduce power consumption.".tl,
+                      color: isExited || isSuspended ? theme.disabledColor : (core.isEfficiencyMode ? Colors.green : Colors.greenAccent),
+                      onTap: isExited || isSuspended ? null : () {
+                        setState(() => core.isEfficiencyMode = !core.isEfficiencyMode);
+                        WinProcess.setEfficiencyMode(core.process.pid, core.isEfficiencyMode);
+                        showSuccess(core.isEfficiencyMode ? "Efficiency mode enabled.".tl : "Efficiency mode disabled.".tl);
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    _buildActionButton(
+                      theme,
+                      icon: Icons.cleaning_services_outlined,
+                      label: "Clean RAM".tl,
+                      tooltip: "Trim process working set. May cause temporary disk I/O lag as memory is swapped back from disk.".tl,
+                      color: isExited || isSuspended ? theme.disabledColor : Colors.blueAccent,
+                      onTap: isExited || isSuspended ? null : () {
+                        WinProcess.cleanRAM(core.process.pid);
+                        showSuccess("Memory working set trimmed.".tl);
+                      },
+                    ),
+                    if (ConfigService.get("develop_mode") ?? false) ...[
+                      const SizedBox(width: 6),
+                      _buildActionButton(
+                        theme,
+                        icon: Icons.bug_report_outlined,
+                        label: "Crash".tl,
+                        tooltip: "Developer: Manually trigger a process crash for testing.".tl,
+                        color: isExited || isSuspended ? theme.disabledColor : Colors.purpleAccent,
+                        onTap: isExited || isSuspended ? null : () {
+                          if (!WinProcess.isAlive(core.process.pid)) {
+                            showError("Process already terminated.".tl);
+                            return;
+                          }
+                          core.isManuallyTerminated = false;
+                          core.process.kill();
+                          showWarning("Process crash triggered manually (Dev Mode).".tl);
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        Positioned(
+          right: 20, top: 10,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 500),
+            opacity: isCrashed ? 0.1 : 0.0,
+            child: Icon(Icons.warning_amber_outlined, size: 80, color: Colors.redAccent),
+          ),
+        ),
+        Positioned(
+          right: 20, top: 10,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 500),
+            opacity: isSuspended ? 0.1 : 0.0,
+            child: const Icon(Icons.pause_circle_outline, size: 80, color: Colors.grey),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildActionButton(ThemeData theme, {required IconData icon, required String label, required String tooltip, required Color color, required VoidCallback onTap}) {
+  Widget _buildActionButton(ThemeData theme, {required IconData icon, required String label, required String tooltip, required Color color, required VoidCallback? onTap}) {
+    final bool isDisabled = onTap == null;
     return Expanded(
       child: Tooltip(
-        message: tooltip,
+        message: isDisabled ? "" : tooltip,
         child: Material(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.15),
+          color: isDisabled ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.05) : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(10),
           child: InkWell(
             onTap: onTap,
@@ -1197,7 +1487,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: color.withValues(alpha: 0.1)),
+                border: Border.all(color: isDisabled ? Colors.transparent : color.withValues(alpha: 0.1)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1223,6 +1513,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Widget _buildRunningCoreItem(ThemeData theme, RunningCore core) {
     final isSelected = _selectedCore == core;
+    final isExited = core.exitCode != null;
+    final isCrashed = isExited && core.exitCode != 0 && !core.isManuallyTerminated;
+    final bool hasStatus = isExited || core.isSuspended || core.isEfficiencyMode;
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
@@ -1233,52 +1527,75 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: isSelected 
-                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.5) 
+                ? (isCrashed ? Colors.redAccent : theme.colorScheme.primaryContainer).withValues(alpha: 0.5) 
                 : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(12),
-            border: isSelected ? Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.5)) : null,
+            border: isSelected ? Border.all(color: (isCrashed ? Colors.redAccent : theme.colorScheme.primary).withValues(alpha: 0.5)) : null,
           ),
           child: Row(
             children: [
               Stack(
                 alignment: Alignment.bottomRight,
                 children: [
-                  Icon(
-                    CupertinoIcons.cube, 
-                    color: core.isSuspended ? theme.colorScheme.outline : theme.colorScheme.primary, 
-                    size: 24
-                  ),
-                  if (core.isSuspended)
-                    Container(
-                      padding: const EdgeInsets.all(1),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface,
-                        shape: BoxShape.circle,
+                  ClipPath(
+                    clipper: hasStatus ? const _BottomRightCircleClipper(radius: 6) : null,
+                    child: Opacity(
+                      opacity: (isExited && !isCrashed) ? 0.4 : 1.0,
+                      child: Icon(
+                        CupertinoIcons.cube, 
+                        color: isCrashed ? Colors.redAccent : (core.isSuspended ? theme.colorScheme.outline : theme.colorScheme.primary), 
+                        size: 24
                       ),
-                      child: Icon(Icons.pause, size: 10, color: Colors.orangeAccent),
-                    )
-                  else if (core.isEfficiencyMode)
-                    Container(
-                      padding: const EdgeInsets.all(1),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.energy_savings_leaf, size: 10, color: Colors.greenAccent),
                     ),
+                  ),
+                  if (isExited)
+                    Icon(
+                      isCrashed ? Icons.close : Icons.check, 
+                      size: 10,
+                      color: isCrashed ? Colors.redAccent : Colors.grey
+                    )
+                  else if (core.isSuspended)
+                    const Icon(Icons.pause, size: 10, color: Colors.orangeAccent)
+                  else if (core.isEfficiencyMode)
+                    const Icon(Icons.energy_savings_leaf, size: 10, color: Colors.greenAccent),
                 ],
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(core.version, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    Text(core.loader, style: const TextStyle(fontSize: 10)),
-                  ],
+                child: Opacity(
+                  opacity: (isExited && !isCrashed) ? 0.5 : 1.0,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(core.version, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text(core.loader, style: const TextStyle(fontSize: 10)),
+                    ],
+                  ),
                 ),
               ),
-              if (isSelected)
+              if (isExited)
+                 IconButton(
+                    icon: Icon(Icons.delete_outline, size: 16, color: isCrashed ? Colors.redAccent : Colors.grey),
+                    onPressed: () {
+                      setState(() {
+                        CoreManager.instance.removeCore(core);
+                        if (_selectedCore == core) {
+                          _selectedCore = CoreManager.instance.runningCores.isNotEmpty ? CoreManager.instance.runningCores.last : null;
+                        }
+                        
+                        if (CoreManager.instance.runningCores.isEmpty) {
+                          _showRunningHandle = false;
+                          if (_homeState == HomeState.running) {
+                            _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+                            _homeState = HomeState.normal;
+                          }
+                        }
+                      });
+                    },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                 )
+              else if (isSelected)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
@@ -1295,7 +1612,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildLogPanel(ThemeData theme) {
-    final logs = _selectedCore?.logs ?? [];
+    final core = _selectedCore;
+    final logs = core?.logs ?? [];
+    final exitCode = core?.exitCode;
+    final isExited = exitCode != null;
+    final isCrashed = isExited && exitCode != 0 && !core!.isManuallyTerminated;
+    final isSuspended = core?.isSuspended ?? false;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
@@ -1319,19 +1642,41 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       });
                     }
                   },
-                  child: Container(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 500),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                    color: theme.colorScheme.primary.withValues(alpha: 0.05),
+                    color: isCrashed ? Colors.redAccent.withValues(alpha: 0.05) : (isSuspended ? Colors.grey.withValues(alpha: 0.05) : theme.colorScheme.primary.withValues(alpha: 0.05)),
                     child: Row(
                       children: [
-                        Icon(Icons.description_outlined, size: 18, color: theme.colorScheme.primary),
+                        Icon(Icons.description_outlined, size: 18, color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : theme.colorScheme.primary)),
                         const SizedBox(width: 12),
-                        Text("Launch Logs".tl, style: TextStyle(color: theme.colorScheme.primary, fontSize: 13, fontWeight: FontWeight.bold)),
+                        Text(isCrashed ? "Crash Logs".tl : (isExited ? "Exit Logs".tl : "Launch Logs".tl), style: TextStyle(color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : theme.colorScheme.primary), fontSize: 13, fontWeight: FontWeight.bold)),
+                        if (isExited) ...[
+                          const SizedBox(width: 8),
+                          Text("(Exit Code: $exitCode)", style: TextStyle(fontSize: 10, color: isCrashed ? Colors.redAccent : theme.colorScheme.outline)),
+                        ],
                         const Spacer(),
+                        if (isCrashed) 
+                           BloretButton(
+                              height: 32,
+                              onPressed: () {
+                                final lastLogs = logs.length > 30 
+                                    ? logs.sublist(logs.length - 30).join("\n") 
+                                    : logs.join("\n");
+                                final prompt = "My Minecraft game crashed with exit code $exitCode.\n\nHere are the last few lines of the log:\n```\n$lastLogs\n```\n\nCan you help me analyze why it crashed?".tl;
+                                Bloriko.instance.startNewSession(prompt);
+                                context.findAncestorStateOfType<MainShellState>()?.setState(() {
+                                  context.findAncestorStateOfType<MainShellState>()?.selectedIndex = 1;
+                                });
+                              },
+                              icon: Icons.psychology_outlined,
+                              text: "Analyze".tl,
+                           ),
+                        const SizedBox(width: 12),
                         Icon(
                           _showLogsInRunning ? Icons.expand_less : Icons.expand_more,
                           size: 20,
-                          color: theme.colorScheme.primary,
+                          color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : theme.colorScheme.primary),
                         ),
                       ],
                     ),
@@ -1349,7 +1694,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       child: SelectableText(
                         logs[index],
                         style: TextStyle(
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                          color: isCrashed ? Colors.redAccent.withValues(alpha: 0.8) : theme.colorScheme.onSurface.withValues(alpha: 0.8),
                           fontFamily: 'monospace',
                           fontSize: 11,
                           height: 1.4,
@@ -1508,6 +1853,7 @@ class _CoreStatsChart extends StatelessWidget {
   final Animation<double> animation;
   final String? unit;
   final double scaleFactor;
+  final bool isStopped;
 
   const _CoreStatsChart({
     required this.data, 
@@ -1515,6 +1861,7 @@ class _CoreStatsChart extends StatelessWidget {
     required this.animation,
     this.unit,
     this.scaleFactor = 1.0,
+    this.isStopped = false,
   });
 
   @override
@@ -1528,7 +1875,7 @@ class _CoreStatsChart extends StatelessWidget {
         double yRange = (currentMax * 1.2).clamp(0.1, 1.0);
 
         return CustomPaint(
-          painter: _SmoothChartPainter(data, color, animation.value, yRange, unit, scaleFactor),
+          painter: _SmoothChartPainter(data, color, isStopped ? 0 : animation.value, yRange, unit, scaleFactor),
           size: Size.infinite,
         );
       },
@@ -1765,3 +2112,27 @@ class _BottomActionRail extends StatelessWidget {
     );
   }
 }
+
+class _BottomRightCircleClipper extends CustomClipper<Path> {
+  final double radius;
+  const _BottomRightCircleClipper({required this.radius});
+
+  @override
+  Path getClip(Size size) {
+    Path path = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    
+    // The status icons are 10px, so their center is 5px from the edge if aligned bottomRight
+    Path hole = Path()
+      ..addOval(Rect.fromCircle(
+        center: Offset(size.width - 5, size.height - 5),
+        radius: radius,
+      ));
+      
+    return Path.combine(PathOperation.difference, path, hole);
+  }
+
+  @override
+  bool shouldReclip(_BottomRightCircleClipper oldClipper) => oldClipper.radius != radius;
+}
+

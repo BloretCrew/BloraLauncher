@@ -13,6 +13,71 @@ class JavaConfig {
 
   static List<String> get versionList => versions.keys.toList()..sort((a, b) => int.parse(b).compareTo(int.parse(a)));
 
+  static int getRecommendedJavaVersion(String mcVersion) {
+    if (mcVersion.isEmpty) return 8;
+
+    final versionParts = mcVersion.split('.');
+    if (versionParts.length < 2) return 8;
+
+    final int major = int.tryParse(versionParts[0]) ?? 0;
+    final int minor = int.tryParse(versionParts[1]) ?? 0;
+    int patch = 0;
+    if (versionParts.length >= 3) {
+      patch = int.tryParse(versionParts[2]) ?? 0;
+    }
+
+    if (major == 1) {
+      if (minor >= 21) return 21;
+      if (minor == 20 && patch >= 5) return 21;
+      if (minor >= 18) return 17;
+      if (minor == 17) return 16;
+    } else if (major > 1) {
+      return 21; // Future versions
+    }
+
+    return 8; // Default for 1.16 and below
+  }
+
+  static String getRecommendedJavaName(String mcVersion) {
+    return "Java ${getRecommendedJavaVersion(mcVersion)}";
+  }
+
+  static Map<String, String>? findBestJavaMatch(String mcVersion, List<Map<String, String>> detectedJavas) {
+    if (detectedJavas.isEmpty) return null;
+
+    final targetVersion = getRecommendedJavaVersion(mcVersion);
+    
+    // 1. Exact match
+    for (var java in detectedJavas) {
+      final ver = int.tryParse(java['version'] ?? "") ?? 0;
+      if (ver == targetVersion) return java;
+    }
+
+    // 2. Compatible higher version (for Java 17+, newer usually works)
+    if (targetVersion >= 17) {
+      List<Map<String, String>> compatibles = detectedJavas.where((java) {
+        final ver = int.tryParse(java['version'] ?? "") ?? 0;
+        return ver >= targetVersion;
+      }).toList();
+      
+      if (compatibles.isNotEmpty) {
+        compatibles.sort((a, b) => (int.tryParse(a['version'] ?? "") ?? 0).compareTo(int.tryParse(b['version'] ?? "") ?? 0));
+        return compatibles.first;
+      }
+    }
+
+    // 3. Any Java 8 fallback for older versions
+    if (targetVersion == 8) {
+      for (var java in detectedJavas) {
+        final ver = int.tryParse(java['version'] ?? "") ?? 0;
+        if (ver == 8) return java;
+      }
+    }
+
+    // 4. Return anything if nothing else matches
+    return detectedJavas.first;
+  }
+
   static Stream<Map<String, String>> detectJava({bool includeDetails = true}) async* {
     if (Platform.isAndroid) {
       yield {"version": "Android Runtime", "path": "internal", "detail": "Built-in Android OpenJDK"};

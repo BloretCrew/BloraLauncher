@@ -77,7 +77,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
       futures.then((value) {
         config = value[0] as BloraLauncherConfig?;
         server = value[1] as BloretServer?;
-        setState(() {});
+        if (mounted) setState(() {});
       });
     });
     _timer = Timer.periodic(const Duration(seconds: 5), (timer) async {

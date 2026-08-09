@@ -27,7 +27,7 @@ class PassportService {
   static Future<bool> saveData(String key, dynamic data, {bool public = false}) async {
     try {
       final user = ConfigService.get('Bloret_PassPort_UserName') ?? '';
-      final userToken = ConfigService.get('Bloret_PassPort_PassWord') ?? '';
+      final userToken = ConfigService.get('Bloret_PassPort_Token') ?? '';
       
       String dataStr = (data is String) ? data : jsonEncode(data);
       
@@ -87,14 +87,17 @@ class PassportService {
       final username = ConfigService.get('Bloret_PassPort_UserName');
       final userToken = ConfigService.get('Bloret_PassPort_Token');
 
-      final url = '$baseUrl/app/MinecraftAccounts?'
-          'app_id=$appId&'
-          'app_secret=$appSecret&'
-          'user=$username&'
-          'usertoken=$userToken';
-
-      final response = await dio.get(url).timeout(const Duration(seconds: 30));
-      final apiResult = response.data is Map ? response.data : jsonDecode(response.data);
+      final response = await dio.get(
+        '$baseUrl/app/MinecraftAccounts',
+        queryParameters: {
+          'app_id': appId,
+          'app_secret': appSecret,
+          'user': username,
+          'usertoken': userToken,
+        }
+      ).timeout(const Duration(seconds: 30));
+      
+      final apiResult = response.data is Map ? response.data : jsonDecode(response.data.toString());
 
       if (apiResult['status'] == 'success') {
         final List accounts = apiResult['accounts'] ?? [];
@@ -148,7 +151,8 @@ class PassportService {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        final result = jsonDecode(response.data);
+        final dynamic data = response.data;
+        final Map<String, dynamic> result = data is Map ? Map<String, dynamic>.from(data) : jsonDecode(data.toString());
         return result['success'] ?? false;
       }
     } catch (_) {}

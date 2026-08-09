@@ -30,9 +30,9 @@ class WelcomeSetupScreen extends StatefulWidget {
 
 class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBindingObserver {
   int _currentStep = 0;
-  final int _totalSteps = 7;
+  final int _totalSteps = 6;
 
-  final List<String> _stepLabels = ['Welcome'.tl, 'Language'.tl, 'Login'.tl, 'Sync'.tl, 'Java'.tl, 'Directory'.tl, 'Link'.tl];
+  final List<String> _stepLabels = ['Welcome'.tl, 'Language'.tl, 'Login'.tl, 'Sync'.tl, 'Java'.tl, 'Directory'.tl,];
   
   String _selectedLanguage = 'zh_cn';
   List<String> _minecraftDirs = [];
@@ -486,8 +486,18 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 
   List<Map<String, dynamic>> _getAccounts() {
     final data = ConfigService.get('MinecraftAccountList');
-    if (data is List<String>) {
-      return data.map((e) => jsonDecode(e) as Map<String, dynamic>).toList();
+    if (data is List) {
+      return data.map((e) {
+        if (e is Map) return Map<String, dynamic>.from(e);
+        if (e is String) {
+          try {
+            return jsonDecode(e) as Map<String, dynamic>;
+          } catch (_) {
+            return <String, dynamic>{};
+          }
+        }
+        return <String, dynamic>{};
+      }).where((e) => e.isNotEmpty).toList();
     }
 
     final oldData = ConfigService.get('MinecraftAccount');
@@ -586,12 +596,112 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             ..headers.contentType = ContentType.html
             ..write('''
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${"Login Success".tl}</title>
-...
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            overflow: hidden;
+        }
+        .container {
+            text-align: center;
+            padding: 48px;
+            background: #1e1e1e;
+            border-radius: 24px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            max-width: 400px;
+            width: 90%;
+            animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .icon-wrapper {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 24px;
+        }
+        .success-pulse {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: rgba(159, 168, 218, 0.2);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        .success-icon {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #9FA8DA;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 20px rgba(159, 168, 218, 0.4);
+        }
+        .success-icon svg {
+            width: 40px;
+            height: 40px;
+            fill: none;
+            stroke: #121212;
+            stroke-width: 4;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-dasharray: 100;
+            stroke-dashoffset: 100;
+            animation: drawCheck 0.6s 0.3s forwards cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+        }
+        p {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.5);
+            line-height: 1.6;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 0; }
+            100% { transform: scale(0.95); opacity: 0.5; }
+        }
+        @keyframes drawCheck {
+            to { stroke-dashoffset: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon-wrapper">
+            <div class="success-pulse"></div>
+            <div class="success-icon">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </div>
+        </div>
         <h1>${"Bloret PassPort Authorized".tl}</h1>
         <p>${"You can now safely close this window and return to the Launcher.".tl}</p>
     </div>
@@ -870,30 +980,54 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                     height: 50,
                     child: Center(child: CircularProgressIndicator()),
                   )
-                      : ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      backgroundColor: _isWaitingForLogin ? theme.colorScheme.secondaryContainer : theme.colorScheme.primary,
-                      foregroundColor: _isWaitingForLogin ? theme.colorScheme.onSecondaryContainer : theme.colorScheme.onPrimary,
-                      elevation: 2,
-                    ),
-                    onPressed: () async {
-                      if (!isTokenValid) {
-                        await _loginBloretPassPort();
-                        return;
-                      }
-                      if (ConfigService.get('Bloret_PassPort_Login') ?? false) {
-                        setState(() => _currentStep++);
-                      } else {
-                        await _loginBloretPassPort();
-                      }
-                    },
-                    child: Text(
-                      isTokenValid ? buttonText : isLoggedIn ? "Token expired, please log in again".tl : "Go to login".tl,
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                    ),
-                  ),
+                      : Column(
+                        children: [
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              backgroundColor: _isWaitingForLogin ? theme.colorScheme.secondaryContainer : theme.colorScheme.primary,
+                              foregroundColor: _isWaitingForLogin ? theme.colorScheme.onSecondaryContainer : theme.colorScheme.onPrimary,
+                              elevation: 2,
+                            ),
+                            onPressed: () async {
+                              if (!isTokenValid) {
+                                await _loginBloretPassPort();
+                                return;
+                              }
+                              if (ConfigService.get('Bloret_PassPort_Login') ?? false) {
+                                setState(() => _currentStep++);
+                              } else {
+                                await _loginBloretPassPort();
+                              }
+                            },
+                            child: Text(
+                              isTokenValid ? buttonText : isLoggedIn ? "Token expired, please log in again".tl : "Go to login".tl,
+                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                            ),
+                          ),
+                          if (isLoggedIn) ...[
+                            const SizedBox(height: 12),
+                            TextButton.icon(
+                              onPressed: () async {
+                                await ConfigService.set('Bloret_PassPort_Login', false);
+                                await ConfigService.set('Bloret_PassPort_UserName', '');
+                                await ConfigService.set('Bloret_PassPort_Token', '');
+                                await ConfigService.set('Bloret_PassPort_Avatar', '');
+                                await ConfigService.set('MinecraftAccountList', []);
+                                _isTokenValidNotifier.value = false;
+                                setState(() {});
+                                showInfo("Logged out".tl);
+                              },
+                              icon: const Icon(Icons.logout, size: 16),
+                              label: Text("Logout and Switch Account".tl),
+                              style: TextButton.styleFrom(
+                                foregroundColor: theme.colorScheme.error,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                 ),
                 const SizedBox(height: 24),
                 Text("Tip: You must log in to Bloret PassPort to continue.".tl, textAlign: TextAlign.center, style: hintStyle),
@@ -997,7 +1131,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                               duration: const Duration(milliseconds: 300),
                               scale: isSelected ? 1.1 : 1.0,
                               child: ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
+                                borderRadius: BorderRadius.circular(8),
                                 child: Container(
                                   width: 32,
                                   height: 32,
@@ -1058,7 +1192,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
                                   color: theme.colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text("Switch".tl, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
                               ),
@@ -1078,8 +1212,12 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                 onPressed: _isSyncingAccounts ? null : () async {
                   setState(() => _isSyncingAccounts = true);
                   try {
-                    await PassportService.syncMinecraftAccounts();
-                    showSuccess("Sync complete".tl);
+                    final success = await PassportService.syncMinecraftAccounts();
+                    if (success) {
+                      showSuccess("Sync complete".tl);
+                    } else {
+                      showError("Sync failed. Please check your network or login status.".tl);
+                    }
                   } catch (e) {
                     showError("Sync failed".tl);
                     logger.error("Welcome sync error: $e", .network);
