@@ -718,7 +718,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
           child: Stack(
             children: [
               Hero(
-                tag: 'video-avatar-$name',
+                tag: 'video-stream-$name',
                 child: showStream
                     ? RTCVideoView(
                   renderer!,
@@ -728,7 +728,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                     : GestureDetector(
                         onTap: () => _showUserProfileDialog(name),
                         child: Center(
-                          child: _userProfiles[name]?['avatar'] != null 
+                          child: (_userProfiles[name] != null && _userProfiles[name]!['avatar'] != null) 
                             ? ClipOval(
                                 child: CachedNetworkImage(
                                   imageUrl: _userProfiles[name]!['avatar'],

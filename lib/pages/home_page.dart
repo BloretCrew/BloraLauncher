@@ -9,6 +9,7 @@ import 'package:dio/dio.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import 'package:path/path.dart' as p;
 
 import '../core/i18n.dart';
 import '../core/logger.dart';
@@ -402,16 +403,28 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 itemCount: versions.length,
                 itemBuilder: (context, index) {
                   final v = versions[index];
-                  final isSelected = v['id'] == _selectedVersion;
+                  final versionId = v['id']!;
+                  final directory = v['directory']!;
+                  final isSelected = versionId == _selectedVersion && directory == _selectedVersionDir;
+                  
+                  // Try to find icon.png in absolute path: directory/versions/id/icon.png
+                  final iconPath = p.join(directory, "versions", versionId, "icon.png");
+                  final iconFile = File(iconPath);
+                  
                   return ListTile(
-                    leading: Icon(Icons.layers, color: isSelected ? Theme.of(context).colorScheme.primary : null),
-                    title: Text(v['id']!, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                    subtitle: Text(v['directory']!, style: const TextStyle(fontSize: 10)),
+                    leading: iconFile.existsSync()
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.file(iconFile, width: 32, height: 32, fit: BoxFit.cover),
+                        )
+                      : Icon(Icons.layers, color: isSelected ? Theme.of(context).colorScheme.primary : null),
+                    title: Text(versionId, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                    subtitle: Text(directory, style: const TextStyle(fontSize: 10)),
                     trailing: isSelected ? const Icon(Icons.check_circle, size: 18) : null,
                     onTap: () {
                       setState(() {
-                        _selectedVersion = v['id'];
-                        _selectedVersionDir = v['directory'];
+                        _selectedVersion = versionId;
+                        _selectedVersionDir = directory;
                       });
                       ConfigService.set("selected_version", _selectedVersion);
                       ConfigService.set("selected_version_dir", _selectedVersionDir);
@@ -977,6 +990,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           onSwitchCore: _showVersionSelector,
           onOpenFolder: _openGameDir,
           selectedVersion: _selectedVersion,
+          selectedVersionDir: _selectedVersionDir,
         ),
       ],
     );
@@ -1195,7 +1209,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                     children: [
                                       Row(
                                         children: [
-                                          Text(isCrashed ? "Performance Snapshot".tl : "Real-time Performance".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : (isEfficiency ? Colors.green : null))),
+                                          Text(isCrashed ? "Performance Snapshot".tl : "Real-time Performance".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : (isEfficiency && !isCrashed ? Colors.green : null))),
                                         ],
                                       ),
                                       const SizedBox(height: 24),
@@ -1246,7 +1260,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                     duration: const Duration(milliseconds: 500),
                                     child: Icon(
                                       Icons.energy_savings_leaf, 
-                                      key: ValueKey("leaf_${isSuspended}"), 
+                                      key: ValueKey("leaf_$isSuspended"),
                                       size: 110, 
                                       color: isSuspended ? Colors.grey : Colors.green
                                     ),
@@ -1978,13 +1992,51 @@ class _BottomActionRail extends StatelessWidget {
   final VoidCallback onSwitchCore;
   final VoidCallback onOpenFolder;
   final String? selectedVersion;
+  final String? selectedVersionDir;
 
   const _BottomActionRail({
     required this.onLaunch,
     required this.onSwitchCore,
     required this.onOpenFolder,
     this.selectedVersion,
+    this.selectedVersionDir,
   });
+
+  Widget _buildCoreIcon(ThemeData theme) {
+    if (selectedVersion != null && selectedVersionDir != null) {
+      final iconPath = p.join(selectedVersionDir!, "versions", selectedVersion!, "icon.png");
+      final iconFile = File(iconPath);
+      if (iconFile.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(iconFile, width: 40, height: 40, fit: BoxFit.cover),
+        );
+      }
+    }
+    return Container(
+      width: 40, height: 40,
+      decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+      child: const Icon(Icons.inventory_2, size: 20),
+    );
+  }
+
+  Widget _buildCoreIconDesktop(ThemeData theme) {
+    if (selectedVersion != null && selectedVersionDir != null) {
+      final iconPath = p.join(selectedVersionDir!, "versions", selectedVersion!, "icon.png");
+      final iconFile = File(iconPath);
+      if (iconFile.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(iconFile, width: 48, height: 48, fit: BoxFit.cover),
+        );
+      }
+    }
+    return Container(
+      width: 48, height: 48,
+      decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+      child: const Icon(Icons.inventory_2),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2018,11 +2070,7 @@ class _BottomActionRail extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 40, height: 40,
-                    decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
-                    child: const Icon(Icons.inventory_2, size: 20),
-                  ),
+                  _buildCoreIcon(theme),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -2066,11 +2114,7 @@ class _BottomActionRail extends StatelessWidget {
           )
               : Row(
             children: [
-              Container(
-                width: 48, height: 48,
-                decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
-                child: const Icon(Icons.inventory_2),
-              ),
+              _buildCoreIconDesktop(theme),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(

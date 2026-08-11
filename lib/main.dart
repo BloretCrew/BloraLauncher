@@ -183,13 +183,14 @@ class FluentCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
   final Color? color;
-  const FluentCard({super.key, required this.child, this.padding, this.color});
+  final void Function()? onTap;
+  const FluentCard({super.key, required this.child, this.padding, this.color, this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       color: color,
-      child: Padding(padding: padding ?? const EdgeInsets.all(16), child: child),
+      child: onTap != null ? InkWell(mouseCursor: SystemMouseCursors.click, onTap: onTap,child: Padding(padding: padding ?? const EdgeInsets.all(16), child: child),) : Padding(padding: padding ?? const EdgeInsets.all(16), child: child),
     );
   }
 }

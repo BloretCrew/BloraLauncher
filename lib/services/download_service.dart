@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -8,6 +9,7 @@ import 'package:archive/archive_io.dart';
 
 import '../core/i18n.dart';
 import '../core/java_config.dart';
+import 'launch_service.dart';
 
 class MavenArtifact {
   final String name;
@@ -16,6 +18,47 @@ class MavenArtifact {
   final String? sha1;
 
   MavenArtifact({required this.name, required this.url, required this.path, this.sha1});
+}
+
+enum LoaderType { vanilla, fabric, forge, neoforge }
+
+// {"id": "26.3-snapshot-6",
+// "type": "snapshot",
+// "url": "https://piston-meta.mojang.com/v1/packages/0d633dfe790a7638af3f1682a93e374890a56e96/26.3-snapshot-6.json",
+// "time": "2026-08-04T11:33:25+00:00",
+// "releaseTime": "2026-07-28T12:25:51+00:00",
+// "sha1": "0d633dfe790a7638af3f1682a93e374890a56e96",
+// "complianceLevel": 1}
+class MinecraftVersion {
+  final String id;
+  final String type;
+  final String url;
+  final String sha1;
+  final int complianceLevel;
+  final DateTime time;
+  final DateTime releaseTime;
+
+  MinecraftVersion({
+    required this.id,
+    required this.type,
+    required this.url,
+    required this.time,
+    required this.releaseTime,
+    required this.sha1,
+    required this.complianceLevel,
+  });
+
+  factory MinecraftVersion.fromJson(Map<String, dynamic> json) {
+    return MinecraftVersion(
+      id: json['id'],
+      type: json['type'],
+      url: json['url'],
+      time: DateTime.parse(json['time']),
+      releaseTime: DateTime.parse(json['releaseTime']),
+      sha1: json['sha1'],
+      complianceLevel: (json['complianceLevel'] as num?)?.toInt() ?? -1,
+    );
+  }
 }
 
 class DownloadItem {
@@ -133,7 +176,7 @@ class DownloadService extends ChangeNotifier {
       });
       return true;
     } catch (e) {
-      debugPrint("下载库失败 $id: $e");
+      debugPrint("Download Lib Failed $id: $e");
       return false;
     } finally {
       task.isDownloading = false;
@@ -196,13 +239,70 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
+  Future<bool> extractZip(File archive, Directory destination, {bool stripRoot = false}) async {
+    try {
+      if (!await destination.exists()) await destination.create(recursive: true);
+
+      final bytes = await archive.readAsBytes();
+      final zipDecoder = ZipDecoder();
+      final archiveFile = zipDecoder.decodeBytes(bytes);
+
+      String? rootFolder;
+      if (stripRoot && archiveFile.isNotEmpty) {
+        final firstPath = archiveFile.first.name.replaceAll('\\', '/');
+        final segments = firstPath.split('/');
+        if (segments.length > 1 || (segments.length == 1 && !archiveFile.first.isFile)) {
+          final potentialRoot = segments[0];
+          bool allMatch = true;
+          for (final file in archiveFile) {
+            final name = file.name.replaceAll('\\', '/');
+            if (name == potentialRoot) continue; // Folder entry itself
+            if (!name.startsWith('$potentialRoot/')) {
+              allMatch = false;
+              break;
+            }
+          }
+          if (allMatch) rootFolder = potentialRoot;
+        }
+      }
+
+      for (final file in archiveFile) {
+        String filename = file.name.replaceAll('\\', '/');
+        if (rootFolder != null && filename.startsWith('$rootFolder/')) {
+          filename = filename.substring(rootFolder.length + 1);
+        } else if (rootFolder != null && filename == rootFolder) {
+          continue; // Skip root folder entry
+        }
+        
+        if (filename.isEmpty) continue;
+
+        final targetPath = p.join(destination.path, filename);
+        if (!p.isWithin(destination.path, targetPath) && p.normalize(targetPath) != destination.path) {
+          continue; // Path traversal protection
+        }
+
+        if (file.isFile) {
+          final outFile = File(targetPath);
+          await outFile.parent.create(recursive: true);
+          await outFile.writeAsBytes(file.content as List<int>);
+        } else {
+          await Directory(targetPath).create(recursive: true);
+        }
+      }
+      return true;
+    } catch (e) {
+      debugPrint("Zip extraction failed: $e");
+      return false;
+    }
+  }
+
   Future<String?> getJavaPath() async {
     final candidates = ['java'];
     for (final java in candidates) {
       try {
         final result = await Process.run(java, ['-version']);
         if (result.exitCode == 0) {
-          debugPrint("找到 Java: $java");
+          debugPrint("Found Java: $java");
           return java;
         }
       } catch (e) {
@@ -256,6 +356,146 @@ class DownloadService extends ChangeNotifier {
       }
     }
     return allowed;
+  }
+
+  List<MinecraftVersion> _cachedVanillaVersions = [];
+
+  Future<List<MinecraftVersion>> fetchAllVanillaVersions({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedVanillaVersions.isNotEmpty) {
+      return _cachedVanillaVersions;
+    }
+
+    try {
+      final response = await _dio.get("https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json");
+      if (response.statusCode == 200) {
+        final List<dynamic> versions = response.data is String ? jsonDecode(response.data)['versions'] : response.data['versions'];
+        _cachedVanillaVersions = versions.map((v) => MinecraftVersion.fromJson(v)).toList();
+        return _cachedVanillaVersions;
+      }
+    } on DioException catch (e) {
+      debugPrint("Failed to fetch vanilla versions: $e");
+    } catch (_) {
+      rethrow;
+    }
+    return _cachedVanillaVersions;
+  }
+
+  Future<List<String>> fetchLoaderVersions(String mcVersion, LoaderType type) async {
+    try {
+      String url = "";
+      switch (type) {
+        case LoaderType.fabric:
+          url = "https://bmclapi2.bangbang93.com/fabric/loader/$mcVersion";
+          break;
+        case LoaderType.forge:
+          url = "https://bmclapi2.bangbang93.com/forge/minecraft/$mcVersion";
+          break;
+        case LoaderType.neoforge:
+          url = "https://bmclapi2.bangbang93.com/neoforge/list/$mcVersion";
+          break;
+        default:
+          return [];
+      }
+      
+      final response = await _dio.get(url);
+      if (response.statusCode == 200) {
+        final List<dynamic> data = response.data;
+        if (type == LoaderType.fabric) {
+          return data.map((e) => e['loader']['version'].toString()).toList();
+        } else if (type == LoaderType.forge) {
+          return data.map((e) => e['version'].toString()).toList();
+        } else if (type == LoaderType.neoforge) {
+          return data.map((e) => e.toString()).toList();
+        }
+      }
+    } catch (e) {
+      debugPrint("Failed to fetch loader versions ($type) for $mcVersion: $e");
+    }
+    return [];
+  }
+
+  Future<void> installVanilla(String versionId, String url, Directory targetDir) async {
+    final task = getTask("Install_$versionId");
+    task.isDownloading = true;
+    task.update(0.0, "Fetching metadata...".tl);
+
+    try {
+      final response = await _dio.get(url);
+      if (response.statusCode != 200) throw Exception("Failed to get version metadata");
+      
+      final versionData = response.data;
+      final versionPath = p.join(targetDir.path, "versions", versionId);
+      final jsonFile = File(p.join(versionPath, "$versionId.json"));
+      
+      await jsonFile.parent.create(recursive: true);
+      await jsonFile.writeAsString(jsonEncode(versionData));
+      
+      task.update(0.3, "Completing game files...".tl);
+      await LaunchService.instance.downloadMissingFiles(
+        targetDir.path, 
+        versionId, 
+        onStatus: (status, p) {
+          task.update(0.3 + p * 0.6, status);
+        }
+      );
+      
+      task.update(1.0, "Installation Complete".tl);
+    } catch (e) {
+      task.update(0.0, "Installation Failed: $e".tl);
+    } finally {
+      task.isDownloading = false;
+    }
+  }
+
+  Future<void> installLoader(String mcVersion, String loaderVersion, LoaderType type, Directory targetDir) async {
+    final String versionId = "$mcVersion-${type.name}-$loaderVersion";
+    final task = getTask("Install_$versionId");
+    task.isDownloading = true;
+    task.update(0.0, "Preparing installation...".tl);
+
+    try {
+      final versionPath = p.join(targetDir.path, "versions", versionId);
+      final jsonFile = File(p.join(versionPath, "$versionId.json"));
+      await jsonFile.parent.create(recursive: true);
+
+      Map<String, dynamic> loaderJson = {};
+      
+      if (type == LoaderType.fabric) {
+        task.update(0.2, "Fetching Fabric JSON...".tl);
+        final res = await _dio.get("https://bmclapi2.bangbang93.com/fabric/loader/$mcVersion/$loaderVersion/json");
+        loaderJson = res.data;
+      } else if (type == LoaderType.forge) {
+        task.update(0.2, "Fetching Forge JSON...".tl);
+        // BMCLAPI Forge download usually gives the installer, but we want the version.json content
+        // For 1.13+, BMCLAPI provides a way to get the version.json directly or we might need to extract it
+        // However, many launchers just use the pre-computed JSONs from mirror sites.
+        // Let's assume BMCLAPI has a direct JSON endpoint or use the metadata
+        final res = await _dio.get("https://bmclapi2.bangbang93.com/forge/download/$mcVersion-$loaderVersion/json");
+        loaderJson = res.data;
+      } else if (type == LoaderType.neoforge) {
+        task.update(0.2, "Fetching NeoForge JSON...".tl);
+        final res = await _dio.get("https://bmclapi2.bangbang93.com/neoforge/version/$loaderVersion/json");
+        loaderJson = res.data;
+      }
+
+      await jsonFile.writeAsString(jsonEncode(loaderJson));
+      
+      task.update(0.5, "Completing dependencies...".tl);
+      await LaunchService.instance.downloadMissingFiles(
+        targetDir.path, 
+        versionId, 
+        onStatus: (status, p) {
+          task.update(0.5 + p * 0.4, status);
+        }
+      );
+      
+      task.update(1.0, "Installation Complete".tl);
+    } catch (e) {
+      task.update(0.0, "Installation Failed: $e".tl);
+      debugPrint("Install Loader Error: $e");
+    } finally {
+      task.isDownloading = false;
+    }
   }
 
   Future<void> downloadFile(

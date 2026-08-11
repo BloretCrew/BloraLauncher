@@ -614,8 +614,7 @@ class _ModsPageState extends State<ModsPage> {
                     child: Center(
                       child: CustomPaint(
                         size: const Size(56, 56),
-                        painter: _PathPainter(
-                          path: buildPath(),
+                        painter: BloretIcon(
                           color: theme.colorScheme.primary.withValues(alpha: 0.2),
                         ),
                       ),
@@ -626,8 +625,7 @@ class _ModsPageState extends State<ModsPage> {
                     child: Center(
                       child: CustomPaint(
                         size: const Size(56, 56),
-                        painter: _PathPainter(
-                          path: buildPath(),
+                        painter: BloretIcon(
                           color: theme.colorScheme.primary.withValues(alpha: 0.1),
                         ),
                       ),
@@ -1504,17 +1502,18 @@ Path buildPath() {
   return path;
 }
 
-class _PathPainter extends CustomPainter {
-  final Path path;
+class BloretIcon extends CustomPainter {
   final Color color;
 
-  _PathPainter({required this.path, required this.color});
+  BloretIcon({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.fill;
+
+    final path = buildPath();
 
     final Rect bounds = path.getBounds();
     final double scaleX = size.width / bounds.width;
@@ -1533,6 +1532,5 @@ class _PathPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _PathPainter oldDelegate) => 
-    oldDelegate.path != path || oldDelegate.color != color;
+  bool shouldRepaint(covariant BloretIcon oldDelegate) => false;
 }

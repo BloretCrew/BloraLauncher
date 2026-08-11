@@ -35,6 +35,7 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
   Timer? _hideTimer;
   RTCVideoViewObjectFit _objectFit = RTCVideoViewObjectFit.RTCVideoViewObjectFitContain;
   bool _isLandscape = false;
+  bool _readyToShowVideo = false; // New flag to delay video attachment
   
   late List<dynamic> _messages;
   final TextEditingController _chatController = TextEditingController();
@@ -46,6 +47,11 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
     _messages = List.from(widget.initialMessages ?? []);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _startHideTimer();
+    
+    // Delay video attachment to avoid Hero animation conflicts with PlatformView
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) setState(() => _readyToShowVideo = true);
+    });
   }
 
   @override
@@ -221,10 +227,10 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
           children: [
             Center(
               child: Hero(
-                tag: 'video-${widget.title}',
+                tag: 'video-stream-${widget.title}',
                 child: AspectRatio(
                   aspectRatio: 16/9,
-                  child: widget.renderer != null
+                  child: (widget.renderer != null && _readyToShowVideo)
                       ? RTCVideoView(widget.renderer!, objectFit: _objectFit)
                       : const Center(child: Icon(Icons.person, size: 64, color: Colors.white54, shadows: shadow)),
                 ),

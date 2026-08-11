@@ -77,9 +77,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
     if (Platform.isWindows) {
       final appData = Platform.environment['APPDATA'];
       if (appData != null) {
-        defaultPath = path.join(appData, '.minecraft');
+        defaultPath = path.join(appData, 'BloraLauncher/.minecraft');
       } else {
-        defaultPath = 'C:/Users/Administrator/AppData/Roaming/.minecraft';
+        defaultPath = 'C:/Users/Administrator/AppData/Roaming/BloraLauncher/.minecraft';
       }
     } else if (Platform.isLinux) {
       final home = Platform.environment['HOME'];

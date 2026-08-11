@@ -117,7 +117,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     (_NavDestination("Home".tl, Icons.home_outlined, Icons.home,), () => const HomePage()),
     (_NavDestination("Agent".tl, Icons.smart_toy_outlined, Icons.smart_toy, keepAlive: true), () => const BloraChatPage()),
     "divider",
-    (_NavDestination("Download".tl, Icons.file_download_outlined, Icons.file_download, keepAlive: true), () => const DownloadPage()),
+    (_NavDestination("Download".tl, Icons.file_download_outlined, Icons.file_download,), () => const DownloadPage()),
     (_NavDestination("Cores".tl, Icons.view_in_ar_outlined, Icons.view_in_ar, keepAlive: true), () => const CoresPage()),
     (_NavDestination("Tools".tl, Icons.handyman_outlined, Icons.handyman), () => const ToolsPage()),
     (_NavDestination("Stats".tl, Icons.bar_chart_outlined, Icons.bar_chart), () => const StatsPage()),
