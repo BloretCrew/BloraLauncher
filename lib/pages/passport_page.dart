@@ -23,7 +23,7 @@ class _PassPortPageState extends State<PassPortPage> {
   bool _displayUuid = true;
   bool _isWaitingForLogin = false;
   HttpServer? _authServer;
-  int _actualPort = 25252;
+  int _actualPort = 25253;
   final ValueNotifier<bool> _isTokenValidNotifier = ValueNotifier<bool>(false);
 
   void _syncStateToUi() {
@@ -39,7 +39,7 @@ class _PassPortPageState extends State<PassPortPage> {
 
   Future<void> _loginBloretPassPort() async {
     await _startAuthServer();
-    final url = Uri.parse('https://passport.bloret.net/app/oauth?app_id=BloraLauncher&redirect_uri=http://localhost:$_actualPort/login/Bloret-PassPort');
+    final url = Uri.parse('https://passport.bloret.net/app/oauth?app_id=${PassportService.appId}&redirect_uri=http://localhost:$_actualPort/login/Bloret-PassPort');
     if (await canLaunchUrl(url)) {
       await launchUrl(
           url,
@@ -52,8 +52,8 @@ class _PassPortPageState extends State<PassPortPage> {
   Future<void> _startAuthServer() async {
     await _authServer?.close(force: true);
     try {
-      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25252);
-      _actualPort = 25252;
+      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25253);
+      _actualPort = 25253;
     } catch (_) {
       _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       _actualPort = _authServer!.port;
@@ -91,12 +91,112 @@ class _PassPortPageState extends State<PassPortPage> {
             ..headers.contentType = ContentType.html
             ..write('''
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${"Login Success".tl}</title>
-...
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            overflow: hidden;
+        }
+        .container {
+            text-align: center;
+            padding: 48px;
+            background: #1e1e1e;
+            border-radius: 24px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            max-width: 400px;
+            width: 90%;
+            animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .icon-wrapper {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 24px;
+        }
+        .success-pulse {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: rgba(159, 168, 218, 0.2);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        .success-icon {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #9FA8DA;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 20px rgba(159, 168, 218, 0.4);
+        }
+        .success-icon svg {
+            width: 40px;
+            height: 40px;
+            fill: none;
+            stroke: #121212;
+            stroke-width: 4;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-dasharray: 100;
+            stroke-dashoffset: 100;
+            animation: drawCheck 0.6s 0.3s forwards cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+        }
+        p {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.5);
+            line-height: 1.6;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 0; }
+            100% { transform: scale(0.95); opacity: 0.5; }
+        }
+        @keyframes drawCheck {
+            to { stroke-dashoffset: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon-wrapper">
+            <div class="success-pulse"></div>
+            <div class="success-icon">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </div>
+        </div>
         <h1>${"Bloret PassPort Authorized".tl}</h1>
         <p>${"You can now safely close this window and return to the Launcher.".tl}</p>
     </div>
@@ -281,7 +381,7 @@ class _PassPortPageState extends State<PassPortPage> {
                             showError("Sync failed".tl);
                             logger.error("Passport sync error: $e", .network);
                           }
-                          setState(() => _isSyncing = false);
+                          if (mounted) setState(() => _isSyncing = false);
                         },
                         style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
                         child: Text("Cloud Sync".tl, style: const TextStyle(fontWeight: FontWeight.w600)),

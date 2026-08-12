@@ -39,7 +39,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 
   bool _isWaitingForLogin = false;
   HttpServer? _authServer;
-  int _actualPort = 25252;
+  int _actualPort = 25253;
   Timer? _statusChecker;
 
   final ValueNotifier<bool> _isTokenValidNotifier = ValueNotifier<bool>(false);

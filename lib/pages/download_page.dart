@@ -10,7 +10,6 @@ import '../core/grammer_candy.dart';
 import '../core/java_config.dart';
 import '../main.dart';
 import '../services/download_service.dart';
-import '../widgets/google_widgets.dart';
 import 'java_selector_view.dart';
 
 class DownloadPage extends StatefulWidget {
@@ -29,7 +28,6 @@ enum PageType {
 
 class _DownloadPageState extends State<DownloadPage> {
   final PageController _pageController = PageController();
-  LoaderType _selectedLoaderType = LoaderType.vanilla;
   PageType _selectedPageType = PageType.minecraft;
   List<String> javaVersions = [];
   String? selectedTargetDir;
@@ -74,7 +72,6 @@ class _DownloadPageState extends State<DownloadPage> {
             },),
           ),
           _ => VersionSelectorView(
-            type: _selectedLoaderType,
             onBack: () => setState(() {
               _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOutCubic);
             },),
@@ -112,7 +109,6 @@ class _DownloadPageState extends State<DownloadPage> {
             subtitle: "Download and install vanilla Minecraft cores".tl,
             onPressed: () {
               setState(() {
-                _selectedLoaderType = LoaderType.vanilla;
                 _selectedPageType = PageType.minecraft;
               });
               _navigateToSelector();
@@ -171,9 +167,9 @@ class _DownloadPageState extends State<DownloadPage> {
                       updateStatus("Installing in background...".tl);
                       final exitCode = await result.exitCode;
                       if (exitCode == 0) {
-                        showSuccess("Java $version installed".tl);
+                        showSuccess("Java %s installed".tl.format(version));
                       } else {
-                        showError("Java $version installation failed".tl);
+                        showError("Java %s installation failed".tl.format(version));
                       }
                       return exitCode == 0;
                     }
@@ -199,56 +195,6 @@ class _DownloadPageState extends State<DownloadPage> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildActiveTasks(BuildContext context) {
-    return AnimatedBuilder(
-      animation: DownloadService.instance,
-      builder: (context, _) {
-        final activeTasks = DownloadService.instance.activeTasks;
-        return AnimatedSize(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-          child: activeTasks.isEmpty
-              ? const SizedBox.shrink()
-              : Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: FluentCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text("Active Downloads".tl, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        ...activeTasks.map((task) => ListenableBuilder(
-                          listenable: task,
-                          builder: (context, _) => Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Row(
-                              children: [
-                                Expanded(child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(task.id, style: const TextStyle(fontSize: 12)),
-                                    Text(task.status, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                                  ],
-                                )),
-                                SizedBox(width: 200, child: GoogleSquigglySlider(value: task.progress * 100, max: 100, isPlaying: true)),
-                                const SizedBox(width: 8),
-                                Text("${(task.progress * 100).toInt()}%", style: const TextStyle(fontSize: 12)),
-                                IconButton(
-                                  icon: const Icon(Icons.close, size: 16),
-                                  onPressed: () => DownloadService.instance.cancelTask(task.id),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )),
-                      ],
-                    ),
-                  ),
-                ),
-        );
-      },
     );
   }
 

@@ -9,6 +9,7 @@ import 'package:archive/archive_io.dart';
 
 import '../core/i18n.dart';
 import '../core/java_config.dart';
+import 'config_service.dart';
 import 'launch_service.dart';
 
 class MavenArtifact {
@@ -20,7 +21,7 @@ class MavenArtifact {
   MavenArtifact({required this.name, required this.url, required this.path, this.sha1});
 }
 
-enum LoaderType { vanilla, fabric, forge, neoforge }
+enum LoaderType { vanilla, fabric, forge, neoforge, quilt }
 
 // {"id": "26.3-snapshot-6",
 // "type": "snapshot",
@@ -73,7 +74,7 @@ class DownloadItem {
 class DownloadTask extends ChangeNotifier {
   final String id;
   double progress = 0.0;
-  String status = "准备中...";
+  String status = "Ready...";
   bool isDownloading = false;
   int receivedBytes = 0;
   int totalBytes = 0;
@@ -148,7 +149,7 @@ class DownloadService extends ChangeNotifier {
     _cancelTokens.remove(id);
     final task = _tasks[id];
     if (task != null) {
-      task.update(0.0, "已取消");
+      task.update(0.0, "Canceled");
       task.isDownloading = false;
     }
   }
@@ -220,7 +221,7 @@ class DownloadService extends ChangeNotifier {
 
         final targetPath = p.join(destination.path, filename);
         if (!p.isWithin(destination.path, targetPath) && p.normalize(targetPath) != destination.path) {
-          throw Exception("检测到路径穿越: $filename");
+          throw Exception("File path traversal protection failed: $filename");
         }
 
         if (file.isFile) {
@@ -231,10 +232,10 @@ class DownloadService extends ChangeNotifier {
           await Directory(targetPath).create(recursive: true);
         }
       }
-      debugPrint("Native 已成功解压到: ${nativesDir.path}");
+      debugPrint("Native decompression succeeded: ${nativesDir.path}");
       return true;
     } catch (e) {
-      debugPrint("解压 native 失败: $e");
+      debugPrint("Decompression failed: $e");
       return false;
     }
   }
@@ -359,25 +360,116 @@ class DownloadService extends ChangeNotifier {
   }
 
   List<MinecraftVersion> _cachedVanillaVersions = [];
+  bool _isVersionsUpdating = false;
+  double _versionsUpdateProgress = 0.0;
+  String _versionsUpdateStatus = "";
+
+  List<MinecraftVersion> get cachedVanillaVersions => _cachedVanillaVersions;
+  bool get isVersionsUpdating => _isVersionsUpdating;
+  double get versionsUpdateProgress => _versionsUpdateProgress;
+  String get versionsUpdateStatus => _versionsUpdateStatus;
+
+  Future<void> _saveVersionsToDisk(List<dynamic> versions) async {
+    try {
+      final dir = await getSupportData();
+      final file = File(p.join(dir.path, "mc_versions.json"));
+      await file.writeAsString(jsonEncode(versions));
+    } catch (e) {
+      debugPrint("Failed to save versions to disk: $e");
+    }
+  }
+
+  Future<List<MinecraftVersion>> _loadVersionsFromDisk() async {
+    try {
+      final dir = await getSupportData();
+      final file = File(p.join(dir.path, "mc_versions.json"));
+      if (await file.exists()) {
+        final List<dynamic> data = jsonDecode(await file.readAsString());
+        return data.map((v) => MinecraftVersion.fromJson(v)).toList();
+      }
+    } catch (e) {
+      debugPrint("Failed to load versions from disk: $e");
+    }
+    return [];
+  }
 
   Future<List<MinecraftVersion>> fetchAllVanillaVersions({bool forceRefresh = false}) async {
     if (!forceRefresh && _cachedVanillaVersions.isNotEmpty) {
       return _cachedVanillaVersions;
     }
 
-    try {
-      final response = await _dio.get("https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json");
-      if (response.statusCode == 200) {
-        final List<dynamic> versions = response.data is String ? jsonDecode(response.data)['versions'] : response.data['versions'];
-        _cachedVanillaVersions = versions.map((v) => MinecraftVersion.fromJson(v)).toList();
-        return _cachedVanillaVersions;
-      }
-    } on DioException catch (e) {
-      debugPrint("Failed to fetch vanilla versions: $e");
-    } catch (_) {
-      rethrow;
+    // Load from disk first if not in memory
+    if (_cachedVanillaVersions.isEmpty) {
+      _cachedVanillaVersions = await _loadVersionsFromDisk();
+      if (_cachedVanillaVersions.isNotEmpty) notifyListeners();
     }
+
+    // If we have data and not forcing refresh, return it and update in background
+    if (_cachedVanillaVersions.isNotEmpty && !forceRefresh) {
+      _updateVersionsInBackground();
+      return _cachedVanillaVersions;
+    }
+
+    return await _performVersionsUpdate();
+  }
+
+  Future<List<MinecraftVersion>> _performVersionsUpdate({int retries = 3}) async {
+    _isVersionsUpdating = true;
+    _versionsUpdateProgress = 0.0;
+    _versionsUpdateStatus = "Connecting to manifest server...".tl;
+    notifyListeners();
+
+    int attempts = 0;
+    while (attempts <= retries) {
+      try {
+        final response = await _dio.get(
+          "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json",
+          onReceiveProgress: (count, total) {
+            if (total != -1) {
+              _versionsUpdateProgress = count / total;
+              _versionsUpdateStatus = "Downloading version manifest...".tl;
+              notifyListeners();
+            }
+          },
+        );
+
+        if (response.statusCode == 200) {
+          final List<dynamic> versions = response.data is String
+              ? jsonDecode(response.data)['versions']
+              : response.data['versions'];
+          
+          _cachedVanillaVersions = versions.map((v) => MinecraftVersion.fromJson(v)).toList();
+          await _saveVersionsToDisk(versions);
+          
+          _versionsUpdateStatus = "Manifest updated".tl;
+          _versionsUpdateProgress = 1.0;
+          _isVersionsUpdating = false;
+          notifyListeners();
+          return _cachedVanillaVersions;
+        }
+      } on DioException catch (e) {
+        attempts++;
+        if (attempts <= retries) {
+          _versionsUpdateStatus = "Retry $attempts/$retries...".tl;
+          notifyListeners();
+          await Future.delayed(Duration(seconds: 2 * attempts));
+          continue;
+        }
+        _versionsUpdateStatus = "Update failed: ${e.message}".tl;
+      } catch (e) {
+        _versionsUpdateStatus = "Update error".tl;
+        break;
+      }
+    }
+    
+    _isVersionsUpdating = false;
+    notifyListeners();
     return _cachedVanillaVersions;
+  }
+
+  void _updateVersionsInBackground() async {
+    if (_isVersionsUpdating) return;
+    await _performVersionsUpdate();
   }
 
   Future<List<String>> fetchLoaderVersions(String mcVersion, LoaderType type) async {
@@ -393,19 +485,38 @@ class DownloadService extends ChangeNotifier {
         case LoaderType.neoforge:
           url = "https://bmclapi2.bangbang93.com/neoforge/list/$mcVersion";
           break;
+        case LoaderType.quilt:
+          url = "https://meta.quiltmc.org/v3/versions/loader/$mcVersion";
+          break;
         default:
           return [];
       }
       
       final response = await _dio.get(url);
       if (response.statusCode == 200) {
-        final List<dynamic> data = response.data;
-        if (type == LoaderType.fabric) {
-          return data.map((e) => e['loader']['version'].toString()).toList();
-        } else if (type == LoaderType.forge) {
-          return data.map((e) => e['version'].toString()).toList();
-        } else if (type == LoaderType.neoforge) {
-          return data.map((e) => e.toString()).toList();
+        final List<dynamic> data = response.data is String 
+            ? jsonDecode(response.data) 
+            : response.data;
+            
+        if (type == LoaderType.fabric || type == LoaderType.quilt) {
+          return data.map((e) {
+            if (e is Map) {
+              if (e.containsKey('loader')) {
+                return e['loader']['version'].toString();
+              }
+              if (e.containsKey('version')) {
+                return e['version'].toString();
+              }
+            }
+            return e.toString();
+          }).toList();
+        } else if (type == LoaderType.forge || type == LoaderType.neoforge) {
+          return data.map((e) {
+            if (e is Map && e.containsKey('version')) {
+              return e['version'].toString();
+            }
+            return e.toString();
+          }).toList();
         }
       }
     } catch (e) {
@@ -466,15 +577,16 @@ class DownloadService extends ChangeNotifier {
         loaderJson = res.data;
       } else if (type == LoaderType.forge) {
         task.update(0.2, "Fetching Forge JSON...".tl);
-        // BMCLAPI Forge download usually gives the installer, but we want the version.json content
-        // For 1.13+, BMCLAPI provides a way to get the version.json directly or we might need to extract it
-        // However, many launchers just use the pre-computed JSONs from mirror sites.
-        // Let's assume BMCLAPI has a direct JSON endpoint or use the metadata
         final res = await _dio.get("https://bmclapi2.bangbang93.com/forge/download/$mcVersion-$loaderVersion/json");
         loaderJson = res.data;
       } else if (type == LoaderType.neoforge) {
         task.update(0.2, "Fetching NeoForge JSON...".tl);
         final res = await _dio.get("https://bmclapi2.bangbang93.com/neoforge/version/$loaderVersion/json");
+        loaderJson = res.data;
+      } else if (type == LoaderType.quilt) {
+        task.update(0.2, "Fetching Quilt JSON...".tl);
+        final res = await _dio.get(
+            "https://meta.quiltmc.org/v3/versions/loader/$mcVersion/$loaderVersion/profile/json");
         loaderJson = res.data;
       }
 
@@ -489,9 +601,9 @@ class DownloadService extends ChangeNotifier {
         }
       );
       
-      task.update(1.0, "Installation Complete".tl);
+      task.update(1.0, "Installation Complete");
     } catch (e) {
-      task.update(0.0, "Installation Failed: $e".tl);
+      task.update(0.0, "Installation Failed: $e");
       debugPrint("Install Loader Error: $e");
     } finally {
       task.isDownloading = false;
@@ -511,10 +623,10 @@ class DownloadService extends ChangeNotifier {
     _cancelTokens[id] = cancelToken;
     
     task.isDownloading = true;
-    task.update(0.0, "正在下载...");
+    task.update(0.0, "Downloading...");
 
     try {
-      final tempDir = await getTemporaryDirectory();
+      final tempDir = await getApplicationCacheDirectory();
       final savePath = p.join(tempDir.path, fileName);
 
       await _dio.download(
@@ -532,12 +644,12 @@ class DownloadService extends ChangeNotifier {
         task.update(1.0, newStatus);
       });
       
-      task.update(1.0, success ? "安装完成" : "安装失败");
+      task.update(1.0, success ? "Installation Complete" : "Installation Failed");
     } catch (e) {
       if (e is DioException && CancelToken.isCancel(e)) {
-        task.update(0.0, "已取消");
+        task.update(0.0, "Canceled");
       } else {
-        task.update(0.0, "下载失败: $e");
+        task.update(0.0, "Download Failed: $e");
       }
     } finally {
       _cancelTokens.remove(id);

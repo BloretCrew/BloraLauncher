@@ -13,6 +13,9 @@ class GoogleSquigglySlider extends StatefulWidget {
   final Color? inactiveColor;
   final bool isPlaying;
   final bool hasThumb;
+  final double paddingH;
+  final double paddingV;
+  final double height;
 
   const GoogleSquigglySlider({
     super.key,
@@ -25,6 +28,9 @@ class GoogleSquigglySlider extends StatefulWidget {
     this.inactiveColor,
     this.isPlaying = true,
     this.hasThumb = true,
+    this.paddingH = 24.0,
+    this.paddingV = 8.0,
+    this.height = 48.0,
   });
 
   @override
@@ -160,7 +166,7 @@ class _GoogleSquigglySliderState extends State<GoogleSquigglySlider> with Ticker
         _handleDragUpdate(details.localPosition.dx, renderBox.size.width);
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24.0),
+        padding: EdgeInsets.symmetric(horizontal: widget.paddingH, vertical: widget.paddingV),
         child: AnimatedBuilder(
           animation: Listenable.merge([_waveController, _transitionController, _smoothValueAnimation, _thumbAnimation]),
           builder: (context, child) {
@@ -168,7 +174,7 @@ class _GoogleSquigglySliderState extends State<GoogleSquigglySlider> with Ticker
             double progressPercent = (currentValue / widget.max).clamp(0.0, 1.0);
 
             return CustomPaint(
-              size: const Size(double.infinity, 48),
+              size: Size(double.infinity, widget.height),
               painter: _SquigglySliderPainter(
                 progressPercent: progressPercent,
                 wavePhase: _waveController.value * 2 * math.pi,

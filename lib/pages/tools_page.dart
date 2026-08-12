@@ -1,13 +1,21 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:bloret_launcher/main.dart';
 import 'package:bloret_launcher/widgets/button.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:vector_math/vector_math_64.dart' hide Colors, Matrix4;
 import 'package:image/image.dart' hide Image;
 import 'package:pasteboard/pasteboard.dart';
 import 'package:path/path.dart' as p;
 import 'package:screen_capturer/screen_capturer.dart';
 
+import '../core/grammer_candy.dart';
 import '../core/i18n.dart';
 import '../services/config_service.dart';
 
@@ -18,7 +26,9 @@ class ToolsPage extends StatefulWidget {
   State<ToolsPage> createState() => _ToolsPageState();
 }
 
-class _ToolsPageState extends State<ToolsPage> {
+enum ArmType { normal, thin }
+
+class _ToolsPageState extends State<ToolsPage> with TickerProviderStateMixin {
   List<dynamic> pluginToolCards = [];
 
   final uuidController = TextEditingController();
@@ -30,10 +40,194 @@ class _ToolsPageState extends State<ToolsPage> {
   String skinResult = "Skin query results".tl;
   String capeResult = "Cape query results".tl;
 
+  ui.Image? skinImage;
+  bool isQueryingSkin = false;
+  ArmType armType = ArmType.normal;
+
+  late AnimationController _skinViewAnimController;
+
+  final Dio _dio = Dio();
+
   @override
   void initState() {
     super.initState();
     loadPluginToolCards();
+    _skinViewAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+  }
+
+  @override
+  void dispose() {
+    _skinViewAnimController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _autoDetectArmType(ui.Image image) async {
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (byteData == null) return;
+
+    // Standard detection: Check pixel at (47, 20) in 64x64 skin
+    // In Alex (thin) model, the rightmost column of the arm (x=47) is often transparent
+    bool isTransparent = true;
+    for (int y = 20; y < 32; y++) {
+      int alphaIndex = (y * image.width + 47) * 4 + 3;
+      if (alphaIndex < byteData.lengthInBytes) {
+        if (byteData.getUint8(alphaIndex) > 0) {
+          isTransparent = false;
+          break;
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        armType = isTransparent ? ArmType.thin : ArmType.normal;
+      });
+    }
+  }
+
+  Future<void> _queryUUID() async {
+    final name = uuidController.text.trim();
+    if (name.isEmpty) return;
+
+    setState(() => uuidResult = "Querying...".tl);
+    try {
+      final response = await _dio.get("https://api.mojang.com/users/profiles/minecraft/$name");
+      if (response.statusCode == 200) {
+        setState(() => uuidResult = response.data['id'] ?? "No UUID found".tl);
+      } else {
+        setState(() => uuidResult = "User not found".tl);
+      }
+    } catch (e) {
+      setState(() => uuidResult = "Error: $e".tl);
+    }
+  }
+
+  Future<void> _queryName() async {
+    final uuid = nameController.text.trim();
+    if (uuid.isEmpty) return;
+
+    setState(() => nameResult = "Querying...".tl);
+    try {
+      final response = await _dio.get("https://sessionserver.mojang.com/session/minecraft/profile/$uuid");
+      if (response.statusCode == 200) {
+        setState(() => nameResult = response.data['name'] ?? "No name found".tl);
+      } else {
+        setState(() => nameResult = "User not found".tl);
+      }
+    } catch (e) {
+      setState(() => nameResult = "Error: $e".tl);
+    }
+  }
+
+  Future<void> _querySkin() async {
+    final uuid = skinController.text.trim();
+    if (uuid.isEmpty) return;
+
+    setState(() {
+      skinResult = "Querying...".tl;
+      capeResult = "Querying...".tl;
+      isQueryingSkin = true;
+      skinImage = null;
+    });
+    _skinViewAnimController.reset();
+
+    try {
+      final response = await _dio.get(
+          "https://sessionserver.mojang.com/session/minecraft/profile/$uuid");
+      if (response.statusCode == 200) {
+        final properties = response.data['properties'] as List?;
+        if (properties != null) {
+          for (var prop in properties) {
+            if (prop['name'] == 'textures') {
+              final decoded = utf8.decode(base64.decode(prop['value']));
+              final textures = jsonDecode(decoded);
+              final skinUrl = textures['textures']?['SKIN']?['url'];
+              final capeUrl = textures['textures']?['CAPE']?['url'];
+
+              setState(() {
+                skinResult = skinUrl ?? "No skin found".tl;
+                capeResult = capeUrl ?? "No cape found".tl;
+              });
+
+              if (skinUrl != null) {
+                final skinRes = await _dio.get<List<int>>(
+                  skinUrl,
+                  options: Options(responseType: ResponseType.bytes),
+                );
+                if (skinRes.data != null) {
+                  final codec = await ui.instantiateImageCodec(
+                    Uint8List.fromList(skinRes.data!),
+                  );
+                  final frame = await codec.getNextFrame();
+                  if (mounted) {
+                    setState(() {
+                      skinImage = frame.image;
+                    });
+                    await _autoDetectArmType(frame.image);
+                    _skinViewAnimController.forward();
+                  }
+                }
+              }
+              return;
+            }
+          }
+        }
+        setState(() {
+          skinResult = "No textures found".tl;
+          capeResult = "No textures found".tl;
+        });
+      } else {
+        setState(() {
+          skinResult = "User not found".tl;
+          capeResult = "User not found".tl;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        skinResult = "Error: $e".tl;
+        capeResult = "Error: $e".tl;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          isQueryingSkin = false;
+        });
+      }
+    }
+  }
+
+  Widget _buildArmOption(ArmType type, String label) {
+    final isSelected = armType == type;
+    return GestureDetector(
+      onTap: () => setState(() => armType = type),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+              color: isSelected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.transparent),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              color: isSelected ? Theme.of(context).colorScheme.primary : null,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void loadPluginToolCards() {
@@ -113,14 +307,10 @@ class _ToolsPageState extends State<ToolsPage> {
             hint: "Player Name (Official)".tl,
             controller: uuidController,
             result: uuidResult,
-            onQuery: () {
-              setState(() {
-                uuidResult = "Querying...".tl;
-              });
-              // TODO Backend.queryUUID()
-            },
+            onQuery: _queryUUID,
             onCopy: () {
-              // TODO copy
+              Clipboard.setData(ClipboardData(text: uuidResult));
+              showSuccess("UUID copied to clipboard".tl);
             },
           ),
 
@@ -129,13 +319,11 @@ class _ToolsPageState extends State<ToolsPage> {
             hint: "Player UUID".tl,
             controller: nameController,
             result: nameResult,
-            onQuery: () {
-              setState(() {
-                nameResult = "Querying...".tl;
-              });
-              // TODO Backend.queryName()
+            onQuery: _queryName,
+            onCopy: () {
+              Clipboard.setData(ClipboardData(text: nameResult));
+              showSuccess("Player Name copied to clipboard".tl);
             },
-            onCopy: () {},
           ),
 
           QueryCard(
@@ -144,14 +332,105 @@ class _ToolsPageState extends State<ToolsPage> {
             controller: skinController,
             result: skinResult,
             extraResult: capeResult,
-            onQuery: () {
-              setState(() {
-                skinResult = "Querying...".tl;
-                capeResult = "Querying...".tl;
-              });
-              // TODO Backend.querySkin()
+            onQuery: _querySkin,
+            onCopy: () {
+              Clipboard.setData(ClipboardData(text: "$skinResult\n$capeResult"));
+              showSuccess("Skin & Cape URLs copied to clipboard".tl);
             },
-            onCopy: () {},
+            bottomWidget: skinImage != null
+                ? FadeTransition(
+                    opacity: _skinViewAnimController,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.1),
+                        end: Offset.zero,
+                      ).animate(CurvedAnimation(
+                        parent: _skinViewAnimController,
+                        curve: Curves.easeOutCubic,
+                      )),
+                      child: Column(
+                        mainAxisSize: .min,
+                        children: [
+                          Container(
+                            height: 320,
+                            margin: const EdgeInsets.only(top: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                // Left controls
+                                Container(
+                                  width: 80,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                        right: BorderSide(
+                                            color: Colors.grey
+                                                .withValues(alpha: 0.1))),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Text("Arm".tl,
+                                          style: const TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 8),
+                                      _buildArmOption(ArmType.normal, "4px"),
+                                      _buildArmOption(ArmType.thin, "3px"),
+                                    ],
+                                  ),
+                                ),
+                                // 3D Viewer
+                                Expanded(
+                                  flex: 3,
+                                  child: MinecraftSkinViewer(
+                                    image: skinImage!,
+                                    armType: armType,
+                                  ),
+                                ),
+                                // 2D Plane Preview
+                                Container(
+                                  width: 100,
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                        left: BorderSide(
+                                            color: Colors.grey
+                                                .withValues(alpha: 0.1))),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Text("Texture".tl,
+                                          style: const TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 8),
+                                      Expanded(
+                                        child: RawImage(
+                                          image: skinImage,
+                                          filterQuality: FilterQuality.none,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : isQueryingSkin
+                    ? const Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    : null,
           ),
         ],
       ),
@@ -220,6 +499,7 @@ class QueryCard extends StatelessWidget {
   final String? extraResult;
   final VoidCallback onQuery;
   final VoidCallback onCopy;
+  final Widget? bottomWidget;
 
   const QueryCard({
     super.key,
@@ -230,11 +510,11 @@ class QueryCard extends StatelessWidget {
     required this.onQuery,
     required this.onCopy,
     this.extraResult,
+    this.bottomWidget,
   });
 
   @override
   Widget build(BuildContext context) {
-
     Widget resultRow(String label, String value) {
       return Container(
         margin: const EdgeInsets.only(top: 8),
@@ -249,9 +529,26 @@ class QueryCard extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Text(
-                "$label$value",
-                overflow: TextOverflow.ellipsis,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                transitionBuilder: (Widget child, Animation<double> animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0.0, 0.2),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  );
+                },
+                child: Text(
+                  "$label$value",
+                  key: ValueKey<String>(value),
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.start,
+                ),
               ),
             ),
             IconButton(
@@ -267,12 +564,10 @@ class QueryCard extends StatelessWidget {
       );
     }
 
-
     return FluentCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-
           Text(
             title,
             style: const TextStyle(
@@ -280,49 +575,326 @@ class QueryCard extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
-
           const SizedBox(height: 12),
-
           Row(
             children: [
               Expanded(
-                child: TextField(
-                  controller: controller,
-                  decoration: InputDecoration(
-                    hintText: hint,
-                    border: const OutlineInputBorder(
-                      gapPadding: 0,
-                    ),
+                  child: TextField(
+                controller: controller,
+                decoration: InputDecoration(
+                  hintText: hint,
+                  border: const OutlineInputBorder(
+                    gapPadding: 0,
                   ),
-                )
-              ),
-
+                ),
+              )),
               const SizedBox(width: 12),
-
               BloretButton(
                 onPressed: onQuery,
                 text: "Query".tl,
               ),
             ],
           ),
-
-
           const SizedBox(height: 8),
-
           resultRow(
             "Result: ".tl,
             result,
           ),
-
           if (extraResult != null)
             resultRow(
               "",
               extraResult!,
             ),
+          if (bottomWidget != null) bottomWidget!,
         ],
       ),
     );
   }
+}
+
+class MinecraftSkinViewer extends StatefulWidget {
+  final ui.Image image;
+  final ArmType armType;
+  const MinecraftSkinViewer({super.key, required this.image, required this.armType});
+
+  @override
+  State<MinecraftSkinViewer> createState() => _MinecraftSkinViewerState();
+}
+
+class _MinecraftSkinViewerState extends State<MinecraftSkinViewer> {
+  double rotationX = -0.2;
+  double rotationY = 0.5;
+  double scale = 12.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onPanUpdate: (details) {
+        setState(() {
+          rotationY += details.delta.dx * 0.01;
+          // Limit vertical rotation to prevent flipping upside down
+          rotationX = (rotationX - details.delta.dy * 0.01)
+              .clamp(-math.pi / 2.2, math.pi / 2.2);
+        });
+      },
+      child: MouseRegion(
+        onEnter: (_) {},
+        child: Listener(
+          onPointerSignal: (event) {
+            if (event is PointerScrollEvent) {
+              setState(() {
+                // Limit scale/zoom range
+                scale = (scale - event.scrollDelta.dy * 0.01).clamp(8.0, 35.0);
+              });
+            }
+          },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: CustomPaint(
+              painter: Skin3DPainter(
+                widget.image,
+                rotationX,
+                rotationY,
+                scale,
+                widget.armType,
+              ),
+              size: Size.infinite,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class Skin3DPainter extends CustomPainter {
+  final ui.Image image;
+  final double rotationX;
+  final double rotationY;
+  final double scale;
+  final ArmType armType;
+
+  Skin3DPainter(
+      this.image, this.rotationX, this.rotationY, this.scale, this.armType);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    canvas.translate(center.dx, center.dy);
+
+    final matrix = Matrix4.identity()
+      ..setEntry(3, 2, 0.0) // Orthographic (no perspective)
+      ..rotateX(rotationX)
+      ..rotateY(rotationY)
+      ..scaleByDouble(scale, scale, scale, 1.0);
+
+    final List<_FaceData> faces = [];
+    final double aw = armType == ArmType.thin ? 3 : 4;
+
+    // Head
+    _addPart(faces, 8, 8, 8, 0, -10, 0,
+        f: const Rect.fromLTWH(8, 8, 8, 8),
+        ba: const Rect.fromLTWH(24, 8, 8, 8),
+        l: const Rect.fromLTWH(0, 8, 8, 8),
+        r: const Rect.fromLTWH(16, 8, 8, 8),
+        t: const Rect.fromLTWH(8, 0, 8, 8),
+        bo: const Rect.fromLTWH(16, 0, 8, 8));
+    // Hat
+    _addPart(faces, 8.5, 8.5, 8.5, 0, -10, 0,
+        f: const Rect.fromLTWH(40, 8, 8, 8),
+        ba: const Rect.fromLTWH(56, 8, 8, 8),
+        l: const Rect.fromLTWH(32, 8, 8, 8),
+        r: const Rect.fromLTWH(48, 8, 8, 8),
+        t: const Rect.fromLTWH(40, 0, 8, 8),
+        bo: const Rect.fromLTWH(48, 0, 8, 8));
+
+    // Torso
+    _addPart(faces, 8, 12, 4, 0, 0, 0,
+        f: const Rect.fromLTWH(20, 20, 8, 12),
+        ba: const Rect.fromLTWH(32, 20, 8, 12),
+        l: const Rect.fromLTWH(16, 20, 4, 12),
+        r: const Rect.fromLTWH(28, 20, 4, 12),
+        t: const Rect.fromLTWH(20, 16, 8, 4),
+        bo: const Rect.fromLTWH(28, 16, 8, 4));
+    // Jacket
+    _addPart(faces, 8.5, 12.5, 4.5, 0, 0, 0,
+        f: const Rect.fromLTWH(20, 36, 8, 12),
+        ba: const Rect.fromLTWH(32, 36, 8, 12),
+        l: const Rect.fromLTWH(16, 36, 4, 12),
+        r: const Rect.fromLTWH(28, 36, 4, 12),
+        t: const Rect.fromLTWH(20, 32, 8, 4),
+        bo: const Rect.fromLTWH(28, 32, 8, 4));
+
+    // Right Arm
+    double raX = armType == ArmType.thin ? -5.5 : -6;
+    _addPart(faces, aw, 12, 4, raX, 0, 0,
+        f: Rect.fromLTWH(44, 20, aw, 12),
+        ba: Rect.fromLTWH(44 + aw + 4, 20, aw, 12),
+        l: const Rect.fromLTWH(40, 20, 4, 12),
+        r: Rect.fromLTWH(44 + aw, 20, 4, 12),
+        t: Rect.fromLTWH(44, 16, aw, 4),
+        bo: Rect.fromLTWH(44 + aw, 16, aw, 4));
+    // Right Sleeve
+    _addPart(faces, aw + 0.5, 12.5, 4.5, raX, 0, 0,
+        f: Rect.fromLTWH(44, 36, aw, 12),
+        ba: Rect.fromLTWH(44 + aw + 4, 36, aw, 12),
+        l: const Rect.fromLTWH(40, 36, 4, 12),
+        r: Rect.fromLTWH(44 + aw, 36, 4, 12),
+        t: Rect.fromLTWH(44, 32, aw, 4),
+        bo: Rect.fromLTWH(44 + aw, 32, aw, 4));
+
+    // Left Arm
+    double laX = armType == ArmType.thin ? 5.5 : 6;
+    _addPart(faces, aw, 12, 4, laX, 0, 0,
+        f: Rect.fromLTWH(36, 52, aw, 12),
+        ba: Rect.fromLTWH(36 + aw + 4, 52, aw, 12),
+        l: const Rect.fromLTWH(32, 52, 4, 12),
+        r: Rect.fromLTWH(36 + aw, 52, 4, 12),
+        t: Rect.fromLTWH(36, 48, aw, 4),
+        bo: Rect.fromLTWH(36 + aw, 48, aw, 4));
+    // Left Sleeve
+    _addPart(faces, aw + 0.5, 12.5, 4.5, laX, 0, 0,
+        f: Rect.fromLTWH(52, 52, aw, 12),
+        ba: Rect.fromLTWH(52 + aw + 4, 52, aw, 12),
+        l: const Rect.fromLTWH(48, 52, 4, 12),
+        r: Rect.fromLTWH(52 + aw, 52, 4, 12),
+        t: Rect.fromLTWH(52, 48, aw, 4),
+        bo: Rect.fromLTWH(52 + aw, 48, aw, 4));
+
+    // Right Leg
+    _addPart(faces, 4, 12, 4, -2, 12, 0,
+        f: const Rect.fromLTWH(4, 20, 4, 12),
+        ba: const Rect.fromLTWH(12, 20, 4, 12),
+        l: const Rect.fromLTWH(0, 20, 4, 12),
+        r: const Rect.fromLTWH(8, 20, 4, 12),
+        t: const Rect.fromLTWH(4, 16, 4, 4),
+        bo: const Rect.fromLTWH(8, 16, 4, 4));
+    // Right Pant Leg
+    _addPart(faces, 4.5, 12.5, 4.5, -2, 12, 0,
+        f: const Rect.fromLTWH(4, 36, 4, 12),
+        ba: const Rect.fromLTWH(12, 36, 4, 12),
+        l: const Rect.fromLTWH(0, 36, 4, 12),
+        r: const Rect.fromLTWH(8, 36, 4, 12),
+        t: const Rect.fromLTWH(4, 32, 4, 4),
+        bo: const Rect.fromLTWH(8, 32, 4, 4));
+
+    // Left Leg
+    _addPart(faces, 4, 12, 4, 2, 12, 0,
+        f: const Rect.fromLTWH(20, 52, 4, 12),
+        ba: const Rect.fromLTWH(28, 52, 4, 12),
+        l: const Rect.fromLTWH(16, 52, 4, 12),
+        r: const Rect.fromLTWH(24, 52, 4, 12),
+        t: const Rect.fromLTWH(20, 48, 4, 4),
+        bo: const Rect.fromLTWH(24, 48, 4, 4));
+    // Left Pant Leg
+    _addPart(faces, 4.5, 12.5, 4.5, 2, 12, 0,
+        f: const Rect.fromLTWH(4, 52, 4, 12),
+        ba: const Rect.fromLTWH(12, 52, 4, 12),
+        l: const Rect.fromLTWH(0, 52, 4, 12),
+        r: const Rect.fromLTWH(8, 52, 4, 12),
+        t: const Rect.fromLTWH(4, 48, 4, 4),
+        bo: const Rect.fromLTWH(8, 48, 4, 4));
+
+    // Painter's algorithm
+    for (var face in faces) {
+      final transformedCenter = matrix.transform3(face.center.clone());
+      face.z = transformedCenter.z;
+    }
+    faces.sort((a, b) => a.z.compareTo(b.z));
+
+    final paint = Paint()..filterQuality = ui.FilterQuality.none;
+    for (var face in faces) {
+      final worldMatrix = matrix * face.localMatrix;
+      final normal = Vector3(0, 0, 1);
+      final transformedNormal = worldMatrix.getRotation().transformed(normal);
+      if (transformedNormal.z > 0) {
+        canvas.save();
+        canvas.transform(worldMatrix.storage);
+        canvas.drawImageRect(image, face.src, face.dest, paint);
+        canvas.restore();
+      }
+    }
+  }
+
+  void _addPart(List<_FaceData> faces, double w, double h, double d, double px,
+      double py, double pz,
+      {required Rect f,
+      required Rect ba,
+      required Rect l,
+      required Rect r,
+      required Rect t,
+      required Rect bo}) {
+    faces.add(_FaceData(
+      f,
+      Rect.fromLTWH(-w / 2, -h / 2, w, h),
+      Matrix4.identity()
+        ..translateByDouble(px, py, pz + d / 2, 1.0),
+      Vector3(px, py, pz + d / 2),
+    ));
+
+    faces.add(_FaceData(
+      ba,
+      Rect.fromLTWH(-w / 2, -h / 2, w, h),
+      Matrix4.identity()
+        ..translateByDouble(px, py, pz - d / 2, 1.0)
+        ..rotateY(math.pi),
+      Vector3(px, py, pz - d / 2),
+    ));
+
+    faces.add(_FaceData(
+      l,
+      Rect.fromLTWH(-d / 2, -h / 2, d, h),
+      Matrix4.identity()
+        ..translateByDouble(px - w / 2, py, pz, 1.0)
+        ..rotateY(-math.pi / 2),
+      Vector3(px - w / 2, py, pz),
+    ));
+
+    faces.add(_FaceData(
+      r,
+      Rect.fromLTWH(-d / 2, -h / 2, d, h),
+      Matrix4.identity()
+        ..translateByDouble(px + w / 2, py, pz, 1.0)
+        ..rotateY(math.pi / 2),
+      Vector3(px + w / 2, py, pz),
+    ));
+
+    faces.add(_FaceData(
+      t,
+      Rect.fromLTWH(-w / 2, -d / 2, w, d),
+      Matrix4.identity()
+        ..translateByDouble(px, py - h / 2, pz, 1.0)
+        ..rotateX(math.pi / 2),
+      Vector3(px, py - h / 2, pz),
+    ));
+
+    faces.add(_FaceData(
+      bo,
+      Rect.fromLTWH(-w / 2, -d / 2, w, d),
+      Matrix4.identity()
+        ..translateByDouble(px, py + h / 2, pz, 1.0)
+        ..rotateX(-math.pi / 2),
+      Vector3(px, py + h / 2, pz),
+    ));
+  }
+
+  @override
+  bool shouldRepaint(covariant Skin3DPainter oldDelegate) =>
+      oldDelegate.rotationX != rotationX ||
+      oldDelegate.rotationY != rotationY ||
+      oldDelegate.scale != scale ||
+      oldDelegate.image != image ||
+      oldDelegate.armType != armType;
+}
+
+class _FaceData {
+  final Rect src;
+  final Rect dest;
+  final Matrix4 localMatrix;
+  final Vector3 center;
+  double z = 0;
+
+  _FaceData(this.src, this.dest, this.localMatrix, this.center);
 }
 
 Future<void> takeScreenCut() async {

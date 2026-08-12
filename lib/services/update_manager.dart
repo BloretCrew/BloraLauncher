@@ -13,7 +13,7 @@ import '../core/i18n.dart';
 import '../tools/isolate.dart';
 import 'config_service.dart';
 
-const currentVersion = "0.0.6";
+const currentVersion = "0.1.0";
 
 class UpdateInfo {
   final String version;
@@ -248,7 +248,6 @@ class UpdateManager {
           await file.writeAsBytes(bytes);
         }
       } else {
-        // Android / Windows 热更新逻辑 (补丁)
         final supportDir = await getSupportData();
         final targetPath = p.join(supportDir.parent.path, 'data', 'app.so');
         

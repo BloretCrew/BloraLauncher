@@ -1,18 +1,21 @@
 import 'dart:io';
+import 'package:bloret_launcher/pages/mods_page.dart';
+import 'package:bloret_launcher/widgets/google_widgets.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../core/i18n.dart';
 import '../core/grammer_candy.dart';
 import '../services/download_service.dart';
 import '../services/launch_service.dart';
-import '../widgets/windows_widgets.dart';
+import 'package:intl/intl.dart';
+
+import '../widgets/button.dart';
 
 class VersionSelectorView extends StatefulWidget {
-  final LoaderType type;
   final VoidCallback onBack;
 
   const VersionSelectorView({
     super.key,
-    required this.type,
     required this.onBack,
   });
 
@@ -20,122 +23,681 @@ class VersionSelectorView extends StatefulWidget {
   State<VersionSelectorView> createState() => _VersionSelectorViewState();
 }
 
-class _VersionSelectorViewState extends State<VersionSelectorView> {
+class _VersionSelectorViewState extends State<VersionSelectorView>
+    with TickerProviderStateMixin {
   List<MinecraftVersion> allVanillaVersions = [];
-  List<String> loaders = [];
   bool isLoading = true;
 
-  String? selectedMajorVersion;
-  String currentType = "release";
-  String? selectedMcVersion;
-  List<String> mcVersionsForLoader = [];
-  List<String> loaderVersions = [];
+  final Set<String> _expandedKeys = {"latest"};
 
-  final Map<String, IconData> typeIcons = {
-    "release": Icons.verified,
-    "snapshot": Icons.bug_report,
-    "old_beta": Icons.history,
-    "old_alpha": Icons.hourglass_empty,
-  };
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = "";
+  bool _showSearchBar = false;
+
+  MinecraftVersion? _selectedVersion;
+  final TextEditingController _customNameController = TextEditingController();
+
+  // Loader State
+  final Map<LoaderType, List<String>> _loaderVersionsMap = {};
+  final Map<LoaderType, bool> _isLoadingLoadersMap = {};
+  final Set<LoaderType> _expandedLoaders = {};
+  LoaderType? _selectedLoader;
+  String? _selectedLoaderVersion;
+  bool _isAccelerated = false;
+
+  final PageController _pageController = PageController();
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text.trim().toLowerCase();
+      });
+    });
+    DownloadService.instance.addListener(_onDownloadServiceUpdate);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _customNameController.dispose();
+    DownloadService.instance.removeListener(_onDownloadServiceUpdate);
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _onDownloadServiceUpdate() {
+    if (mounted) {
+      setState(() {
+        if (!DownloadService.instance.isVersionsUpdating) {
+          allVanillaVersions = DownloadService.instance.cachedVanillaVersions;
+        }
+      });
+    }
   }
 
   Future<void> _loadData() async {
-    setState(() => isLoading = true);
-    if (widget.type == LoaderType.vanilla) {
-      allVanillaVersions = await DownloadService.instance.fetchAllVanillaVersions();
-      if (allVanillaVersions.isNotEmpty) {
-        // Auto-select latest major version
-        final releases = allVanillaVersions.where((v) => v.type == "release").toList();
-        if (releases.isNotEmpty) {
-          final latest = releases.first.id;
-          final parts = latest.split('.');
-          if (parts.length >= 2) {
-            selectedMajorVersion = "${parts[0]}.${parts[1]}";
-          }
-        }
-      }
-    } else {
-      // For loaders, we need vanilla versions to select the MC version first
-      allVanillaVersions = await DownloadService.instance.fetchAllVanillaVersions();
-      mcVersionsForLoader = allVanillaVersions
-          .where((v) => v.type == "release")
-          .map((v) => v.id)
-          .toList();
-      if (mcVersionsForLoader.isNotEmpty) {
-        selectedMcVersion = mcVersionsForLoader.first;
-        await _loadLoaderVersions();
-      }
-    }
+    allVanillaVersions =
+        await DownloadService.instance.fetchAllVanillaVersions();
     if (mounted) setState(() => isLoading = false);
   }
 
-  Future<void> _loadLoaderVersions() async {
-    if (selectedMcVersion == null) return;
-    setState(() => isLoading = true);
-    loaderVersions = await DownloadService.instance.fetchLoaderVersions(selectedMcVersion!, widget.type);
-    setState(() => isLoading = false);
-  }
-
-  List<String> get majorVersions {
-    final Set<String> majors = {};
-    for (var v in allVanillaVersions) {
-      if (v.type == "release") {
-        final parts = v.id.split('.');
-        if (parts.length >= 2) {
-          majors.add("${parts[0]}.${parts[1]}");
+  Future<void> _fetchLoaderVersions(LoaderType type) async {
+    if (_selectedVersion == null) return;
+    if (_loaderVersionsMap.containsKey(type)) {
+      // Toggle expansion if already loaded
+      setState(() {
+        if (_expandedLoaders.contains(type)) {
+          _expandedLoaders.remove(type);
+        } else {
+          _expandedLoaders.add(type);
         }
-      }
+      });
+      return;
     }
-    final list = majors.toList()..sort((a, b) {
-      final pa = a.split('.').map(int.parse).toList();
-      final pb = b.split('.').map(int.parse).toList();
-      for (int i = 0; i < pa.length && i < pb.length; i++) {
-        if (pa[i] != pb[i]) return pb[i].compareTo(pa[i]);
-      }
-      return pb.length.compareTo(pa.length);
-    });
-    return list;
-  }
 
-  List<MinecraftVersion> get filteredVersions {
-    var list = allVanillaVersions.where((v) => v.type == currentType).toList();
-    if (selectedMajorVersion != null && currentType == "release") {
-      list = list.where((v) => v.id.startsWith(selectedMajorVersion!)).toList();
+    setState(() {
+      _isLoadingLoadersMap[type] = true;
+      // Note: Auto-expansion is not triggered here to let user click manually
+    });
+
+    try {
+      final versions = await DownloadService.instance
+          .fetchLoaderVersions(_selectedVersion!.id, type);
+      if (mounted) {
+        setState(() {
+          _loaderVersionsMap[type] = versions;
+          _isLoadingLoadersMap[type] = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingLoadersMap[type] = false);
+        showError("Failed to fetch loader versions".tl);
+      }
     }
-    return list;
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final ds = DownloadService.instance;
+
+    return PageView(
+      controller: _pageController,
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        Column(
+          key: const ValueKey("list_view"),
+          children: [
+            _buildHeader(theme),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.fastOutSlowIn,
+              alignment: Alignment.topCenter,
+              child: ds.isVersionsUpdating
+                  ? _buildUpdateProgress(theme, ds)
+                  : const SizedBox(width: double.infinity, height: 0),
+            ),
+            Expanded(
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : allVanillaVersions.isEmpty && !ds.isVersionsUpdating
+                      ? _buildErrorState(theme)
+                      : _buildVersionList(theme),
+            ),
+          ],
+        ),
+        _buildDetailsView(theme),
+      ],
+    );
+  }
+
+  Widget _buildDetailsView(ThemeData theme) {
+    if (_selectedVersion == null) return const SizedBox.shrink();
+    final dateStr =
+        DateFormat('yyyy-MM-dd').format(_selectedVersion!.releaseTime);
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
+        children: [
+          // Row 1: Back and Title
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back, size: 28),
+                onPressed: () async {
+                  await _pageController.previousPage(
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeInOutCubic);
+                  if (mounted) {
+                    setState(() {
+                      _selectedVersion = null;
+                      _selectedLoader = null;
+                      _selectedLoaderVersion = null;
+                      _loaderVersionsMap.clear();
+                      _isLoadingLoadersMap.clear();
+                      _expandedLoaders.clear();
+                      _isAccelerated = false;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
+              Text("Install Options".tl,
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 24),
+          // Row 2: Icon, Info, Download
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(width: 8),
+              Tooltip(
+                message: "Click to change icon".tl,
+                child: InkWell(
+                  onTap: () {
+                    // TODO: Implement icon change
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(
+                        _isAccelerated
+                            ? Icons.bolt_outlined
+                            : Icons.auto_awesome_outlined,
+                        size: 32,
+                        color: theme.colorScheme.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: _customNameController,
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.bold),
+                      decoration: InputDecoration(
+                        hintText: "Instance Name".tl,
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.secondaryContainer,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(_selectedVersion!.id,
+                              style: TextStyle(
+                                  color: theme.colorScheme.onSecondaryContainer,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                        if (_isAccelerated) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text("ACCELERATED".tl,
+                                style: const TextStyle(
+                                    color: Colors.amber,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                        const SizedBox(width: 12),
+                        Text(dateStr,
+                            style: TextStyle(
+                                color: theme.colorScheme.outline,
+                                fontSize: 11)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              BloretButton(
+                height: 46,
+                onPressed: _startInstallation,
+                text: "Download".tl,
+                icon: Icons.download,
+              ),
+            ],
+          ),
+          const SizedBox(height: 32),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Mod Loader Selectors".tl,
+                    style: const TextStyle(
+                        fontSize: 17, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                _buildLoaderSection(LoaderType.vanilla, "Vanilla".tl,
+                    Icons.eco_outlined, theme),
+                const SizedBox(height: 10),
+                _buildLoaderSection(
+                    LoaderType.fabric, "Fabric", CupertinoIcons.map_fill, theme, true),
+                const SizedBox(height: 10),
+                _buildLoaderSection(
+                    LoaderType.forge, "Forge", Icons.fireplace_outlined, theme),
+                const SizedBox(height: 10),
+                _buildLoaderSection(LoaderType.neoforge, "NeoForge",
+                    Icons.handyman_outlined, theme),
+                const SizedBox(height: 10),
+                _buildLoaderSection(
+                    LoaderType.quilt, "Quilt", Icons.grid_view_outlined, theme),
+              ],
+            ),
+          ),
+          const SizedBox(height: 48),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoaderSection(
+      LoaderType type, String label, IconData icon, ThemeData theme, [bool fabric = false]) {
+    final bool isSelected = _selectedLoader == type;
+    final versions = _loaderVersionsMap[type];
+    final isLoading = _isLoadingLoadersMap[type] ?? false;
+    final bool isExpanded = _expandedLoaders.contains(type);
+
+    // Auto-fetch if not loaded and this is the details view
+    if (type != LoaderType.vanilla && versions == null && !isLoading) {
+      Future.microtask(() => _fetchLoaderVersions(type));
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isSelected
+            ? theme.colorScheme.primary.withValues(alpha: 0.05)
+            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: isSelected
+                ? theme.colorScheme.primary.withValues(alpha: 0.3)
+                : theme.dividerColor.withValues(alpha: 0.05)),
+      ),
+      child: Column(
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () {
+                if (type == LoaderType.vanilla) {
+                  setState(() {
+                    _selectedLoader = LoaderType.vanilla;
+                    _selectedLoaderVersion = null;
+                  });
+                  return;
+                }
+                setState(() {
+                  if (isExpanded) {
+                    _expandedLoaders.remove(type);
+                  } else {
+                    _expandedLoaders.add(type);
+                  }
+                });
+              },
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    RotatedBox(
+                      quarterTurns: fabric ? 1 : 0,
+                      child: Icon(icon,
+                          color: isSelected ? theme.colorScheme.primary : null,
+                          size: 22),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(label,
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  color: isSelected
+                                      ? theme.colorScheme.primary
+                                      : null)),
+                          if (isSelected &&
+                              (type == LoaderType.vanilla ||
+                                  _selectedLoaderVersion != null))
+                            Text(
+                                type == LoaderType.vanilla
+                                    ? "Official Clean Version".tl
+                                    : _selectedLoaderVersion!,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.primary
+                                        .withValues(alpha: 0.7)))
+                          else
+                            Text(
+                                type == LoaderType.vanilla
+                                    ? "Install Minecraft without any mods".tl
+                                    : versions == null
+                                        ? "Loading versions...".tl
+                                        : "${versions.length} ${"versions available".tl}",
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.outline)),
+                        ],
+                      ),
+                    ),
+                    if (isLoading)
+                      const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                    else if (type != LoaderType.vanilla)
+                      AnimatedRotation(
+                        turns: isExpanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Icon(Icons.expand_more,
+                            color: theme.colorScheme.outline),
+                      )
+                    else if (isSelected)
+                      Icon(Icons.check_circle,
+                          size: 18, color: theme.colorScheme.primary),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOutCubic,
+              alignment: Alignment.topCenter,
+              child: isExpanded && versions != null
+                  ? Container(
+                      constraints: const BoxConstraints(maxHeight: 320),
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Scrollbar(
+                        child: ListView(
+                          shrinkWrap: true,
+                          padding: EdgeInsets.zero,
+                          children: [
+                            _buildLoaderVersionList(type, versions, theme),
+                          ],
+                        ),
+                      ),
+                    )
+                  : const SizedBox(width: double.infinity, height: 0),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoaderVersionList(
+      LoaderType type, List<String> versions, ThemeData theme) {
+    if (versions.isEmpty) return const SizedBox.shrink();
+
+    // Fabric/Quilt/NeoForge: first one is usually latest stable
+    final latest = versions.first;
+    final others = versions.skip(1).toList();
 
     return Column(
       children: [
-        _buildHeader(theme),
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(
-                child: isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _buildVersionGrid(theme),
+        _buildLoaderVersionTile(type, latest, theme, isLatest: true),
+        if (others.isNotEmpty) ...[
+          Divider(
+              height: 1,
+              indent: 54,
+              endIndent: 16,
+              color: theme.dividerColor.withValues(alpha: 0.05)),
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: others.length,
+            itemBuilder: (context, idx) =>
+                _buildLoaderVersionTile(type, others[idx], theme),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildLoaderVersionTile(LoaderType type, String v, ThemeData theme,
+      {bool isLatest = false}) {
+    final bool isSelected = _selectedLoader == type;
+    final bool isVerSelected = isSelected && _selectedLoaderVersion == v;
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedLoader = type;
+          _selectedLoaderVersion = v;
+          _expandedLoaders.remove(type);
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 54, vertical: 10),
+        color: isVerSelected
+            ? theme.colorScheme.primary.withValues(alpha: 0.1)
+            : null,
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.terminal_outlined,
+                          size: 14,
+                          color: isVerSelected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outline),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(v,
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: isVerSelected || isLatest
+                                    ? FontWeight.bold
+                                    : null,
+                                color: isVerSelected
+                                    ? theme.colorScheme.primary
+                                    : null)),
+                      ),
+                    ],
+                  ),
+                  if (isLatest)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 22),
+                      child: Text("Latest Stable".tl,
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: isVerSelected
+                                  ? theme.colorScheme.primary
+                                  : Colors.green)),
+                    ),
+                ],
               ),
-              _buildRightSidebar(theme),
+            ),
+            if (isVerSelected)
+              Icon(Icons.check, size: 16, color: theme.colorScheme.primary),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _startInstallation() async {
+    if (_selectedVersion == null) return;
+    final String versionId = _selectedVersion!.id;
+    final String customName = _customNameController.text.trim().isEmpty
+        ? versionId
+        : _customNameController.text.trim();
+    final String targetPath = LaunchService.instance.getPreferredDownloadDir();
+    final targetDir = Directory(targetPath);
+
+    if (_isAccelerated && (versionId == "1.21.8" || versionId == "1.21.7")) {
+      final url =
+          "https://raw.gitcode.com/Bloret/$versionId/archive/refs/heads/main.zip";
+      await DownloadService.instance.downloadFile(
+        "Minecraft_$versionId",
+        url,
+        "minecraft_source_$versionId.zip",
+        (path, updateStatus) async {
+          updateStatus("Extracting...".tl);
+          final success = await DownloadService.instance.extractZip(
+            File(path),
+            targetDir,
+            stripRoot: true,
+          );
+          try {
+            await File(path).delete();
+          } catch (_) {}
+          if (success) {
+            showSuccess("Minecraft $customName installed".tl);
+          } else {
+            showError("Installation failed".tl);
+          }
+          return success;
+        },
+      );
+    } else if (_selectedLoader == null || _selectedLoader == LoaderType.vanilla) {
+      await DownloadService.instance
+          .installVanilla(_selectedVersion!.url, versionId, targetDir);
+    } else {
+      if (_selectedLoaderVersion == null) {
+        showWarning("Please select a loader version first".tl);
+        return;
+      }
+      await DownloadService.instance.installLoader(
+          versionId, _selectedLoaderVersion!, _selectedLoader!, targetDir);
+    }
+    showSuccess("Installation task for %s submitted.".tl.format(customName));
+    _pageController
+        .animateToPage(0,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeInOutCubic)
+        .then((_) {
+      if (mounted) {
+        setState(() {
+          _selectedVersion = null;
+          _selectedLoader = null;
+          _selectedLoaderVersion = null;
+          _loaderVersionsMap.clear();
+          _isLoadingLoadersMap.clear();
+          _expandedLoaders.clear();
+          _isAccelerated = false;
+        });
+      }
+    });
+  }
+
+  Widget _buildUpdateProgress(ThemeData theme, DownloadService ds) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  ds.versionsUpdateStatus,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              Text(
+                "${(ds.versionsUpdateProgress * 100).toInt()}%",
+                style: TextStyle(
+                    fontSize: 11,
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.bold),
+              ),
             ],
           ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: IgnorePointer(
+              child: GoogleSquigglySlider(
+                value: ds.versionsUpdateProgress,
+                paddingH: 0,
+                paddingV: 0,
+                max: 1,
+                height: 8,
+                hasThumb: false,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState(ThemeData theme) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.cloud_off_outlined, size: 64, color: theme.colorScheme.error.withOpacityEx(0.5)),
+          const SizedBox(height: 16),
+          Text(
+            "Failed to fetch versions".tl,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Please check your internet connection".tl,
+            style: TextStyle(color: theme.colorScheme.outline),
+          ),
+          const SizedBox(height: 24),
+          BloretButton(
+            onPressed: () => DownloadService.instance.fetchAllVanillaVersions(forceRefresh: true),
+            text: "Retry".tl,
+            icon: Icons.refresh,
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildHeader(ThemeData theme) {
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
           IconButton(
@@ -143,202 +705,568 @@ class _VersionSelectorViewState extends State<VersionSelectorView> {
             onPressed: widget.onBack,
           ),
           const SizedBox(width: 8),
-          Text(
-            "${widget.type.name.toUpperCase()} ${"Installation".tl}",
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          const Spacer(),
-          if (widget.type == LoaderType.vanilla && currentType == "release")
-            Win11Dropdown(
-              width: 150,
-              items: majorVersions.map((v) => Win11DropdownItem(label: v, value: v)).toList(),
-              initialValue: selectedMajorVersion,
-              onChanged: (v) => setState(() => selectedMajorVersion = v),
-            ),
-          if (widget.type != LoaderType.vanilla)
-            Win11Dropdown(
-              width: 150,
-              items: mcVersionsForLoader.map((v) => Win11DropdownItem(label: v, value: v)).toList(),
-              initialValue: selectedMcVersion,
-              onChanged: (v) {
-                setState(() => selectedMcVersion = v);
-                _loadLoaderVersions();
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.2),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  ),
+                );
               },
+              child: _showSearchBar
+                  ? TextField(
+                      key: const ValueKey("search_field"),
+                      controller: _searchController,
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: "Search versions...".tl,
+                        isDense: true,
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.close, size: 20),
+                          onPressed: () {
+                            setState(() {
+                              _showSearchBar = false;
+                              _searchController.clear();
+                            });
+                          },
+                        ),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                      ),
+                    )
+                  : Text(
+                      "Minecraft ${"Installation".tl}",
+                      key: const ValueKey("title_text"),
+                      style: const TextStyle(
+                          fontSize: 24, fontWeight: FontWeight.bold),
+                    ),
             ),
+          ),
+          if (!_showSearchBar) ...[
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(scale: animation, child: child),
+              ),
+              child: DownloadService.instance.isVersionsUpdating
+                  ? const Padding(
+                      key: ValueKey("updating_indicator"),
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      ),
+                    )
+                  : IconButton(
+                      key: const ValueKey("refresh_button"),
+                      icon: const Icon(Icons.refresh),
+                      tooltip: "Refresh".tl,
+                      onPressed: () => DownloadService.instance
+                          .fetchAllVanillaVersions(forceRefresh: true),
+                    ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.search),
+              onPressed: () => setState(() => _showSearchBar = true),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildVersionGrid(ThemeData theme) {
-    if (widget.type == LoaderType.vanilla) {
-      final versions = filteredVersions;
-      if (versions.isEmpty) {
-        return Center(child: Text("No versions found for this category".tl));
-      }
+  Widget _buildVersionList(ThemeData theme) {
+    if (allVanillaVersions.isEmpty) {
+      return Center(child: Text("No versions found".tl));
+    }
 
-      return SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: versions.map((v) => _buildVersionItem(theme, v.id, v.type)).toList(),
-        ),
+    Widget content;
+    if (_searchQuery.isNotEmpty) {
+      final results = allVanillaVersions
+          .where((v) => v.id.toLowerCase().contains(_searchQuery))
+          .toList();
+      content = ListView.builder(
+        key: ValueKey("search_results_${_searchQuery.hashCode}"),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+        itemCount: results.length,
+        itemBuilder: (context, index) =>
+            _buildVersionTile(results[index], theme),
       );
     } else {
-      if (loaderVersions.isEmpty) {
-        return Center(child: Text("No loaders available for this Minecraft version".tl));
-      }
-      return SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: loaderVersions.map((v) => _buildLoaderItem(theme, v)).toList(),
-        ),
+      final latestRelease =
+          allVanillaVersions.firstWhere((v) => v.type == "release");
+      final latestSnapshot =
+          allVanillaVersions.firstWhere((v) => v.type == "snapshot");
+
+      final aprilFools =
+          allVanillaVersions.where((v) => _isAprilFools(v.id)).toList();
+      final remaining =
+          allVanillaVersions.where((v) => !_isAprilFools(v.id)).toList();
+
+      final releases = remaining.where((v) => v.type == "release").toList();
+      final snapshots = remaining.where((v) => v.type == "snapshot").toList();
+      final oldBetas = remaining.where((v) => v.type == "old_beta").toList();
+      final oldAlphas = remaining.where((v) => v.type == "old_alpha").toList();
+
+      content = ListView(
+        key: const ValueKey("category_list"),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+        children: [
+          // ... rest of the existing list children ...
+          // Latest Block
+          Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.1)),
+              ),
+              child: Stack(
+                children: [
+                  Align(
+                    alignment: .centerRight,
+                    child: CustomPaint(
+                      painter: BloretIcon(color: Colors.grey.withOpacityEx(0.2)),
+                      size: const Size(120, 120),
+                    ),
+                  ),
+                  Column(
+                    children: [
+                      if (allVanillaVersions.any((v) => v.id == "1.21.8"))
+                        _buildVersionTile(
+                            allVanillaVersions
+                                .firstWhere((v) => v.id == "1.21.8"),
+                            theme,
+                            isLatest: true,
+                            label: "Bloret Speed-up Version".tl,
+                            icon: Icons.double_arrow,
+                            forceAccelerated: true),
+                      if (allVanillaVersions.any((v) => v.id == "1.21.8") &&
+                          allVanillaVersions.any((v) => v.id == "1.21.7"))
+                        Divider(
+                            height: 1,
+                            indent: 12,
+                            endIndent: 12,
+                            color: theme.dividerColor.withValues(alpha: 0.05)),
+                      if (allVanillaVersions.any((v) => v.id == "1.21.7"))
+                        _buildVersionTile(
+                            allVanillaVersions
+                                .firstWhere((v) => v.id == "1.21.7"),
+                            theme,
+                            isLatest: true,
+                            label: "Bloret Speed-up Version".tl,
+                            icon: Icons.double_arrow,
+                            forceAccelerated: true),
+                    ],
+                  ),
+                ],
+              )),
+
+          const SizedBox(height: 20),
+
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.1)),
+            ),
+            child: Column(
+              children: [
+                _buildVersionTile(latestRelease, theme,
+                    isLatest: true, label: "Latest Release".tl),
+                Divider(
+                    height: 1,
+                    indent: 12,
+                    endIndent: 12,
+                    color: theme.dividerColor.withValues(alpha: 0.05)),
+                _buildVersionTile(latestSnapshot, theme,
+                    isLatest: true,
+                    label: "Latest Snapshot".tl,
+                    icon: Icons.bug_report_outlined),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          _buildSection(
+            "Release".tl,
+            "${releases.length} ${"versions".tl}",
+            Icons.verified_outlined,
+            "release",
+            releases,
+            theme,
+          ),
+          const SizedBox(height: 12),
+          _buildSection(
+            "Snapshot".tl,
+            "${snapshots.length} ${"versions".tl}",
+            Icons.science_outlined,
+            "snapshot",
+            snapshots,
+            theme,
+            useGrouping: true,
+          ),
+          const SizedBox(height: 12),
+          _buildSection(
+            "April Fools'".tl,
+            "${aprilFools.length} ${"versions".tl}",
+            Icons.celebration_outlined,
+            "april_fools",
+            aprilFools,
+            theme,
+          ),
+          const SizedBox(height: 12),
+          _buildSection(
+            "Ancient (Beta)".tl,
+            "${oldBetas.length} ${"versions".tl}",
+            Icons.history,
+            "old_beta",
+            oldBetas,
+            theme,
+          ),
+          const SizedBox(height: 12),
+          _buildSection(
+            "Ancient (Alpha)".tl,
+            "${oldAlphas.length} ${"versions".tl}",
+            Icons.hourglass_empty,
+            "old_alpha",
+            oldAlphas,
+            theme,
+          ),
+          const SizedBox(height: 24),
+        ],
       );
     }
-  }
 
-  Widget _buildVersionItem(ThemeData theme, String id, String type) {
-    return InkWell(
-      onTap: () => _confirmInstallVanilla(id),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: 120,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(typeIcons[type] ?? Icons.layers, size: 24, color: theme.colorScheme.primary),
-            const SizedBox(height: 8),
-            Text(
-              id,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.02),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
         ),
       ),
+      child: content,
     );
   }
 
-  Widget _buildLoaderItem(ThemeData theme, String version) {
-    return InkWell(
-      onTap: () => _confirmInstallLoader(version),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: 140,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.settings_suggest, size: 24, color: theme.colorScheme.secondary),
-            const SizedBox(height: 8),
-            Text(
-              version,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRightSidebar(ThemeData theme) {
-    if (widget.type != LoaderType.vanilla) return const SizedBox.shrink();
-    
-    final categories = [
-      {"id": "release", "label": "Formal".tl, "icon": Icons.verified},
-      {"id": "snapshot", "label": "Test".tl, "icon": Icons.bug_report},
-      {"id": "old_beta", "label": "Ancient (Beta)".tl, "icon": Icons.history},
-      {"id": "old_alpha", "label": "Ancient (Alpha)".tl, "icon": Icons.hourglass_empty},
-    ];
+  Widget _buildSection(
+    String title,
+    String subtitle,
+    IconData icon,
+    String key,
+    List<MinecraftVersion> versions,
+    ThemeData theme, {
+    bool useGrouping = false,
+  }) {
+    if (versions.isEmpty) return const SizedBox.shrink();
+    final bool isExpanded = _expandedKeys.contains(key);
 
     return Container(
-      width: 64,
       decoration: BoxDecoration(
-        border: Border(left: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1))),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.05)),
       ),
       child: Column(
-        children: categories.map((cat) {
-          final isSelected = currentType == cat["id"];
-          return Tooltip(
-            message: cat["label"] as String,
+        children: [
+          Material(
+            color: Colors.transparent,
             child: InkWell(
-              onTap: () => setState(() => currentType = cat["id"] as String),
-              child: Container(
-                height: 64,
-                width: 64,
-                color: isSelected ? theme.colorScheme.primary.withValues(alpha: 0.1) : null,
-                child: Icon(
-                  cat["icon"] as IconData,
-                  color: isSelected ? theme.colorScheme.primary : theme.colorScheme.outline,
+              onTap: () {
+                setState(() {
+                  if (isExpanded) {
+                    _expandedKeys.remove(key);
+                  } else {
+                    _expandedKeys.add(key);
+                  }
+                });
+              },
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(icon, color: theme.colorScheme.primary, size: 22),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(title,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 15)),
+                          Text(subtitle,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: theme.colorScheme.outline)),
+                        ],
+                      ),
+                    ),
+                    AnimatedRotation(
+                      turns: isExpanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Icon(
+                        Icons.expand_more,
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-          );
-        }).toList(),
+          ),
+          ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOutCubic,
+              alignment: Alignment.topCenter,
+              child: isExpanded
+                  ? Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: useGrouping
+                          ? _buildGroupedVersionList(versions, theme)
+                          : Column(
+                              children: versions
+                                  .map((v) => Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12),
+                                        child: _buildVersionTile(v, theme),
+                                      ))
+                                  .toList(),
+                            ),
+                    )
+                  : const SizedBox(width: double.infinity, height: 0),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Future<void> _confirmInstallVanilla(String versionId) async {
-    final v = allVanillaVersions.firstWhere((element) => element.id == versionId);
-    final String targetPath = LaunchService.instance.getPreferredDownloadDir();
-    final targetDir = Directory(targetPath);
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text("Install Minecraft".tl),
-        content: Text("${"Install".tl} ${versionId} ${"to".tl} ${targetDir.path}?"),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Install".tl)),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      await DownloadService.instance.installVanilla(versionId, v.url, targetDir);
-      showSuccess("Installation task for ${versionId} submitted.".tl);
+  Widget _buildGroupedVersionList(
+      List<MinecraftVersion> versions, ThemeData theme) {
+    // Group snapshots by their year/prefix (e.g., "24w", "23w")
+    final Map<String, List<MinecraftVersion>> groups = {};
+    for (var v in versions) {
+      String groupKey = "Other".tl;
+      if (v.id.contains('w')) {
+        groupKey = v.id.substring(0, v.id.indexOf('w') + 1); // e.g., "24w"
+      } else if (v.id.startsWith('1.')) {
+        final parts = v.id.split('.');
+        if (parts.length >= 2) groupKey = "${parts[0]}.${parts[1]}";
+      }
+      groups.putIfAbsent(groupKey, () => []).add(v);
     }
+
+    final groupKeys = groups.keys.toList();
+
+    return Column(
+      children: groupKeys.map((gk) {
+        final groupVersions = groups[gk]!;
+        final subKey = "sub_$gk";
+        final bool isSubExpanded = _expandedKeys.contains(subKey);
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          child: Column(
+            children: [
+              InkWell(
+                onTap: () {
+                  setState(() {
+                    if (isSubExpanded) {
+                      _expandedKeys.remove(subKey);
+                    } else {
+                      _expandedKeys.add(subKey);
+                    }
+                  });
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    children: [
+                      Text(gk,
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w600)),
+                      const SizedBox(width: 8),
+                      Text("(${groupVersions.length})",
+                          style: TextStyle(
+                              fontSize: 11, color: theme.colorScheme.outline)),
+                      const Spacer(),
+                      Icon(
+                        isSubExpanded ? Icons.expand_less : Icons.expand_more,
+                        size: 16,
+                        color: theme.colorScheme.outline,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              ClipRect(
+                child: AnimatedSize(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: isSubExpanded
+                      ? ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: groupVersions.length,
+                          itemBuilder: (context, index) => Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: _buildVersionTile(groupVersions[index], theme),
+                          ),
+                        )
+                      : const SizedBox(width: double.infinity, height: 0),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
   }
 
-  Future<void> _confirmInstallLoader(String loaderVersion) async {
-    if (selectedMcVersion == null) return;
-    final String targetPath = LaunchService.instance.getPreferredDownloadDir();
-    final targetDir = Directory(targetPath);
+  bool _isAprilFools(String id) {
+    const jokes = {
+      '26w14a',
+      '25w14craftmine',
+      '23w13a_or_b',
+      '24w14spoiler',
+      '24w14potato',
+      '22w13oneblockatatime',
+      '20w14infinite',
+      '3D Shareware v1.34',
+      '1.RV-Pre1',
+      '15w14a',
+      '2.0',
+    };
+    if (jokes.contains(id)) return true;
+    if (id.contains('love') || id.contains('joke') || id.contains('spoiler')) {
+      return true;
+    }
+    return false;
+  }
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text("Install Mod Loader".tl),
-        content: Text("${"Install".tl} ${widget.type.name} $loaderVersion ${"for".tl} $selectedMcVersion?"),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Install".tl)),
-        ],
+  Widget _buildVersionTile(MinecraftVersion version, ThemeData theme,
+      {bool isLatest = false,
+      String? label,
+      IconData? icon,
+      bool forceAccelerated = false}) {
+    final dateStr = DateFormat('yyyy-MM-dd').format(version.releaseTime);
+    final bool isAprilFools = _isAprilFools(version.id);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2, top: 2),
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _selectedVersion = version;
+            _customNameController.text = version.id;
+            _selectedLoader = null; // Don't select any loader by default
+            _selectedLoaderVersion = null;
+            _isAccelerated = forceAccelerated;
+          });
+          _pageController.nextPage(
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.easeInOutCubic);
+        },
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: isLatest
+                ? Colors.transparent
+                : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color:
+                      (isAprilFools ? Colors.purple : theme.colorScheme.primary)
+                          .withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  isAprilFools
+                      ? Icons.celebration_outlined
+                      : (icon ?? Icons.view_in_ar_outlined),
+                  size: 18,
+                  color:
+                      isAprilFools ? Colors.purple : theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(version.id == '20w14infinite' ? '20w14∞' : version.id,
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.bold)),
+                    Row(
+                      children: [
+                        Text(label ?? dateStr,
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: isLatest
+                                    ? theme.colorScheme.primary.withValues(alpha: 0.7)
+                                    : Colors.grey)),
+                        if (isAprilFools) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.purple.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text("April Fools'".tl,
+                                style: const TextStyle(
+                                    color: Colors.purple,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right,
+                  size: 18,
+                  color: theme.colorScheme.outline.withValues(alpha: 0.5)),
+            ],
+          ),
+        ),
       ),
     );
-
-    if (confirm == true) {
-      await DownloadService.instance.installLoader(selectedMcVersion!, loaderVersion, widget.type, targetDir);
-      showSuccess("Installation task for ${widget.type.name} $loaderVersion submitted.".tl);
-    }
   }
 }
+

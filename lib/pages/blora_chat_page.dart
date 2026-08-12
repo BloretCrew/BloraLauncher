@@ -1474,7 +1474,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                           borderRadius: BorderRadius.circular(14),
                           child: Container(
                             width: 28, height: 28, color: Colors.grey.shade300,
-                            child: const Icon(Icons.smart_toy, size: 18),
+                            child: Bloriko.type == "bloriko" ? Image.asset("assets/bloriko.png") : const Icon(Icons.smart_toy, size: 18),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -1662,7 +1662,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                   ? Center(
                                       key: const ValueKey("empty_bloriko"),
                                       child: SizedBox(width: 360, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                                        ClipRRect(borderRadius: BorderRadius.circular(36), child: Container(width: 72, height: 72, color: Colors.grey.shade300, child: const Icon(Icons.smart_toy, size: 36))),
+                                        ClipRRect(borderRadius: BorderRadius.circular(36), child: Container(width: 72, height: 72, color: Colors.grey.shade300, child: Image.asset("assets/bloriko.png"))),
                                         const SizedBox(height: 12),
                                         Text("Bloriko".tl, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
                                         const SizedBox(height: 12),
@@ -1724,9 +1724,11 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                 children: [
                                   if (showAvatar) ...[
                                     Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: altColor),
-                                      child: Icon(getEmotionIcon(_agent.emotion), size: 18, color: textColor.withValues(alpha: 0.5)),
+                                      width: 32,
+                                      height: 32,
+                                      clipBehavior: .antiAlias,
+                                      decoration: BoxDecoration(shape: .circle, color: altColor),
+                                      child: Bloriko.type == "bloriko" ? Image.asset("assets/bloriko.png", filterQuality: .high,) : Icon(Icons.smart_toy, color: theme.colorScheme.onPrimary, size: 32),
                                     ),
                                     const SizedBox(width: 12),
                                   ] else ...[
@@ -2048,10 +2050,11 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                       children: [
                                         if (showAvatar)
                                           Container(
-                                            margin: const EdgeInsets.only(top: 2),
-                                            decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: altColor, border: Border.all(color: borderColor.withValues(alpha: 0.5))),
-                                            padding: const EdgeInsets.all(4),
-                                            child: Icon(getEmotionIcon(msg['emotion'] ?? "neutral"), size: 18, color: textColor),
+                                            width: 32,
+                                            height: 32,
+                                            clipBehavior: .antiAlias,
+                                            decoration: BoxDecoration(shape: .circle, color: altColor,),
+                                            child: Bloriko.type == "bloriko" ? Image.asset("assets/bloriko.png", filterQuality: .high,) : Icon(Icons.smart_toy, color: theme.colorScheme.onPrimary, size: 32),
                                           )
                                         else
                                           const SizedBox(width: 32),

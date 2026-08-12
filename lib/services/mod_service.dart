@@ -16,7 +16,7 @@ class ModService {
   Future<Map<String, dynamic>?> searchMods(
     String keyword, {
     List<List<String>>? facets,
-    int limit = 10,
+    int limit = 30,
   }) async {
     try {
       final res = await dio.get(

@@ -1,9 +1,16 @@
+import 'dart:ffi' hide Size;
+import 'dart:io';
+
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/windows_widgets.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../core/grammer_candy.dart';
 import '../core/i18n.dart';
+import '../services/download_service.dart';
 import '../services/zulu_api.dart';
+import '../services/graal_api.dart';
 
 class JavaSelectorView extends StatefulWidget {
   final VoidCallback onBack;
@@ -79,8 +86,6 @@ extension ArchitectureExtension on Architecture {
     Architecture.arm32 => 'ARM 32-bit',
     Architecture.ppc64le => 'PowerPC 64-bit LE',
     Architecture.ppc64 => 'PowerPC 64-bit',
-    Architecture.s390x => 's390x',
-    Architecture.riscv64 => 'RISC-V 64-bit',
   };
 }
 
@@ -110,8 +115,6 @@ enum Architecture {
   arm32,
   ppc64le,
   ppc64,
-  s390x,
-  riscv64,
 }
 
 enum JavaPackage {
@@ -127,46 +130,369 @@ T nextEnum<T extends Enum>(T current, List<T> values) {
 
 class _JavaSelectorViewState extends State<JavaSelectorView> {
   bool loading = true;
-  JavaType javaType = .zulu;
+  JavaType javaType = JavaType.zulu;
   JavaVersion javaVersion = JavaVersion.any;
   OperatingSystem operatingSystem = OperatingSystem.any;
   Architecture architecture = Architecture.any;
   JavaPackage javaPackage = JavaPackage.any;
-  List<ZuluPackage> packages = [];
+  List<dynamic> packages = [];
+
+  final AzulApi _azulApi = AzulApi();
+  final GraalVMApi _graalApi = GraalVMApi();
 
   @override
   void initState() {
     super.initState();
+    _detectPlatform();
     _fetchPackages();
   }
 
+  @override
+  void dispose() {
+    _azulApi.dispose();
+    _graalApi.dispose();
+    super.dispose();
+  }
+
+  void _detectPlatform() {
+    // OS Detection
+    if (Platform.isWindows) {
+      operatingSystem = OperatingSystem.windows;
+    } else if (Platform.isLinux) {
+      operatingSystem = OperatingSystem.linux;
+    } else if (Platform.isMacOS) {
+      operatingSystem = OperatingSystem.macos;
+    }
+
+    // Architecture Detection using Abi.current()
+    final abi = Abi.current();
+    final abiName = abi.toString();
+
+    if (abiName.contains('x64')) {
+      architecture = Architecture.x86_64;
+    } else if (abiName.contains('arm64')) {
+      architecture = Architecture.arm64;
+    } else if (abiName.contains('ia32')) {
+      architecture = Architecture.x86_32;
+    } else if (abiName.contains('arm')) {
+      architecture = Architecture.arm32;
+    }
+  }
+
   Future<void> _fetchPackages() async {
-    final packages = await AzulApi().getAllPackages();
-    if (mounted) {
+    _fetchZuluPackages();
+    _fetchGraalPackages();
+  }
+
+  Future<void> _fetchZuluPackages() async {
+    await for (final page in _azulApi.getAllPackages()) {
+      if (!mounted) return;
+
       setState(() {
-        this.packages = packages;
+        packages.addAll(page);
         loading = false;
       });
     }
   }
 
+  Future<void> _fetchGraalPackages() async {
+    await for (final package in _graalApi.getPackages()) {
+      if (!mounted) return;
+
+      setState(() {
+        packages.add(package);
+      });
+    }
+    setState(() {
+      loading = false;
+    });
+  }
+
+  void _onDownloadPressed(dynamic variant, String title) async {
+    if (!Platform.isWindows) {
+      showError("Currently only Windows is supported".tl);
+      return;
+    }
+
+    final String url;
+    final String archiveType;
+    final String id;
+
+    if (variant is ZuluPackage) {
+      url = variant.downloadUrl;
+      archiveType = variant.archiveType;
+      id = "Zulu_${variant.packageUuid}";
+    } else if (variant is GraalPackage) {
+      url = variant.downloadUrl;
+      archiveType = variant.platform.extension;
+      id = "Graal_${variant.version.label}_${variant.platform.label}";
+    } else {
+      return;
+    }
+
+    final isMsi = archiveType == 'msi';
+    final isZip = archiveType == 'zip';
+
+    if (isMsi) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text("Silent Installation".tl),
+          content: Text(
+              "This package will be installed silently in the background.".tl),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text("Cancel".tl)),
+            TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text("Install".tl)),
+          ],
+        ),
+      );
+
+      if (confirm == true) {
+        DownloadService.instance.downloadFile(
+          id,
+          url,
+          "java_install_$id.msi",
+          (path, updateStatus) async {
+            updateStatus("Installing...".tl);
+            final result = await Process.run(
+                'msiexec', ['/i', path, '/quiet', '/qn', '/norestart']);
+            try {
+              await File(path).delete();
+            } catch (_) {}
+            if (result.exitCode == 0) {
+              showSuccess("Java installed successfully".tl);
+            } else {
+              showError("Installation failed".tl);
+            }
+            return result.exitCode == 0;
+          },
+        );
+        showInfo("Download task submitted".tl);
+      }
+    } else if (isZip) {
+      final String versionSuffix = (variant is ZuluPackage)
+          ? variant.javaVersion.first.toString()
+          : (variant as GraalPackage).version.javaVersion.toString();
+
+      final String folderName =
+          "${javaType == JavaType.zulu ? 'zulu' : 'graal'}-$versionSuffix";
+      final String parentDir = javaType == JavaType.zulu ? 'Zulu' : 'GraalVM';
+      final defaultDir = "C:/Program Files/$parentDir/$folderName";
+      String targetDir = defaultDir;
+
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final dir = Directory(targetDir);
+            bool isConflict = false;
+            try {
+              if (dir.existsSync() && dir.listSync().isNotEmpty) {
+                isConflict = true;
+              }
+            } catch (_) {}
+
+            return AlertDialog(
+              title: Text("Extract ZIP".tl),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("This package will be extracted to:".tl),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: TextEditingController(text: targetDir),
+                    decoration: InputDecoration(
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.folder_open),
+                        onPressed: () async {
+                          final path =
+                              await FilePicker.platform.getDirectoryPath();
+                          if (path != null) {
+                            setDialogState(() => targetDir = path);
+                          }
+                        },
+                      ),
+                    ),
+                    onChanged: (v) => setDialogState(() => targetDir = v),
+                  ),
+                  if (isConflict) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded,
+                            color: Colors.orange, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Warning: Target directory is not empty. Files may be overwritten."
+                                .tl,
+                            style: const TextStyle(
+                                color: Colors.orange, fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: Text("Cancel".tl)),
+                TextButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: Text(isConflict ? "Overwrite".tl : "Extract".tl)),
+              ],
+            );
+          },
+        ),
+      );
+
+      if (confirm == true) {
+        DownloadService.instance.downloadFile(
+          id,
+          url,
+          "java_install_$id.zip",
+          (path, updateStatus) async {
+            updateStatus("Extracting...".tl);
+            final success = await DownloadService.instance.extractZip(
+              File(path),
+              Directory(targetDir),
+              stripRoot: true,
+            );
+            try {
+              await File(path).delete();
+            } catch (_) {}
+            if (success) {
+              showSuccess("Java extracted successfully".tl);
+            } else {
+              showError("Extraction failed".tl);
+            }
+            return success;
+          },
+        );
+        showInfo("Download task submitted".tl);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final filteredPackages = packages.where((package) {
-      final versionMatch = javaVersion == JavaVersion.any ||
-          package.javaVersion.first == int.parse(javaVersion.name.substring(4));
+    final filteredPackages = packages.where((p) {
+      if (javaType == JavaType.zulu) {
+        if (p is! ZuluPackage) return false;
+        final package = p;
+        final versionMatch = javaVersion == JavaVersion.any ||
+            package.javaVersion.first ==
+                int.parse(javaVersion.name.substring(4));
 
-      final osMatch = operatingSystem == OperatingSystem.any ||
-          package.os == operatingSystem.name;
+        final osMatch = operatingSystem == OperatingSystem.any ||
+            package.os ==
+                (operatingSystem == OperatingSystem.alpineLinux
+                    ? 'alpine_linux'
+                    : operatingSystem.name);
 
-      final archMatch = architecture == Architecture.any ||
-          package.arch == architecture.name;
+        final archMatch = architecture == Architecture.any ||
+            (() {
+              switch (architecture) {
+                case Architecture.x86_64:
+                  return package.arch == 'x86' && package.hwBitness == 64;
+                case Architecture.x86_32:
+                  return package.arch == 'x86' && package.hwBitness == 32;
+                case Architecture.arm64:
+                  return package.arch == 'arm' && package.hwBitness == 64;
+                case Architecture.arm32:
+                  return package.arch == 'arm' && package.hwBitness == 32;
+                case Architecture.ppc64le:
+                  return package.arch == 'ppc' &&
+                      package.hwBitness == 64 &&
+                      package.abi == 'le';
+                case Architecture.ppc64:
+                  return package.arch == 'ppc' &&
+                      package.hwBitness == 64 &&
+                      package.abi != 'le';
+                default:
+                  return false;
+              }
+            }());
 
-      final packageMatch = javaPackage == JavaPackage.any ||
-          package.javaPackageType == javaPackage.name;
+        final packageMatch = javaPackage == JavaPackage.any ||
+            package.javaPackageType == javaPackage.name;
 
-      return versionMatch && osMatch && archMatch && packageMatch;
+        return versionMatch && osMatch && archMatch && packageMatch;
+      } else {
+        if (p is! GraalPackage) return false;
+        final package = p;
+
+        final versionMatch = javaVersion == JavaVersion.any ||
+            package.version.javaVersion ==
+                int.parse(javaVersion.name.substring(4));
+
+        final os = switch (package.platform) {
+          GraalPlatform.linuxX64 ||
+          GraalPlatform.linuxAarch64 =>
+            OperatingSystem.linux,
+          GraalPlatform.macosAarch64 => OperatingSystem.macos,
+          GraalPlatform.windowsX64 => OperatingSystem.windows,
+        };
+        final osMatch =
+            operatingSystem == OperatingSystem.any || os == operatingSystem;
+
+        final arch = switch (package.platform) {
+          GraalPlatform.linuxX64 ||
+          GraalPlatform.windowsX64 =>
+            Architecture.x86_64,
+          GraalPlatform.linuxAarch64 ||
+          GraalPlatform.macosAarch64 =>
+            Architecture.arm64,
+        };
+        final archMatch =
+            architecture == Architecture.any || arch == architecture;
+
+        final packageMatch = javaPackage == JavaPackage.any ||
+            javaPackage == JavaPackage.jdk;
+
+        return versionMatch && osMatch && archMatch && packageMatch;
+      }
     }).toList();
+
+    // Grouping by version, os, arch, bitness, and package type to merge different archive types
+    final groupedMap = <String, List<dynamic>>{};
+    for (final package in filteredPackages) {
+      final String key;
+      if (package is ZuluPackage) {
+        key =
+            '${package.javaVersion.join('.')}-${package.os}-${package.arch}-${package.hwBitness}-${package.javaPackageType}';
+      } else if (package is GraalPackage) {
+        key = '${package.version.label}-${package.platform.label}';
+      } else {
+        continue;
+      }
+      groupedMap.putIfAbsent(key, () => []).add(package);
+    }
+
+    final groupedList = groupedMap.values.toList();
+    // Sort by version descending
+    groupedList.sort((a, b) {
+      List<int> getVer(dynamic p) {
+        if (p is ZuluPackage) return p.javaVersion;
+        if (p is GraalPackage) return [p.version.javaVersion];
+        return [0];
+      }
+
+      final vA = getVer(a.first);
+      final vB = getVer(b.first);
+      for (int i = 0; i < vA.length && i < vB.length; i++) {
+        if (vA[i] != vB[i]) return vB[i].compareTo(vA[i]);
+      }
+      return vB.length.compareTo(vA.length);
+    });
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -336,88 +662,186 @@ class _JavaSelectorViewState extends State<JavaSelectorView> {
           ),
           const SizedBox(height: 12,),
           Expanded(
-            child: loading
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-              itemCount: filteredPackages.length,
-              itemBuilder: (context, index) {
-                final package = filteredPackages[index];
-                return SizedBox(
-                  width: double.infinity,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    child: Container(
-                      height: 72,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        color: Theme.of(context).colorScheme.surfaceContainerLow,
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              color: Colors.blue.withValues(alpha: 0.1),
-                            ),
-                            child: const Icon(Icons.inventory_2_outlined),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Java ${package.javaVersion.join('.')}',
-                                  style: const TextStyle(fontWeight: FontWeight.w500),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  package.os,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          SizedBox(
-                            width: 100,
-                            child: Text(
-                              package.javaPackageType.toUpperCase(),
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: 90,
-                            child: Text(
-                              package.arch,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          BloretButton(
-                            text: "Download".tl,
-                            onPressed: () {
-
-                            },
-                          )
-                        ],
-                      ),
-                    ),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.05),
+                      end: Offset.zero,
+                    ).animate(CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutCubic,
+                    )),
+                    child: child,
                   ),
                 );
               },
+              child: loading
+                  ? const Center(
+                      key: ValueKey('loading'),
+                      child: CircularProgressIndicator(),
+                    )
+                  : ListView.builder(
+                      key: ValueKey(
+                          '${javaType.name}-${javaVersion.name}-${operatingSystem.name}-${architecture.name}-${javaPackage.name}'),
+                      itemCount: groupedList.length,
+                      itemBuilder: (context, index) {
+                        final group = groupedList[index];
+                        final first = group.first;
+
+                        final String title;
+                        final String subtitle;
+                        final String packageType;
+                        final String archDisplay;
+
+                        if (first is ZuluPackage) {
+                          title = 'Java ${first.javaVersion.join('.')}';
+                          subtitle = first.os;
+                          packageType = first.javaPackageType.toUpperCase();
+                          archDisplay = '${first.arch} ${first.hwBitness}-bit';
+                        } else if (first is GraalPackage) {
+                          title = first.version.label;
+                          subtitle = first.platform.label;
+                          packageType = "JDK";
+                          archDisplay = "";
+                        } else {
+                          return const SizedBox.shrink();
+                        }
+
+                        return SizedBox(
+                          width: double.infinity,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 4),
+                            child: Container(
+                              height: 72,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerLow,
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      color: Colors.blue.withValues(alpha: 0.1),
+                                    ),
+                                    child:
+                                        const Icon(Icons.inventory_2_outlined),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          title,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w500),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          subtitle,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 80,
+                                    child: Text(
+                                      packageType,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                  if (archDisplay.isNotEmpty)
+                                    SizedBox(
+                                      width: 120,
+                                      child: Text(
+                                        archDisplay,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w500),
+                                      ),
+                                    ),
+                                  const SizedBox(width: 12),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: () {
+                                      final seen = <String>{};
+                                      final uniqueVariants = group
+                                          .where((v) {
+                                            if (v is ZuluPackage) {
+                                              return seen.add(v.archiveType);
+                                            } else if (v is GraalPackage) {
+                                              return seen
+                                                  .add(v.platform.extension);
+                                            }
+                                            return false;
+                                          })
+                                          .toList();
+                                      final useShortLabel =
+                                          uniqueVariants.length >= 3;
+
+                                      return uniqueVariants.map((variant) {
+                                        final String type;
+                                        if (variant is ZuluPackage) {
+                                          type = variant.archiveType
+                                              .toUpperCase();
+                                        } else if (variant is GraalPackage) {
+                                          type = variant.platform.extension
+                                              .toUpperCase();
+                                        } else {
+                                          return const SizedBox.shrink();
+                                        }
+
+                                        return Padding(
+                                          padding:
+                                              const EdgeInsets.only(left: 8),
+                                          child: BloretButton(
+                                            text: useShortLabel
+                                                ? type
+                                                : "Download $type".tl,
+                                            onPressed: () {
+                                            _onDownloadPressed(variant, title);
+                                          },
+                                          ),
+                                        );
+                                      }).toList();
+                                    }(),
+                                  )
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
             ),
           )
         ],

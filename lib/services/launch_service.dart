@@ -23,6 +23,7 @@ class RunningCore {
   final List<double> cpuUsage = List.generate(30, (_) => 0.0);
   final List<double> memUsage = List.generate(30, (_) => 0.0);
   final Process process;
+  final DateTime startTime = DateTime.now();
   int? exitCode;
   bool isManuallyTerminated = false;
 

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../core/i18n.dart';
+import '../services/stats_service.dart';
 
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key});
@@ -13,10 +14,10 @@ class StatsPage extends StatefulWidget {
 
 class _StatsPageState extends State<StatsPage> {
   Map<String, dynamic> overview = {};
-  List<dynamic> versionStats = [];
+  List<Map<String, dynamic>> versionStats = [];
   List<dynamic> sessionList = [];
-  List<dynamic> dateList = [];
-  List<dynamic> allVersions = [];
+  List<String> dateList = [];
+  List<String> allVersions = [];
 
   int currentPage = 1;
   int totalPages = 1;
@@ -31,45 +32,48 @@ class _StatsPageState extends State<StatsPage> {
     refreshAll();
   }
 
-  void refreshAll() {
-    // if (Backend == null) return;
-    //
-    // setState(() {
-    //   overview = Backend.getPlayStatisticsOverview();
-    //   versionStats = Backend.getPlayStatisticsVersions();
-    //   dateList = Backend.getPlayStatisticsDates();
-    //   allVersions = Backend.getPlayStatisticsAllVersions();
-    //   currentPage = 1;
-    // });
+  Future<void> refreshAll() async {
+    final ov = await StatsService.instance.getOverview();
+    final vs = await StatsService.instance.getVersionStats();
+    final dl = await StatsService.instance.getAllDates();
+    final av = await StatsService.instance.getAllVersions();
 
-    loadSessions();
+    if (mounted) {
+      setState(() {
+        overview = ov;
+        versionStats = vs;
+        dateList = dl;
+        allVersions = av;
+        currentPage = 1;
+      });
+      loadSessions();
+    }
   }
 
-  void loadSessions() {
-    // if (Backend == null) return;
-    //
-    // final result = Backend.getPlayStatisticsPaginated(
-    //   selectedDateFilter,
-    //   selectedVersionFilter,
-    //   currentPage,
-    //   15,
-    // );
+  Future<void> loadSessions() async {
+    final result = await StatsService.instance.getSessionsPaginated(
+      dateFilter: selectedDateFilter,
+      versionFilter: selectedVersionFilter,
+      page: currentPage,
+      pageSize: 15,
+    );
 
-    // setState(() {
-    //   sessionList = result["sessions"] ?? [];
-    //   totalPages = result["total_pages"] ?? 1;
-    //   totalSessions = result["total"] ?? 0;
-    // });
+    if (mounted) {
+      setState(() {
+        sessionList = result["sessions"] ?? [];
+        totalPages = result["total_pages"] ?? 1;
+        totalSessions = result["total"] ?? 0;
+      });
+    }
   }
 
   String formatTime(dynamic seconds) {
-    // if (Backend == null) return "0s";
-    // return Backend.formatPlayTime(seconds ?? 0);
-    return "0s";
+    return StatsService.instance.formatPlayTime(seconds ?? 0);
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
       body: ListView(
         padding: EdgeInsets.only(
@@ -189,8 +193,91 @@ class _StatsPageState extends State<StatsPage> {
               fontWeight: FontWeight.bold,
             ),
           ),
+          const SizedBox(height: 12),
+          _buildFilters(theme),
+          const SizedBox(height: 12),
+          SessionList(
+            sessions: sessionList,
+            formatTime: formatTime,
+          ),
+          const SizedBox(height: 12),
+          _buildPagination(theme),
+          const SizedBox(height: 32),
         ],
       ),
+    );
+  }
+
+  Widget _buildFilters(ThemeData theme) {
+    return Row(
+      children: [
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            initialValue: selectedDateFilter.isEmpty ? null : selectedDateFilter,
+            decoration: InputDecoration(
+              labelText: "Date".tl,
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            items: [
+              DropdownMenuItem(value: "", child: Text("All Dates".tl)),
+              ...dateList.map((d) => DropdownMenuItem(value: d, child: Text(d))),
+            ],
+            onChanged: (v) {
+              setState(() {
+                selectedDateFilter = v ?? "";
+                currentPage = 1;
+              });
+              loadSessions();
+            },
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            initialValue: selectedVersionFilter.isEmpty ? null : selectedVersionFilter,
+            decoration: InputDecoration(
+              labelText: "Version".tl,
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            items: [
+              DropdownMenuItem(value: "", child: Text("All Versions".tl)),
+              ...allVersions.map((v) => DropdownMenuItem(value: v, child: Text(v))),
+            ],
+            onChanged: (v) {
+              setState(() {
+                selectedVersionFilter = v ?? "";
+                currentPage = 1;
+              });
+              loadSessions();
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPagination(ThemeData theme) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.chevron_left),
+          onPressed: currentPage > 1 ? () {
+            setState(() => currentPage--);
+            loadSessions();
+          } : null,
+        ),
+        Text("${"Page".tl} $currentPage / $totalPages"),
+        IconButton(
+          icon: const Icon(Icons.chevron_right),
+          onPressed: currentPage < totalPages ? () {
+            setState(() => currentPage++);
+            loadSessions();
+          } : null,
+        ),
+      ],
     );
   }
 }
@@ -449,7 +536,7 @@ class SessionList extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      "${"前".tl} ${formatTime(item["foreground"])} / ${"后".tl} ${formatTime(item["background"])}",
+                      "${"Fore".tl} ${formatTime(item["foreground"])} / ${"Back".tl} ${formatTime(item["background"])}",
                       style:
                       const TextStyle(fontSize: 11),
                     ),

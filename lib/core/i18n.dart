@@ -31,11 +31,8 @@ class I18n extends ChangeNotifier {
       final customDir = await getCustomLangDir();
       final file = File(p.join(customDir.path, 'missing_keys.json'));
       if (await file.exists()) {
-        final content = await file.readAsString();
-        if (content.isNotEmpty) {
-          final data = json.decode(content);
-          _missingValues.addAll(Map<String, String>.from(data));
-        }
+        await file.delete();
+        await file.create();
       }
     } catch (_) {}
   }

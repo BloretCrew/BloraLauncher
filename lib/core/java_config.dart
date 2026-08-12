@@ -101,6 +101,8 @@ class JavaConfig {
         vendor = "Amazon Corretto";
       } else if (lowerPath.contains("jbr") || lowerPath.contains("jetbrains") || lowerPath.contains("android studio") || lowerPath.contains("clion")) {
         vendor = "JetBrains Runtime";
+      } else if (lowerPath.contains("graal")) {
+        vendor = "GraalVM";
       } else if (lowerPath.contains("openjdk")) {
         vendor = "OpenJDK";
       } else if (lowerPath.contains("jdk")) {

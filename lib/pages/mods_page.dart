@@ -376,7 +376,7 @@ class _ModsPageState extends State<ModsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isPortrait ? "Let $agentName help you find mods".tl : "Let $agentName help you pick suitable mods".tl,
+                      isPortrait ? "Let %s help you find mods".tl.format(agentName) : "Let %s help you pick suitable mods".tl.format(agentName),
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                       ),

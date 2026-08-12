@@ -25,14 +25,12 @@ class AzulApi {
     return decoded.whereType<Map<String, dynamic>>().map(ZuluPackage.fromJson).toList();
   }
 
-  Future<List<ZuluPackage>> getAllPackages({int pageSize = 1000}) async {
-    final result = <ZuluPackage>[];
+  Stream<List<ZuluPackage>> getAllPackages({int pageSize = 1000}) async* {
     for (var page = 1;; page++) {
       final packages = await getPackages(page: page, pageSize: pageSize);
       if (packages.isEmpty) break;
-      result.addAll(packages);
+      yield packages;
     }
-    return result;
   }
 
   void dispose() => _client.close();

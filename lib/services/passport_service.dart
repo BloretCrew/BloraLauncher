@@ -5,8 +5,8 @@ import 'config_service.dart';
 
 class PassportService {
   static const String baseUrl = 'http://bloret.net:20000';
-  static const String appId = 'BloretLauncher';
-  static const String appSecret = 's4d56f4a68sd46g54asd46f54a5dsf654asdf546';
+  static const String appId = 'bp_300950b2630e250c';
+  static const String appSecret = 'bs_6f6dfdf0fa563b10bb1d51389eab92a5d485cfd3d29f904c';
   static final Dio dio = Dio();
 
   static Future<Map<String, dynamic>?> verifyCode(String code) async {

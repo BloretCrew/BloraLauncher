@@ -60,6 +60,7 @@ dependencies:
   git_clone: ^1.2.0
   genai: ^0.0.1
   speech_to_text: ^7.4.0
+  intl: ^0.20.3
 
 dev_dependencies:
   flutter_test:

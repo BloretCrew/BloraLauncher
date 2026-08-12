@@ -47,7 +47,7 @@ class _CoresPageState extends State<CoresPage> {
     final isComplete = await LaunchService.instance.isVersionComplete(dir, id);
     if (isComplete) {
       if (mounted) {
-        showSuccess("Core $id is complete.".tl);
+        showSuccess("Core %s is complete.".tl.format(id));
       }
       return;
     }

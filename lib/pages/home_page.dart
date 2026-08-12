@@ -21,6 +21,7 @@ import '../services/bloriko.dart';
 import '../services/config_service.dart';
 import '../services/launch_service.dart';
 import '../services/passport_service.dart';
+import '../services/stats_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/button.dart';
 import '../widgets/sliding_text.dart';
@@ -37,10 +38,13 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _listController;
   late AnimationController _chartAnimationController;
+  late AnimationController _cleanRamAnimController;
   late PageController _pageController;
   final List<String> sentences = config?.blTips ?? [];
   final TextEditingController homeInputController = TextEditingController();
   Timer? timer;
+
+  bool _isCleaningRam = false;
 
   HomeState _homeState = HomeState.normal;
   bool _showRunningHandle = false;
@@ -281,6 +285,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
+    _cleanRamAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    );
     _pageController = PageController();
     _listController.forward();
     // Pre-initialize stats for a clean layout
@@ -304,6 +312,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     I18n.instance.removeListener(_onLanguageChanged);
     _listController.dispose();
     _chartAnimationController.dispose();
+    _cleanRamAnimController.dispose();
     _pageController.dispose();
     timer?.cancel();
     _statsTimer?.cancel();
@@ -649,6 +658,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           newCore.isManuallyTerminated = true;
         }
 
+        final endTime = DateTime.now();
+        final duration = endTime.difference(newCore.startTime).inSeconds;
+        StatsService.instance.addSession(SessionRecord(
+          version: newCore.version,
+          startTime: newCore.startTime,
+          endTime: endTime,
+          total: duration,
+        ));
+
         if (mounted) {
           final isActualCrash = code != 0 && !newCore.isManuallyTerminated;
 
@@ -955,7 +973,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               SlideFadeIn(
                 controller: _listController,
                 delay: 0.5,
-                child: Text("${agentName.tl} ${"relies on AI. It may make mistakes, please verify important information.".tl}",
+                child: Text("$agentName ${"relies on AI. It may make mistakes, please verify important information.".tl}",
                     style: theme.textTheme.bodySmall?.copyWith(fontSize: 14)),
               ),
               const SizedBox(height: 32),
@@ -1232,7 +1250,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                                 children: [
                                                   Text("Memory Usage".tl, style: theme.textTheme.bodySmall?.copyWith(color: isSuspended ? Colors.grey : null)),
                                                   const SizedBox(height: 8),
-                                                  Expanded(child: _CoreStatsChart(data: core.memUsage, color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : Colors.greenAccent), animation: _chartAnimationController, unit: "GB", scaleFactor: 8.0, isStopped: isCrashed || isSuspended)),
+                                                  Expanded(child: _CoreStatsChart(data: core.memUsage, color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : Colors.greenAccent), animation: _chartAnimationController, unit: "GB", scaleFactor: 8.0, isStopped: isCrashed || isSuspended, isCleaning: _isCleaningRam, cleanAnim: _cleanRamAnimController)),
                                                 ],
                                               ),
                                             ),
@@ -1435,10 +1453,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       icon: Icons.cleaning_services_outlined,
                       label: "Clean RAM".tl,
                       tooltip: "Trim process working set. May cause temporary disk I/O lag as memory is swapped back from disk.".tl,
-                      color: isExited || isSuspended ? theme.disabledColor : Colors.blueAccent,
-                      onTap: isExited || isSuspended ? null : () {
+                      color: isExited || isSuspended || _isCleaningRam ? theme.disabledColor : Colors.blueAccent,
+                      onTap: isExited || isSuspended || _isCleaningRam ? null : () {
+                        setState(() => _isCleaningRam = true);
+                        _cleanRamAnimController.repeat(reverse: true);
                         WinProcess.cleanRAM(core.process.pid);
                         showSuccess("Memory working set trimmed.".tl);
+                        Timer(const Duration(seconds: 10), () {
+                          if (mounted) {
+                            setState(() => _isCleaningRam = false);
+                            _cleanRamAnimController.stop();
+                            _cleanRamAnimController.reset();
+                          }
+                        });
                       },
                     ),
                     if (ConfigService.get("develop_mode") ?? false) ...[
@@ -1731,7 +1758,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final isBusy = Bloriko.instance.busy;
         return Row(
           children: [
-            const CircleAvatar(radius: 20, backgroundColor: Colors.blueGrey),
+            Container(
+              width: 40,
+              height: 40,
+              clipBehavior: .antiAlias,
+              decoration: BoxDecoration(
+                color: Colors.grey,
+                shape: BoxShape.circle
+              ),
+              child: Bloriko.type == "bloriko" ? Image.asset("assets/bloriko.png") : const Icon(Icons.person,),
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: LayoutBuilder(
@@ -1742,12 +1778,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
                     String hintText;
                     if (isBusy) {
-                      hintText = isShort ? "Thinking...".tl : "${agentName.tl} ${"is thinking...".tl}";
+                      hintText = isShort ? "Thinking...".tl : "$agentName ${"is thinking...".tl}";
                     } else {
                       if (isShort) {
-                        hintText = "${"To".tl} ${agentName.tl} ${"ask".tl}...";
+                        hintText = "${"To".tl} $agentName ${"ask".tl}...";
                       } else {
-                        hintText = "${"About".tl} Minecraft ${"any questions, you can ask".tl} ${agentName.tl}${Bloriko.type == "bloriko" ? ", $identity ~" : ""}";
+                        hintText = "${"About".tl} Minecraft ${"any questions, you can ask".tl} $agentName${Bloriko.type == "bloriko" ? ", $identity ~" : ""}";
                       }
                     }
 
@@ -1829,7 +1865,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ],
           ),
           const Divider(height: 24),
-          Text("${agentName.tl} ${"Recommended Time".tl}", style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text("$agentName ${"Recommended Time".tl}", style: const TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
@@ -1848,7 +1884,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               key: ValueKey(server != null),
               mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(child: Text("${"Hehe".tl}~ ${agentName.tl} ${"is here! The current online player count is perfect for playing~".tl}", style: theme.textTheme.bodySmall)),
+                Expanded(child: Text("${"Hehe".tl}~ $agentName ${"is here! The current online player count is perfect for playing~".tl}", style: theme.textTheme.bodySmall)),
                 const SizedBox(width: 8),
                 const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
                 const SizedBox(width: 4,)
@@ -1868,6 +1904,8 @@ class _CoreStatsChart extends StatelessWidget {
   final String? unit;
   final double scaleFactor;
   final bool isStopped;
+  final bool isCleaning;
+  final Animation<double>? cleanAnim;
 
   const _CoreStatsChart({
     required this.data, 
@@ -1876,12 +1914,14 @@ class _CoreStatsChart extends StatelessWidget {
     this.unit,
     this.scaleFactor = 1.0,
     this.isStopped = false,
+    this.isCleaning = false,
+    this.cleanAnim,
   });
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: animation,
+      animation: Listenable.merge([animation, if (cleanAnim != null) cleanAnim!]),
       builder: (context, child) {
         // Dynamic range: Find the max value in current data to adjust Y-axis scale
         double currentMax = data.isEmpty ? 0.1 : data.reduce((a, b) => a > b ? a : b);
@@ -1889,7 +1929,16 @@ class _CoreStatsChart extends StatelessWidget {
         double yRange = (currentMax * 1.2).clamp(0.1, 1.0);
 
         return CustomPaint(
-          painter: _SmoothChartPainter(data, color, isStopped ? 0 : animation.value, yRange, unit, scaleFactor),
+          painter: _SmoothChartPainter(
+            data, 
+            color, 
+            isStopped ? 0 : animation.value, 
+            yRange, 
+            unit, 
+            scaleFactor,
+            isCleaning: isCleaning,
+            cleanValue: cleanAnim?.value ?? 0.0,
+          ),
           size: Size.infinite,
         );
       },
@@ -1904,19 +1953,36 @@ class _SmoothChartPainter extends CustomPainter {
   final double yRange;
   final String? unit;
   final double scaleFactor;
+  final bool isCleaning;
+  final double cleanValue;
 
-  _SmoothChartPainter(this.data, this.color, this.progress, this.yRange, this.unit, this.scaleFactor);
+  _SmoothChartPainter(
+    this.data, 
+    this.color, 
+    this.progress, 
+    this.yRange, 
+    this.unit, 
+    this.scaleFactor, {
+    this.isCleaning = false,
+    this.cleanValue = 0.0,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (data.length < 2) return;
 
+    // Determine line color and gradient based on cleaning state
+    Color displayColor = color;
+    if (isCleaning) {
+      displayColor = Color.lerp(Colors.greenAccent, Colors.blueAccent, cleanValue)!;
+    }
+
     // --- Draw Grid and Labels ---
     final gridPaint = Paint()
-      ..color = color.withValues(alpha: 0.1)
+      ..color = displayColor.withValues(alpha: 0.1)
       ..strokeWidth = 1;
     
-    final labelStyle = TextStyle(color: color.withValues(alpha: 0.6), fontSize: 9, fontWeight: FontWeight.bold);
+    final labelStyle = TextStyle(color: displayColor.withValues(alpha: 0.6), fontSize: 9, fontWeight: FontWeight.bold);
     
     // Draw 3 horizontal lines (0%, 50%, 100% of range)
     for (int i = 0; i <= 2; i++) {
@@ -1935,7 +2001,7 @@ class _SmoothChartPainter extends CustomPainter {
 
     // --- Draw Chart Line ---
     final paint = Paint()
-      ..color = color
+      ..color = displayColor
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -1944,7 +2010,7 @@ class _SmoothChartPainter extends CustomPainter {
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [color.withValues(alpha: 0.25), color.withValues(alpha: 0.0)],
+        colors: [displayColor.withValues(alpha: 0.25), displayColor.withValues(alpha: 0.0)],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
       ..style = PaintingStyle.fill;
 

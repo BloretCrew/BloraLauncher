@@ -40,3 +40,24 @@ extension NoticeContextExtension on BuildContext {
 extension WithOpacity on Color {
   Color withOpacityEx(double opacity) => withAlpha((opacity * 255).toInt());
 }
+
+extension StringFormatExtension on String {
+  String format([
+    Object? arg0,
+    Object? arg1,
+    Object? arg2,
+    Object? arg3,
+    Object? arg4,
+  ]) {
+    final args = [arg0, arg1, arg2, arg3, arg4];
+    var index = 0;
+
+    return replaceAllMapped(RegExp(r'%s'), (match) {
+      if (index >= args.length || args[index] == null) {
+        return match.group(0)!;
+      }
+
+      return '${args[index++]}';
+    });
+  }
+}
