@@ -119,7 +119,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     "divider",
     (_NavDestination("Download".tl, Icons.file_download_outlined, Icons.file_download,), () => const DownloadPage()),
     (_NavDestination("Cores".tl, Icons.view_in_ar_outlined, Icons.view_in_ar, keepAlive: true), () => const CoresPage()),
-    (_NavDestination("Tools".tl, Icons.handyman_outlined, Icons.handyman), () => const ToolsPage()),
+    (_NavDestination("Tools".tl, Icons.handyman_outlined, Icons.handyman, keepAlive: true), () => const ToolsPage()),
     (_NavDestination("Stats".tl, Icons.bar_chart_outlined, Icons.bar_chart), () => const StatsPage()),
     (_NavDestination("Mods".tl, Icons.extension_outlined, Icons.extension), () => const ModsPage()),
     (_NavDestination("BBBS".tl, Icons.forum_outlined, Icons.forum, keepAlive: true), () => const BbbsPage()),

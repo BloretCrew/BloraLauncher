@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'package:bloret_launcher/services/launch_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,11 @@ class WindowBridge {
   static final DynamicLibrary _dylib = DynamicLibrary.executable();
   static final void Function() _destroyApp = _dylib.lookup<NativeFunction<Void Function()>>('DestroyApp').asFunction();
   static final void Function() _hideApp = _dylib.lookup<NativeFunction<Void Function()>>('HideApp').asFunction();
+
+  static Future<void> quit() async {
+    await CoreManager.instance.killCoresOnExit();
+    _destroyApp();
+  }
 
   static void init(BuildContext context) {
     _channel.setMessageHandler((message) async {
@@ -84,10 +90,12 @@ class WindowBridge {
         }
 
         if (behavior == "exit") {
-          _destroyApp();
+          await quit();
         } else {
           _hideApp();
         }
+      } else if (cleanMessage == "on_quit") {
+        await quit();
       }
       return "null";
     });

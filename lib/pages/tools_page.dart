@@ -605,7 +605,7 @@ class QueryCard extends StatelessWidget {
               "",
               extraResult!,
             ),
-          if (bottomWidget != null) bottomWidget!,
+          ?bottomWidget,
         ],
       ),
     );

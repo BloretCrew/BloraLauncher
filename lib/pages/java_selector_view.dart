@@ -72,8 +72,6 @@ extension OperatingSystemExtension on OperatingSystem {
     OperatingSystem.linux => 'Linux',
     OperatingSystem.macos => 'macOS',
     OperatingSystem.solaris => 'Solaris',
-    OperatingSystem.aix => 'AIX',
-    OperatingSystem.alpineLinux => 'Alpine Linux',
   };
 }
 
@@ -103,8 +101,6 @@ enum OperatingSystem {
   linux,
   macos,
   solaris,
-  aix,
-  alpineLinux,
 }
 
 enum Architecture {
@@ -203,9 +199,11 @@ class _JavaSelectorViewState extends State<JavaSelectorView> {
         packages.add(package);
       });
     }
-    setState(() {
-      loading = false;
-    });
+    if (mounted) {
+      setState(() {
+        loading = false;
+      });
+    }
   }
 
   void _onDownloadPressed(dynamic variant, String title) async {
@@ -393,9 +391,7 @@ class _JavaSelectorViewState extends State<JavaSelectorView> {
 
         final osMatch = operatingSystem == OperatingSystem.any ||
             package.os ==
-                (operatingSystem == OperatingSystem.alpineLinux
-                    ? 'alpine_linux'
-                    : operatingSystem.name);
+                operatingSystem.name;
 
         final archMatch = architecture == Architecture.any ||
             (() {

@@ -4,9 +4,11 @@ import 'dart:io';
 import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/download_service.dart';
+import 'package:bloret_launcher/services/external_app_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:archive/archive.dart';
 
+import '../core/ffi_proxy.dart';
 import '../core/java_config.dart';
 import '../core/logger.dart';
 import '../main.dart';
@@ -22,7 +24,9 @@ class RunningCore {
   final List<String> logs = [];
   final List<double> cpuUsage = List.generate(30, (_) => 0.0);
   final List<double> memUsage = List.generate(30, (_) => 0.0);
-  final Process process;
+  final Process? process;
+  final int? pid;
+  final bool killOnExit;
   final DateTime startTime = DateTime.now();
   int? exitCode;
   bool isManuallyTerminated = false;
@@ -41,9 +45,13 @@ class RunningCore {
     this.avatar,
     required this.accountType,
     required this.identityName,
-    required this.process,
+    this.process,
+    this.pid,
+    this.killOnExit = false,
     this.exitCode,
   });
+
+  int get effectivePid => process?.pid ?? pid ?? 0;
 }
 
 class CoreManager {
@@ -64,6 +72,21 @@ class CoreManager {
   void removeCore(RunningCore core) {
     _runningCores.remove(core);
     _coresController.add(runningCores);
+  }
+
+  Future<void> killCoresOnExit() async {
+    for (var core in _runningCores) {
+      if (core.killOnExit) {
+        final pid = core.effectivePid;
+        if (pid != 0 && WinProcess.isAlive(pid)) {
+          if (core.process != null) {
+            core.process!.kill();
+          } else {
+            Process.run('taskkill', ['/F', '/PID', '$pid']);
+          }
+        }
+      }
+    }
   }
 
   void update() {
@@ -460,15 +483,33 @@ class LaunchService {
     final List<dynamic> dirsRaw = ConfigService.get('minecraft_dirs') ?? [];
     final List<String> dirs = List<String>.from(dirsRaw);
     final List<Map<String, String>> allVersions = [];
+    
+    // 1. Scan Minecraft versions
     for (var dir in dirs) {
       final versions = await getAvailableVersions(dir, query: query);
       for (var v in versions) {
         allVersions.add({
           "id": v,
           "directory": dir,
+          "type": "minecraft",
         });
       }
     }
+
+    // 2. Add Custom Apps
+    final customApps = ExternalAppService.instance.getCustomApps();
+    for (var app in customApps) {
+      if (query == null || query.isEmpty || app.name.toLowerCase().contains(query.toLowerCase())) {
+        allVersions.add({
+          "id": app.name,
+          "appId": app.id,
+          "directory": app.exePath,
+          "type": "custom_app",
+          "icon": app.iconPath ?? "",
+        });
+      }
+    }
+
     return allVersions;
   }
 

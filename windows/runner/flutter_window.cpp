@@ -12,15 +12,152 @@
 #include <dwmapi.h>
 #include <psapi.h>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <gdiplus.h>
+#include <vector>
+#include <fstream>
+#include <string>
+
+using namespace Gdiplus;
+
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "psapi.lib")
+#pragma comment(lib, "gdiplus.lib")
 
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAYICON 1001
 
 static FlutterWindow* g_flutter_window = nullptr;
-
 bool g_isDark = false;
+
+// --- High Res Icon Extraction Helper Section ---
+
+#pragma pack(push, 2)
+typedef struct {
+    BYTE bWidth;
+    BYTE bHeight;
+    BYTE bColorCount;
+    BYTE bReserved;
+    WORD wPlanes;
+    WORD wBitCount;
+    DWORD dwBytesInRes;
+    WORD nID;
+} GRPICONDIRENTRY, * LPGRPICONDIRENTRY;
+
+typedef struct {
+    WORD idReserved;
+    WORD idType;
+    WORD idCount;
+    GRPICONDIRENTRY idEntries[1];
+} GRPICONDIR, * LPGRPICONDIR;
+#pragma pack(pop)
+
+static int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
+    UINT num = 0, size = 0;
+    GetImageEncodersSize(&num, &size);
+    if (size == 0) return -1;
+    ImageCodecInfo* pImageCodecInfo = (ImageCodecInfo*)(malloc(size));
+    if (pImageCodecInfo == NULL) return -1;
+    GetImageEncoders(num, size, pImageCodecInfo);
+    for (UINT j = 0; j < num; ++j) {
+        if (wcscmp(pImageCodecInfo[j].MimeType, format) == 0) {
+            *pClsid = pImageCodecInfo[j].Clsid;
+            free(pImageCodecInfo);
+            return j;
+        }
+    }
+    free(pImageCodecInfo);
+    return -1;
+}
+
+static bool SaveIconToPng(BYTE* pData, DWORD dwSize, const wchar_t* savePath) {
+    if (dwSize > 8 && pData[0] == 0x89 && pData[1] == 'P' && pData[2] == 'N' && pData[3] == 'G') {
+        std::ofstream file(savePath, std::ios::binary);
+        if (!file.is_open()) return false;
+        file.write((char*)pData, dwSize);
+        return true;
+    }
+
+    GdiplusStartupInput gdiplusStartupInput;
+    ULONG_PTR gdiplusToken;
+    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+
+    bool success = false;
+    {
+        HICON hIcon = CreateIconFromResourceEx(pData, dwSize, TRUE, 0x00030000, 0, 0, LR_DEFAULTCOLOR);
+        if (hIcon) {
+            Bitmap* bitmap = new Bitmap(hIcon);
+            if (bitmap && bitmap->GetLastStatus() == Ok) {
+                CLSID pngClsid;
+                if (GetEncoderClsid(L"image/png", &pngClsid) != -1) {
+                    Status s = bitmap->Save(savePath, &pngClsid, NULL);
+                    success = (s == Ok);
+                }
+            }
+            delete bitmap;
+            DestroyIcon(hIcon);
+        }
+    }
+
+    GdiplusShutdown(gdiplusToken);
+    return success;
+}
+
+struct EnumParam {
+    const wchar_t* savePath;
+    bool found;
+};
+
+static BOOL CALLBACK EnumResNameCallback(HMODULE hModule, LPCWSTR lpszType, LPWSTR lpszName, LONG_PTR lParam) {
+    EnumParam* param = (EnumParam*)lParam;
+    HRSRC hResGroup = FindResourceW(hModule, lpszName, RT_GROUP_ICON);
+    if (!hResGroup) return TRUE;
+
+    HGLOBAL hResData = LoadResource(hModule, hResGroup);
+    LPGRPICONDIR pIconDir = (LPGRPICONDIR)LockResource(hResData);
+    if (!pIconDir) return TRUE;
+
+    int bestIndex = -1;
+    int maxQuality = -1;
+
+    for (int i = 0; i < pIconDir->idCount; i++) {
+        GRPICONDIRENTRY& entry = pIconDir->idEntries[i];
+        int width = entry.bWidth == 0 ? 256 : entry.bWidth;
+        int bitCount = entry.wBitCount;
+        int quality = width * 1000 + bitCount;
+        if (quality > maxQuality) {
+            maxQuality = quality;
+            bestIndex = i;
+        }
+    }
+
+    if (bestIndex != -1) {
+        WORD nID = pIconDir->idEntries[bestIndex].nID;
+        HRSRC hResIcon = FindResourceW(hModule, MAKEINTRESOURCEW(nID), RT_ICON);
+        if (hResIcon) {
+            DWORD dwSize = SizeofResource(hModule, hResIcon);
+            HGLOBAL hData = LoadResource(hModule, hResIcon);
+            BYTE* pBytes = (BYTE*)LockResource(hData);
+            if (pBytes) {
+                param->found = SaveIconToPng(pBytes, dwSize, param->savePath);
+            }
+        }
+    }
+    return !param->found;
+}
+
+extern "C" __declspec(dllexport) int ExtractHighResIcon(const wchar_t* exePath, const wchar_t* savePath) {
+    HMODULE hModule = LoadLibraryExW(exePath, NULL, LOAD_LIBRARY_AS_DATAFILE);
+    if (!hModule) return 1;
+    EnumParam param = { savePath, false };
+    EnumResourceNamesW(hModule, RT_GROUP_ICON, EnumResNameCallback, (LONG_PTR)&param);
+    FreeLibrary(hModule);
+    return param.found ? 0 : 2;
+}
+
+// --- End of High Res Icon Extraction Helper Section ---
 
 extern "C" __declspec(dllexport) void SetTaskbarProgress(uint64_t completed, uint64_t total) {
   if (g_flutter_window) g_flutter_window->SetTaskbarProgress(completed, total);
@@ -126,8 +263,6 @@ extern "C" __declspec(dllexport) void SetEfficiencyMode(uint32_t pid, bool enabl
     powerThrottling.StateMask = enable ? PROCESS_POWER_THROTTLING_EXECUTION_SPEED : 0;
 
     SetProcessInformation(hProcess, ProcessPowerThrottling, &powerThrottling, sizeof(powerThrottling));
-
-    // Also set priority class as a fallback/complement
     SetPriorityClass(hProcess, enable ? IDLE_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS);
 
     CloseHandle(hProcess);
@@ -200,106 +335,43 @@ extern "C" __declspec(dllexport)
 void SetDarkMode(HWND hwnd, bool dark)
 {
   BOOL value = dark ? TRUE : FALSE;
-
   g_isDark = dark;
-
-  DwmSetWindowAttribute(
-          hwnd,
-          DWMWA_USE_IMMERSIVE_DARK_MODE,
-          &value,
-          sizeof(value)
-  );
-
-  SetWinMenuTheme(
-          dark
-  );
+  DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
+  SetWinMenuTheme(dark);
 }
 
 extern "C" __declspec(dllexport)
 void SetIconTheme(bool dark)
 {
-  HWND hwnd = FindWindowW(
-          L"FLUTTER_RUNNER_WIN32_WINDOW",
-          nullptr
-  );
-
-  if (!hwnd)
-    return;
+  HWND hwnd = FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", nullptr);
+  if (!hwnd) return;
 
   SetDarkMode(hwnd, dark);
 
   wchar_t exePath[MAX_PATH];
-  GetModuleFileNameW(
-          nullptr,
-          exePath,
-          MAX_PATH
-  );
-
+  GetModuleFileNameW(nullptr, exePath, MAX_PATH);
   std::wstring path(exePath);
-
   auto pos = path.find_last_of(L"\\/");
-  if (pos != std::wstring::npos)
-  {
-    path = path.substr(0, pos + 1);
-  }
+  if (pos != std::wstring::npos) path = path.substr(0, pos + 1);
 
   path += L"data\\flutter_assets\\assets\\";
+  path += dark ? L"bloret_dark.ico" : L"bloret_light.ico";
 
-  path += dark
-          ? L"bloret_dark.ico"
-          : L"bloret_light.ico";
+  HICON hIcon = (HICON)LoadImageW(nullptr, path.c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+  if (!hIcon) return;
 
-  HICON hIcon = (HICON)LoadImageW(
-          nullptr,
-          path.c_str(),
-          IMAGE_ICON,
-          0,
-          0,
-          LR_LOADFROMFILE | LR_DEFAULTSIZE
-  );
+  SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+  SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
 
-
-  if (!hIcon)
-    return;
-
-
-  SendMessageW(
-          hwnd,
-          WM_SETICON,
-          ICON_BIG,
-          (LPARAM)hIcon
-  );
-
-  SendMessageW(
-          hwnd,
-          WM_SETICON,
-          ICON_SMALL,
-          (LPARAM)hIcon
-  );
-
-  SetWindowPos(
-          hwnd,
-          nullptr,
-          0,0,0,0,
-          SWP_NOMOVE |
-          SWP_NOSIZE |
-          SWP_NOZORDER |
-          SWP_FRAMECHANGED
-  );
+  SetWindowPos(hwnd, nullptr, 0,0,0,0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 
   NOTIFYICONDATA nid = {};
   nid.cbSize = sizeof(NOTIFYICONDATA);
-
   nid.hWnd = g_flutter_window->GetHandle();
   nid.uID = ID_TRAYICON;
   nid.uFlags = NIF_ICON;
-
   nid.hIcon = hIcon;
-
-  Shell_NotifyIcon(
-          NIM_MODIFY,
-          &nid
-  );
+  Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project) : project_(project) {
@@ -404,7 +476,15 @@ LRESULT FlutterWindow::MessageHandler(HWND hwnd, UINT const message, WPARAM cons
         case 4:
           if (::IsWindowVisible(hwnd)) Hide(); else Show();
           break;
-        case 5: c_terminate_process(); break;
+        case 5: {
+          std::string msg = "on_quit";
+          flutter_controller_->engine()->messenger()->Send(
+              "bloret/window_event",
+              reinterpret_cast<const uint8_t*>(msg.c_str()),
+              msg.size(),
+              nullptr);
+          break;
+        }
       }
       break;
     case WM_TRAYICON:

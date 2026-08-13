@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/core/logger.dart';
@@ -9,12 +10,14 @@ import 'package:bloret_launcher/widgets/windows_widgets.dart';
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:image/image.dart' hide Image, Color;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pasteboard/pasteboard.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../main.dart';
@@ -42,6 +45,12 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
   final List<Map<String, dynamic>> _historyList = [];
   bool _isSelectMode = false;
   final Set<String> _selectedFiles = {};
+  
+  bool _isMultiSelectMode = false;
+  final Set<int> _selectedMessageIndices = {};
+  bool _showScrollToBottom = false;
+  late AnimationController _scrollToBottomController;
+  int? _hoveredMessageIndex;
 
   final List<File> _attachments = [];
   final GlobalKey<AnimatedListState> _listKey = GlobalKey<AnimatedListState>();
@@ -78,6 +87,25 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     _initSpeech();
 
     _agent.addListener(_onAgentStateChanged);
+    
+    _scrollToBottomController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+
+    _msgScrollController.addListener(() {
+      if (_msgScrollController.offset > 200) {
+        if (!_showScrollToBottom) {
+          setState(() => _showScrollToBottom = true);
+          _scrollToBottomController.forward();
+        }
+      } else {
+        if (_showScrollToBottom) {
+          setState(() => _showScrollToBottom = false);
+          _scrollToBottomController.reverse();
+        }
+      }
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (_agent.initialPrompt != null) {
@@ -123,6 +151,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     _msgScrollController.dispose();
     _inputScrollController.dispose();
     _answerScrollController.dispose();
+    _scrollToBottomController.dispose();
     _agent.removeListener(_onAgentStateChanged);
     super.dispose();
   }
@@ -157,8 +186,130 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
   void _deleteMessage(int index) {
     setState(() {
       _agent.messages.removeAt(index);
+      _selectedMessageIndices.remove(index);
     });
     _saveSession();
+  }
+
+  void _branchConversation(int index) async {
+    final messagesToKeep = List<Map<String, dynamic>>.from(_agent.messages.sublist(0, index + 1));
+    final title = _agent.conversationTitle;
+    
+    _clearHistory();
+    setState(() {
+      _agent.messages.addAll(messagesToKeep);
+      _agent.conversationTitle = "$title (Branch)";
+      _agent.currentSessionFile = null; // Mark as new session
+    });
+    _saveSession();
+    _scrollToBottom();
+    showSuccess("Branched to new conversation".tl);
+  }
+
+  void _retryMessage(int index) {
+    if (_agent.busy) return;
+    
+    // Find the last user message before or at this index
+    int lastUserIndex = -1;
+    for (int i = index; i >= 0; i--) {
+      if (_agent.messages[i]['role'] == 'user') {
+        lastUserIndex = i;
+        break;
+      }
+    }
+    
+    if (lastUserIndex == -1) return;
+    
+    final userMsg = _agent.messages[lastUserIndex];
+    setState(() {
+      _agent.messages.removeRange(lastUserIndex + 1, _agent.messages.length);
+      // Also remove user message to re-send it properly
+      _agent.messages.removeAt(lastUserIndex);
+    });
+    
+    _inputController.text = userMsg['displayText'] ?? (userMsg['content'] is String ? userMsg['content'] : "");
+    _sendMessage();
+  }
+
+  void _copyToClipboard(String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    showSuccess("Copied to clipboard".tl);
+  }
+
+  void _shareMessage(int index) {
+    final msg = _agent.messages[index];
+    final content = msg['content']?.toString() ?? "";
+    Share.share(content, subject: 'Blora Chat Message');
+  }
+
+  void _shareSelectedMessages() {
+    if (_selectedMessageIndices.isEmpty) return;
+    final List<int> sorted = _selectedMessageIndices.toList()..sort();
+    final buffer = StringBuffer();
+    for (var idx in sorted) {
+      final msg = _agent.messages[idx];
+      final role = msg['role'] == 'user' ? "User".tl : "Assistant".tl;
+      buffer.writeln("$role: ${msg['content']}");
+      buffer.writeln();
+    }
+    Share.share(buffer.toString(), subject: 'Blora Chat Conversation');
+  }
+
+  Future<void> _screenshotSelectedMessages() async {
+    if (_selectedMessageIndices.isEmpty) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _ScreenshotGenerator(
+        messages: _agent.messages,
+        selectedIndices: _selectedMessageIndices,
+        onCaptured: (bytes) async {
+          Navigator.pop(context);
+          final tempDir = await getTemporaryDirectory();
+          final file = File(p.join(tempDir.path, 'chat_capture_${DateTime.now().millisecondsSinceEpoch}.png'));
+          await file.writeAsBytes(bytes);
+          
+          if (mounted) {
+            final int? action = await showDialog<int>(
+              context: this.context,
+              builder: (context) => AlertDialog(
+                title: Text("Screenshot Captured".tl),
+                content: Image.memory(bytes, height: 300, fit: BoxFit.contain),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context, 0), child: Text("Cancel".tl)),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(context, 1),
+                    icon: const Icon(Icons.copy_rounded, size: 18),
+                    label: Text("Copy to Clipboard".tl),
+                  ),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.pop(context, 2),
+                    icon: const Icon(Icons.save_alt_rounded, size: 18),
+                    label: Text("Save to File".tl),
+                  ),
+                ],
+              ),
+            );
+
+            if (action == 1) {
+              await Pasteboard.writeFiles([file.path]);
+              showSuccess("Copied to clipboard".tl);
+            } else if (action == 2) {
+              String? outputFile = await FilePicker.platform.saveFile(
+                dialogTitle: "Save Screenshot".tl,
+                fileName: 'blora_chat_${DateTime.now().millisecondsSinceEpoch}.png',
+                type: FileType.image,
+              );
+              if (outputFile != null) {
+                await File(outputFile).writeAsBytes(bytes);
+                showSuccess("Saved successfully".tl);
+              }
+            }
+          }
+        },
+      ),
+    );
   }
 
   void _showMessageMenu(BuildContext context, Offset tapPosition, int index) {
@@ -176,14 +327,27 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       ),
       items: [
         PopupMenuItem(
-          onTap: () {
-            Clipboard.setData(ClipboardData(text: content));
-          },
+          onTap: () => _copyToClipboard(content),
           child: Row(
             children: [
               const Icon(Icons.copy_rounded, size: 18),
               const SizedBox(width: 8),
               Text("Copy Content".tl),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          onTap: () {
+            setState(() {
+              _isMultiSelectMode = true;
+              _selectedMessageIndices.add(index);
+            });
+          },
+          child: Row(
+            children: [
+              const Icon(Icons.checklist_rounded, size: 18),
+              const SizedBox(width: 8),
+              Text("Multi-select".tl),
             ],
           ),
         ),
@@ -1710,6 +1874,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                             if (index > 0 && _agent.messages[index - 1]['role'] == 'assistant') {
                               showAvatar = false;
                             }
+                            if (isPortrait) showAvatar = false;
 
                             bool isWaiting = _agent.messages.isNotEmpty &&
                                              ((_agent.messages.last['role'] == 'system' &&
@@ -1726,13 +1891,13 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                     Container(
                                       width: 32,
                                       height: 32,
-                                      clipBehavior: .antiAlias,
-                                      decoration: BoxDecoration(shape: .circle, color: altColor),
-                                      child: Bloriko.type == "bloriko" ? Image.asset("assets/bloriko.png", filterQuality: .high,) : Icon(Icons.smart_toy, color: theme.colorScheme.onPrimary, size: 32),
+                                      clipBehavior: Clip.antiAlias,
+                                      decoration: BoxDecoration(shape: BoxShape.circle, color: altColor),
+                                      child: Bloriko.type == "bloriko" || Bloriko.type == "bloriko_r18" ? Image.asset("assets/bloriko.png", filterQuality: FilterQuality.high,) : const Icon(Icons.smart_toy, color: Colors.grey, size: 16),
                                     ),
                                     const SizedBox(width: 12),
                                   ] else ...[
-                                    const SizedBox(width: 38),
+                                    const SizedBox(width: 44),
                                   ],
                                   ListenableBuilder(
                                     listenable: _agent,
@@ -1759,6 +1924,9 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                           }
                           final msg = _agent.messages[index];
                           final role = msg['role'];
+                          final isSelected = _selectedMessageIndices.contains(index);
+
+                          Widget messageWidget = const SizedBox.shrink();
 
                           if (role == 'security') {
                             final String cmd = msg['command'] ?? "";
@@ -1770,7 +1938,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                               });
                             }
 
-                            return AnimatedSwitcher(
+                            messageWidget = AnimatedSwitcher(
                               duration: const Duration(milliseconds: 300),
                               transitionBuilder: (child, animation) {
                                 return SizeTransition(
@@ -1845,7 +2013,6 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                       style: const TextStyle(color: Colors.redAccent),
                                                     ),
                                                   ),
-
                                                   OutlinedButton(
                                                     onPressed: () {
                                                       hideSecurityCard();
@@ -1853,7 +2020,6 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                                     },
                                                     child: Text("Allow Once".tl),
                                                   ),
-
                                                   FilledButton.icon(
                                                     onPressed: () {
                                                       hideSecurityCard();
@@ -1885,9 +2051,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                               )
                                   : const SizedBox.shrink(key: ValueKey("empty")),
                             );
-                          }
-
-                          if (role == 'user') {
+                          } else if (role == 'user') {
                             final content = msg['content'];
                             final List<String> imageUrls = [];
                             final List<Map<String, dynamic>> files = [];
@@ -1904,126 +2068,124 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                               }
                             }
 
-                            return Align(
+                            messageWidget = Align(
                               alignment: Alignment.centerRight,
-                              child: GestureDetector(
-                                onSecondaryTapDown: (details) => _showMessageMenu(context, details.globalPosition, index),
-                                onLongPressStart: (details) => _showMessageMenu(context, details.globalPosition, index),
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-                                  constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
-                                  decoration: BoxDecoration(
-                                    color: accentColor,
-                                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16), bottomLeft: Radius.circular(16), bottomRight: Radius.circular(4)),
-                                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))],
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      if (imageUrls.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 8),
-                                          child: Wrap(
-                                            spacing: 4, runSpacing: 4,
-                                            children: (content as List).asMap().entries.where((e) => e.value is Map && (e.value['type'] == 'input_image' || e.value['type'] == 'image_url')).map((e) {
-                                              final imgIdx = e.key;
-                                              final part = e.value as Map;
-                                              final url = part['image_url']?.toString() ?? "";
-                                              if (!url.startsWith('data:image')) return const SizedBox.shrink();
-                                              final heroTag = 'msg_${index}_img_$imgIdx';
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                                constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
+                                decoration: BoxDecoration(
+                                  color: accentColor,
+                                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16), bottomLeft: Radius.circular(16), bottomRight: Radius.circular(4)),
+                                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))],
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    if (imageUrls.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(bottom: 8),
+                                        child: Wrap(
+                                          spacing: 4, runSpacing: 4,
+                                          children: (content as List).asMap().entries.where((e) => e.value is Map && (e.value['type'] == 'input_image' || e.value['type'] == 'image_url')).map((e) {
+                                            final imgIdx = e.key;
+                                            final part = e.value as Map;
+                                            final url = part['image_url']?.toString() ?? "";
+                                            if (!url.startsWith('data:image')) return const SizedBox.shrink();
+                                            final heroTag = 'msg_${index}_img_$imgIdx';
 
-                                              return GestureDetector(
-                                                onTap: () => _showImageDialog(context, url, heroTag),
-                                                child: Hero(
-                                                  tag: heroTag,
-                                                  child: ClipRRect(
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    child: part['_decodedBytes'] != null
-                                                      ? Image.memory(
-                                                          Uint8List.fromList((part['_decodedBytes'] as List).cast()),
-                                                          width: 100, height: 100, fit: BoxFit.cover,
-                                                          gaplessPlayback: true,
-                                                          key: ValueKey(url),
-                                                        )
-                                                      : Image.memory(
-                                                          base64Decode(url.split(',').last),
-                                                          width: 100, height: 100, fit: BoxFit.cover,
-                                                          gaplessPlayback: true,
-                                                          key: ValueKey(url),
-                                                        ),
-                                                  ),
+                                            return GestureDetector(
+                                              onTap: () => _showImageDialog(context, url, heroTag),
+                                              child: Hero(
+                                                tag: heroTag,
+                                                child: ClipRRect(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  child: part['_decodedBytes'] != null
+                                                    ? Image.memory(
+                                                        Uint8List.fromList((part['_decodedBytes'] as List).cast()),
+                                                        width: 100, height: 100, fit: BoxFit.cover,
+                                                        gaplessPlayback: true,
+                                                        key: ValueKey(url),
+                                                      )
+                                                    : Image.memory(
+                                                        base64Decode(url.split(',').last),
+                                                        width: 100, height: 100, fit: BoxFit.cover,
+                                                        gaplessPlayback: true,
+                                                        key: ValueKey(url),
+                                                      ),
                                                 ),
-                                              );
-                                            }).toList(),
-                                          ),
-                                        ),
-                                      if (files.isNotEmpty)
-                                        Column(
-                                          children: files.map((file) {
-                                            final isLongText = file['filename'] == "long_text.txt";
-                                            return Container(
-                                              margin: const EdgeInsets.only(bottom: 8),
-                                              padding: const EdgeInsets.all(10),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white.withValues(alpha: 0.15),
-                                                borderRadius: BorderRadius.circular(10),
-                                                border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  const Icon(Icons.insert_drive_file_rounded, color: Colors.white, size: 24),
-                                                  const SizedBox(width: 10),
-                                                  Flexible(
-                                                    child: Column(
-                                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                                      children: [
-                                                        Text(
-                                                          file['filename'] ?? "Unknown",
-                                                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                                                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                                                        ),
-                                                        if (isLongText)
-                                                          TextButton(
-                                                            style: TextButton.styleFrom(
-                                                              visualDensity: VisualDensity.compact,
-                                                              padding: EdgeInsets.zero,
-                                                              minimumSize: const Size(0, 0),
-                                                            ),
-                                                            onPressed: () {
-                                                              try {
-                                                                final decoded = utf8.decode(base64Decode(file['file_data']));
-                                                                setState(() {
-                                                                  _inputController.text = decoded;
-                                                                  _agent.messages.removeAt(index);
-                                                                });
-                                                                _focusNode.requestFocus();
-                                                              } catch (_) {}
-                                                            },
-                                                            child: Text("Restore to Input Box".tl, style: const TextStyle(color: Colors.white70, fontSize: 11, decoration: TextDecoration.underline)),
-                                                          ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
                                               ),
                                             );
                                           }).toList(),
                                         ),
-                                      SelectableText(
-                                        msg['displayText'] ?? (msg['content'] is String ? msg['content'] : "[Attachment]".tl),
-                                        style: TextStyle(fontSize: 14, color: theme.colorScheme.onPrimary, height: 1.35),
-                                        selectionColor: theme.colorScheme.onPrimary.withValues(alpha: 0.2),
                                       ),
-                                    ],
-                                  ),
+                                    if (files.isNotEmpty)
+                                      Column(
+                                        children: files.map((file) {
+                                          final isLongText = file['filename'] == "long_text.txt";
+                                          return Container(
+                                            margin: const EdgeInsets.only(bottom: 8),
+                                            padding: const EdgeInsets.all(10),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withValues(alpha: 0.15),
+                                              borderRadius: BorderRadius.circular(10),
+                                              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(Icons.insert_drive_file_rounded, color: Colors.white, size: 24),
+                                                const SizedBox(width: 10),
+                                                Flexible(
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        file['filename'] ?? "Unknown",
+                                                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                                                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                      if (isLongText)
+                                                        TextButton(
+                                                          style: TextButton.styleFrom(
+                                                            visualDensity: VisualDensity.compact,
+                                                            padding: EdgeInsets.zero,
+                                                            minimumSize: const Size(0, 0),
+                                                          ),
+                                                          onPressed: () {
+                                                            try {
+                                                              final decoded = utf8.decode(base64Decode(file['file_data']));
+                                                              setState(() {
+                                                                _inputController.text = decoded;
+                                                                _agent.messages.removeAt(index);
+                                                              });
+                                                              _focusNode.requestFocus();
+                                                            } catch (_) {}
+                                                          },
+                                                          child: Text("Restore to Input Box".tl, style: const TextStyle(color: Colors.white70, fontSize: 11, decoration: TextDecoration.underline)),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }).toList(),
+                                      ),
+                                    SelectableText(
+                                      msg['displayText'] ?? (msg['content'] is String ? msg['content'] : "[Attachment]".tl),
+                                      style: TextStyle(fontSize: 14, color: theme.colorScheme.onPrimary, height: 1.35),
+                                      selectionColor: theme.colorScheme.onPrimary.withValues(alpha: 0.2),
+                                    ),
+                                  ],
                                 ),
                               ),
                             );
                             } else if (role == 'assistant') {
                               bool showAvatar = true;
-                              if (index > 0) {
+                              if (isPortrait) {
+                                showAvatar = false;
+                              } else if (index > 0) {
                                 int prevAssistantIdx = -1;
                                 bool intermediateBlocking = false;
                                 for (int i = index - 1; i >= 0; i--) {
@@ -2034,65 +2196,100 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                   if ((msg['emotion'] ?? 'neutral') == (_agent.messages[prevAssistantIdx]['emotion'] ?? 'neutral')) showAvatar = false;
                                 }
                               }
+                              
+                              final assistantType = msg['agentType'] ?? Bloriko.type;
 
-                              return TweenAnimationBuilder<double>(
+                              messageWidget = TweenAnimationBuilder<double>(
                                 duration: const Duration(milliseconds: 400),
                                 curve: Curves.easeOutCubic, tween: Tween(begin: 0.0, end: 1.0),
                                 builder: (context, value, child) => Opacity(opacity: value, child: Transform.translate(offset: Offset(0, 10 * (1 - value)), child: child)),
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-                                  child: GestureDetector(
-                                    onSecondaryTapDown: (details) => _showMessageMenu(context, details.globalPosition, index),
-                                    onLongPressStart: (details) => _showMessageMenu(context, details.globalPosition, index),
-                                    behavior: HitTestBehavior.translucent,
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        if (showAvatar)
-                                          Container(
-                                            width: 32,
-                                            height: 32,
-                                            clipBehavior: .antiAlias,
-                                            decoration: BoxDecoration(shape: .circle, color: altColor,),
-                                            child: Bloriko.type == "bloriko" ? Image.asset("assets/bloriko.png", filterQuality: .high,) : Icon(Icons.smart_toy, color: theme.colorScheme.onPrimary, size: 32),
-                                          )
-                                        else
-                                          const SizedBox(width: 32),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(vertical: 4),
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                GptMarkdown(msg['content'] ?? '...', style: TextStyle(fontSize: 14, color: textColor, height: 1.35)),
-                                                Builder(builder: (context) {
-                                                  final content = msg['content']?.toString() ?? "";
-                                                  final regExp = RegExp(r'!\[.*?\]\((.*?)\)');
-                                                  final matches = regExp.allMatches(content);
-                                                  if (matches.isEmpty) return const SizedBox.shrink();
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (showAvatar)
+                                        Container(
+                                          width: 32,
+                                          height: 32,
+                                          margin: const EdgeInsets.only(top: 8),
+                                          clipBehavior: Clip.antiAlias,
+                                          decoration: BoxDecoration(shape: BoxShape.circle, color: altColor,),
+                                          child: assistantType == "bloriko" || assistantType == "bloriko_r18" ? Image.asset("assets/bloriko.png", filterQuality: FilterQuality.high,) : const Icon(Icons.smart_toy, color: Colors.grey, size: 16),
+                                        )
+                                      else
+                                        const SizedBox(width: 44),
+                                      const SizedBox(width: 20),
+                                      Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(vertical: 4),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              GestureDetector(
+                                                onSecondaryTapDown: (details) => _showMessageMenu(context, details.globalPosition, index),
+                                                onLongPressStart: (details) => _showMessageMenu(context, details.globalPosition, index),
+                                                child: GptMarkdown(msg['content'] ?? '...', style: TextStyle(fontSize: 14, color: textColor, height: 1.35)),
+                                              ),
+                                              Builder(builder: (context) {
+                                                final content = msg['content']?.toString() ?? "";
+                                                final regExp = RegExp(r'!\[.*?\]\((.*?)\)');
+                                                final matches = regExp.allMatches(content);
+                                                if (matches.isEmpty) return const SizedBox.shrink();
 
-                                                  return Padding(
-                                                    padding: const EdgeInsets.only(top: 8),
-                                                    child: Wrap(
-                                                      spacing: 8,
-                                                      children: matches.map((m) {
-                                                        final url = m.group(1) ?? "";
-                                                        return IconButton.filledTonal(
-                                                          icon: const Icon(Icons.download_rounded, size: 16),
-                                                          onPressed: () => _downloadImage(url),
-                                                          tooltip: "Download Image".tl,
-                                                        );
-                                                      }).toList(),
+                                                return Padding(
+                                                  padding: const EdgeInsets.only(top: 8),
+                                                  child: Wrap(
+                                                    spacing: 8,
+                                                    children: matches.map((m) {
+                                                      final url = m.group(1) ?? "";
+                                                      return IconButton.filledTonal(
+                                                        icon: const Icon(Icons.download_rounded, size: 16),
+                                                        onPressed: () => _downloadImage(url),
+                                                        tooltip: "Download Image".tl,
+                                                      );
+                                                    }).toList(),
+                                                  ),
+                                                );
+                                              }),
+                                              const SizedBox(height: 8),
+                                              AnimatedOpacity(
+                                                duration: const Duration(milliseconds: 200),
+                                                opacity: (_agent.busy && index == _agent.messages.length - 1) ? 0.0 : (_hoveredMessageIndex == index ? 1.0 : 0.0),
+                                                child: Row(
+                                                  children: [
+                                                    IconButton(
+                                                      icon: const Icon(Icons.copy_rounded, size: 16),
+                                                      onPressed: () => _copyToClipboard(msg['content'] ?? ""),
+                                                      tooltip: "Copy".tl,
+                                                      visualDensity: VisualDensity.compact,
                                                     ),
-                                                  );
-                                                }),
-                                              ],
-                                            )
+                                                    IconButton(
+                                                      icon: const Icon(Icons.share_rounded, size: 16),
+                                                      onPressed: () => _shareMessage(index),
+                                                      tooltip: "Share".tl,
+                                                      visualDensity: VisualDensity.compact,
+                                                    ),
+                                                    IconButton(
+                                                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                                                      onPressed: () => _retryMessage(index),
+                                                      tooltip: "Retry".tl,
+                                                      visualDensity: VisualDensity.compact,
+                                                    ),
+                                                    IconButton(
+                                                      icon: const Icon(Icons.call_split_rounded, size: 16),
+                                                      onPressed: () => _branchConversation(index),
+                                                      tooltip: "Branch Conversation".tl,
+                                                      visualDensity: VisualDensity.compact,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
                                           )
-                                        ),
-                                      ],
-                                    ),
+                                        )
+                                      ),
+                                    ],
                                   ),
                                 ),
                               );
@@ -2102,7 +2299,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                               }
                               final isExpanded = msg['isExpanded'] ?? false;
                             final hasDetail = msg['args'] != null || msg['result'] != null;
-                            return TweenAnimationBuilder<double>(
+                            messageWidget = TweenAnimationBuilder<double>(
                               duration: const Duration(milliseconds: 300),
                               curve: Curves.easeOutCubic, tween: Tween(begin: 0.0, end: 1.0),
                               builder: (context, value, child) => Opacity(opacity: value, child: Transform.translate(offset: Offset(0, 5 * (1 - value)), child: child)),
@@ -2324,81 +2521,128 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                 ),
                               ),
                             );
-                          } else if (role == 'error') {
+                            } else if (role == 'error') {
                             final String title = msg['title'] ?? "Error Occurred".tl;
                             final String content = msg['content'] ?? "";
 
-                            return Align(
+                            messageWidget = Align(
                               alignment: Alignment.centerLeft,
-                              child: GestureDetector(
-                                onSecondaryTapDown: (details) => _showMessageMenu(context, details.globalPosition, index),
-                                onLongPressStart: (details) => _showMessageMenu(context, details.globalPosition, index),
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-                                  constraints: BoxConstraints(
-                                    maxWidth: MediaQuery.of(context).size.width * 0.75,
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                                constraints: BoxConstraints(
+                                  maxWidth: MediaQuery.of(context).size.width * 0.75,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.redAccent.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.redAccent.withValues(alpha: 0.25),
                                   ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.redAccent.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: Colors.redAccent.withValues(alpha: 0.25),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.05),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
                                     ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(alpha: 0.05),
-                                        blurRadius: 4,
-                                        offset: const Offset(0, 2),
+                                  ],
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2, right: 10),
+                                      child: Icon(
+                                        Icons.error_outline_rounded,
+                                        size: 20,
+                                        color: theme.colorScheme.error,
                                       ),
-                                    ],
-                                  ),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 2, right: 10),
-                                        child: Icon(
-                                          Icons.error_outline_rounded,
-                                          size: 20,
-                                          color: theme.colorScheme.error,
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              title,
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                                color: theme.colorScheme.error,
-                                              ),
+                                    ),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            title,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                              color: theme.colorScheme.error,
                                             ),
-                                            if (content.isNotEmpty) ...[
-                                              const SizedBox(height: 4),
-                                              SelectableText(
-                                                content,
-                                                style: TextStyle(
-                                                  fontSize: 13,
-                                                  color: theme.colorScheme.onSurface,
-                                                  height: 1.35,
-                                                ),
-                                                selectionColor: theme.colorScheme.error.withValues(alpha: 0.2),
+                                          ),
+                                          if (content.isNotEmpty) ...[
+                                            const SizedBox(height: 4),
+                                            SelectableText(
+                                              content,
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: theme.colorScheme.onSurface,
+                                                height: 1.35,
                                               ),
-                                            ],
+                                              selectionColor: theme.colorScheme.error.withValues(alpha: 0.2),
+                                            ),
                                           ],
-                                        ),
+                                        ],
                                       ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             );
                           }
-                          return const SizedBox.shrink();
+
+                          return InkWell(
+                            onTap: () {
+                              if (_isMultiSelectMode) {
+                                setState(() {
+                                  if (isSelected) {
+                                    _selectedMessageIndices.remove(index);
+                                  } else {
+                                    _selectedMessageIndices.add(index);
+                                  }
+                                });
+                              }
+                            },
+                            onHover: (hovering) {
+                              setState(() {
+                                _hoveredMessageIndex = hovering ? index : null;
+                              });
+                            },
+                            onSecondaryTapDown: (details) => _showMessageMenu(context, details.globalPosition, index),
+                            hoverColor: theme.colorScheme.primary.withValues(alpha: 0.05),
+                            highlightColor: theme.colorScheme.primary.withValues(alpha: 0.1),
+                            child: GestureDetector(
+                              onLongPressStart: (details) => _showMessageMenu(context, details.globalPosition, index),
+                              behavior: HitTestBehavior.translucent,
+                              child: Container(
+                                color: isSelected ? theme.colorScheme.primary.withValues(alpha: 0.1) : null,
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(child: messageWidget),
+                                    if (_isMultiSelectMode)
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 16, top: 16),
+                                        child: Checkbox(
+                                          value: isSelected,
+                                          onChanged: (val) {
+                                            setState(() {
+                                              if (val == true) {
+                                                _selectedMessageIndices.add(index);
+                                              } else {
+                                                _selectedMessageIndices.remove(index);
+                                              }
+                                            });
+                                          },
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
                         },
+
                       );
                     }
                   ),
@@ -2408,7 +2652,6 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                   Container(
                     decoration: BoxDecoration(
                       color: theme.scaffoldBackgroundColor,
-                      border: Border(top: BorderSide(color: borderColor.withValues(alpha: 0.5))),
                     ),
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                     child: _buildInputCapsule(theme, altColor, borderColor, textColor, secondaryTextColor),
@@ -2416,6 +2659,115 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                 ],
               ),
               IgnorePointer(ignoring: !_historyPanelOpen, child: AnimatedOpacity(duration: const Duration(milliseconds: 250), opacity: _historyPanelOpen ? 1.0 : 0.0, child: GestureDetector(onTap: () => setState(() => _historyPanelOpen = false), child: Container(color: Colors.black.withValues(alpha: 0.15))))),
+
+              // Scroll to bottom button
+              // Positioned(
+              //   bottom: 110,
+              //   right: 20,
+              //   child: FadeTransition(
+              //     opacity: _scrollToBottomController,
+              //     child: ScaleTransition(
+              //       scale: _scrollToBottomController,
+              //       child: Container(
+              //         decoration: BoxDecoration(
+              //           color: theme.colorScheme.surface,
+              //           shape: BoxShape.circle,
+              //           border: Border.all(color: borderColor, width: 1),
+              //           boxShadow: [
+              //             BoxShadow(
+              //               color: Colors.black.withValues(alpha: 0.1),
+              //               blurRadius: 10,
+              //               spreadRadius: 2,
+              //             ),
+              //           ],
+              //         ),
+              //         child: IconButton(
+              //           icon: const Icon(Icons.arrow_downward_rounded),
+              //           onPressed: _scrollToBottom,
+              //           tooltip: "Scroll to Bottom".tl,
+              //         ),
+              //       ),
+              //     ),
+              //   ),
+              // ),
+
+              if (_isMultiSelectMode)
+                Positioned(
+                  bottom: 120,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: borderColor),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 10,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.copy_rounded, size: 20),
+                          onPressed: () {
+                            final texts = _selectedMessageIndices.map((i) => _agent.messages[i]['content']?.toString() ?? "").toList();
+                            _copyToClipboard(texts.join("\n\n"));
+                          },
+                          tooltip: "Copy Selected".tl,
+                        ),
+                        const SizedBox(width: 4),
+                        Container(width: 1, height: 20, color: borderColor),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.share_rounded, size: 20),
+                          onPressed: _shareSelectedMessages,
+                          tooltip: "Share Selected".tl,
+                        ),
+                        const SizedBox(width: 4),
+                        Container(width: 1, height: 20, color: borderColor),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.camera_alt_rounded, size: 20),
+                          onPressed: _screenshotSelectedMessages,
+                          tooltip: "Screenshot Selected".tl,
+                        ),
+                        const SizedBox(width: 4),
+                        Container(width: 1, height: 20, color: borderColor),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, size: 20, color: Colors.redAccent),
+                          onPressed: () {
+                            setState(() {
+                              final sortedIndices = _selectedMessageIndices.toList()..sort((a, b) => b.compareTo(a));
+                              for (final i in sortedIndices) {
+                                _agent.messages.removeAt(i);
+                              }
+                              _selectedMessageIndices.clear();
+                              _isMultiSelectMode = false;
+                            });
+                            _saveSession();
+                          },
+                          tooltip: "Delete Selected".tl,
+                        ),
+                        const SizedBox(width: 4),
+                        Container(width: 1, height: 20, color: borderColor),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 20),
+                          onPressed: () => setState(() {
+                            _isMultiSelectMode = false;
+                            _selectedMessageIndices.clear();
+                          }),
+                          tooltip: "Cancel".tl,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
 
               Positioned(
                 top: 0, bottom: 0, right: 0,
@@ -2616,6 +2968,124 @@ class _LongTextEditorDialogState extends State<_LongTextEditorDialog> {
               fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
             ),
             style: const TextStyle(fontSize: 16, height: 1.5, fontFamily: 'Microsoft'),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScreenshotGenerator extends StatefulWidget {
+  final List<Map<String, dynamic>> messages;
+  final Set<int> selectedIndices;
+  final Function(Uint8List) onCaptured;
+
+  const _ScreenshotGenerator({
+    required this.messages,
+    required this.selectedIndices,
+    required this.onCaptured,
+  });
+
+  @override
+  State<_ScreenshotGenerator> createState() => _ScreenshotGeneratorState();
+}
+
+class _ScreenshotGeneratorState extends State<_ScreenshotGenerator> {
+  final GlobalKey _repaintKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
+  }
+
+  Future<void> _capture() async {
+    try {
+      // Give some time for rendering
+      await Future.delayed(const Duration(milliseconds: 500));
+      final RenderRepaintBoundary boundary = _repaintKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final ui.Image image = await boundary.toImage(pixelRatio: 2.0);
+      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData != null) {
+        widget.onCaptured(byteData.buffer.asUint8List());
+      }
+    } catch (e) {
+      debugPrint("Capture error: $e");
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sortedIndices = widget.selectedIndices.toList()..sort();
+
+    return Material(
+      color: Colors.transparent,
+      child: Center(
+        child: SingleChildScrollView(
+          child: RepaintBoundary(
+            key: _repaintKey,
+            child: Container(
+              width: 500,
+              padding: const EdgeInsets.all(24),
+              color: theme.scaffoldBackgroundColor,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.auto_awesome, size: 16, color: Colors.blue),
+                      const SizedBox(width: 8),
+                      Text("Blora Conversation Export".tl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ...sortedIndices.map((idx) {
+                    final msg = widget.messages[idx];
+                    final isUser = msg['role'] == 'user';
+                    final agentType = msg['agentType'] ?? "default";
+                    final agentName = (agentType == "bloriko" || agentType == "bloriko_r18") ? "Bloriko".tl : "Blora Agent".tl;
+                    
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(
+                        crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+                            children: [
+                              if (!isUser) const Icon(Icons.smart_toy, size: 12, color: Colors.grey),
+                              if (!isUser) const SizedBox(width: 4),
+                              Text(isUser ? ConfigService.get("Bloret_PassPort_UserName") ?? "Me".tl : agentName, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                              if (isUser) const SizedBox(width: 4),
+                              if (isUser) const Icon(Icons.person, size: 12, color: Colors.grey),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isUser ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              msg['content']?.toString() ?? "",
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isUser ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  Text("Exported from Blora Launcher".tl, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                ],
+              ),
+            ),
           ),
         ),
       ),

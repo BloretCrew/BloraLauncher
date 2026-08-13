@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../core/i18n.dart';
 import '../core/grammer_candy.dart';
+import '../services/external_app_service.dart';
 import '../services/launch_service.dart';
 import '../services/config_service.dart';
 import '../widgets/button.dart';
+import 'external_app_selector_view.dart';
 
 class CoresPage extends StatefulWidget {
   const CoresPage({super.key});
@@ -20,6 +22,9 @@ class _CoresPageState extends State<CoresPage> {
   String _searchQuery = "";
   String? _selectedDirectoryFilter;
   final TextEditingController _searchController = TextEditingController();
+
+  bool _isEditingExternal = false;
+  CustomApp? _editingApp;
 
   @override
   void initState() {
@@ -81,6 +86,17 @@ class _CoresPageState extends State<CoresPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isEditingExternal) {
+      return ExternalAppEditorView(
+        app: _editingApp, 
+        onBack: () => setState(() => _isEditingExternal = false), 
+        onSaved: () {
+          setState(() => _isEditingExternal = false);
+          refreshLaunchItems();
+        }
+      );
+    }
+
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -102,6 +118,16 @@ class _CoresPageState extends State<CoresPage> {
                   ),
                 ),
                 const Spacer(),
+                BloretButton(
+                  onPressed: () => setState(() {
+                    _editingApp = null;
+                    _isEditingExternal = true;
+                  }),
+                  text: "Add App".tl,
+                  icon: Icons.add,
+                  height: 40,
+                ),
+                const SizedBox(width: 12),
                 IconButton(
                   icon: const Icon(Icons.refresh),
                   onPressed: refreshLaunchItems,
@@ -138,7 +164,7 @@ class _CoresPageState extends State<CoresPage> {
                     itemCount: launchItems.length,
                     itemBuilder: (context, index) {
                       final item = launchItems[index];
-                      return _buildCoreItem(theme, item['id']!, item['directory']!);
+                      return _buildCoreItem(theme, item);
                     },
                   ),
           ),
@@ -168,7 +194,13 @@ class _CoresPageState extends State<CoresPage> {
     );
   }
 
-  Widget _buildCoreItem(ThemeData theme, String id, String directory) {
+  Widget _buildCoreItem(ThemeData theme, Map<String, String> item) {
+    final id = item['id']!;
+    final directory = item['directory']!;
+    final type = item['type'] ?? "minecraft";
+    final appId = item['appId'];
+    final icon = item['icon'];
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
@@ -177,7 +209,14 @@ class _CoresPageState extends State<CoresPage> {
         side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
       ),
       child: InkWell(
-        onTap: () => _checkAndComplete(directory, id),
+        onTap: type == "minecraft" ? () => _checkAndComplete(directory, id) : () {
+          final apps = ExternalAppService.instance.getCustomApps();
+          final app = apps.firstWhere((e) => e.id == appId);
+          setState(() {
+            _editingApp = app;
+            _isEditingExternal = true;
+          });
+        },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -189,7 +228,21 @@ class _CoresPageState extends State<CoresPage> {
                   color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.layers, color: theme.colorScheme.primary),
+                child: () {
+                  if (type == "minecraft") {
+                    final iconPath = p.join(directory, "versions", id, "icon.png");
+                    final iconFile = File(iconPath);
+                    if (iconFile.existsSync()) {
+                      return ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(iconFile, fit: BoxFit.cover));
+                    }
+                    return Icon(Icons.layers, color: theme.colorScheme.primary);
+                  } else {
+                    if (icon != null && icon.isNotEmpty && File(icon).existsSync()) {
+                      return ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(File(icon), fit: BoxFit.cover));
+                    }
+                    return Icon(Icons.apps, color: theme.colorScheme.primary);
+                  }
+                }(),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -202,11 +255,24 @@ class _CoresPageState extends State<CoresPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              BloretButton(
-                onPressed: () => _checkAndComplete(directory, id),
-                text: "Check".tl,
-                height: 36,
-              ),
+              if (type == "minecraft")
+                BloretButton(
+                  onPressed: () => _checkAndComplete(directory, id),
+                  text: "Check".tl,
+                  height: 36,
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  onPressed: () {
+                    final apps = ExternalAppService.instance.getCustomApps();
+                    final app = apps.firstWhere((e) => e.id == appId);
+                    setState(() {
+                      _editingApp = app;
+                      _isEditingExternal = true;
+                    });
+                  },
+                ),
             ],
           ),
         ),

@@ -1012,11 +1012,13 @@ class Bloriko extends ChangeNotifier {
     if (messages.isNotEmpty && messages.last['role'] == 'assistant') {
       messages.last['content'] = content;
       messages.last['emotion'] = _currentEmotion;
+      messages.last['agentType'] = Bloriko.type;
     } else {
       messages.add({
         'role': 'assistant',
         'content': content,
         'emotion': _currentEmotion,
+        'agentType': Bloriko.type,
       });
     }
     notifyListeners();

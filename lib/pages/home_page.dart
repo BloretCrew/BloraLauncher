@@ -22,6 +22,7 @@ import '../services/config_service.dart';
 import '../services/launch_service.dart';
 import '../services/passport_service.dart';
 import '../services/stats_service.dart';
+import '../services/external_app_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/button.dart';
 import '../widgets/sliding_text.dart';
@@ -56,6 +57,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   String? _selectedVersion;
   String? _selectedVersionDir;
+  String? _selectedType;
+  String? _selectedAppId;
 
   RunningCore? _selectedCore;
   Process? _activeLaunchingProcess;
@@ -150,6 +153,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         result = restore(result, "___BLORIKO_P___", "Bloriko");
         result = restore(result, "___BLORA_P___", "Blora");
         result = result.replaceAll("___BLORET_P___", "Bloret");
+        result = result.replaceAll("___BORET_P___", "Bloret");
 
         return result;
       }
@@ -331,10 +335,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           final now = DateTime.now();
 
           for (var core in CoreManager.instance.runningCores) {
-            final isAlive = WinProcess.isAlive(core.process.pid);
-            if (!isAlive || core.exitCode != null || core.isSuspended) continue;
+            final pid = core.effectivePid;
+            if (pid == 0) continue;
 
-            final currentCpuTime = WinProcess.getCpuTime(core.process.pid);
+            final isAlive = WinProcess.isAlive(pid);
+            if (!isAlive || core.exitCode != null || core.isSuspended) {
+              if (!isAlive && core.exitCode == null) {
+                core.exitCode = 0; // Assume normal exit if we lost track
+              }
+              continue;
+            }
+
+            final currentCpuTime = WinProcess.getCpuTime(pid);
             if (currentCpuTime == 0 && core.lastCpuTime != 0) {
 
             }
@@ -350,7 +362,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             core.cpuUsage.removeAt(0);
             core.cpuUsage.add(cpuPercent);
 
-            final memBytes = WinProcess.getMemoryUsage(core.process.pid);
+            final memBytes = WinProcess.getMemoryUsage(pid);
             double memNormalized = memBytes / (8.0 * 1024 * 1024 * 1024);
             memNormalized = memNormalized.clamp(0.0, 1.0);
 
@@ -367,8 +379,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void _loadSelectedVersion() {
     _selectedVersion = ConfigService.get("selected_version");
     _selectedVersionDir = ConfigService.get("selected_version_dir");
+    _selectedType = ConfigService.get("selected_type") ?? "minecraft";
+    _selectedAppId = ConfigService.get("selected_app_id");
     
-    if (_selectedVersion == null) {
+    if (_selectedVersion == null && _selectedType == "minecraft") {
       // Try to pick first available
       LaunchService.instance.getAllAvailableVersions().then((versions) {
         if (versions.isNotEmpty && mounted) {
@@ -392,6 +406,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       return;
     }
 
+    // Group versions by type
+    final Map<String, List<Map<String, String>>> grouped = {};
+    for (var v in versions) {
+      final type = v['type'] ?? "minecraft";
+      grouped.putIfAbsent(type, () => []).add(v);
+    }
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -404,43 +425,82 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           children: [
             Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Text("Select Minecraft Core".tl, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              child: Text("Select Core".tl, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
             const Divider(height: 1),
             Expanded(
-              child: ListView.builder(
-                itemCount: versions.length,
-                itemBuilder: (context, index) {
-                  final v = versions[index];
-                  final versionId = v['id']!;
-                  final directory = v['directory']!;
-                  final isSelected = versionId == _selectedVersion && directory == _selectedVersionDir;
-                  
-                  // Try to find icon.png in absolute path: directory/versions/id/icon.png
-                  final iconPath = p.join(directory, "versions", versionId, "icon.png");
-                  final iconFile = File(iconPath);
-                  
-                  return ListTile(
-                    leading: iconFile.existsSync()
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.file(iconFile, width: 32, height: 32, fit: BoxFit.cover),
-                        )
-                      : Icon(Icons.layers, color: isSelected ? Theme.of(context).colorScheme.primary : null),
-                    title: Text(versionId, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                    subtitle: Text(directory, style: const TextStyle(fontSize: 10)),
-                    trailing: isSelected ? const Icon(Icons.check_circle, size: 18) : null,
-                    onTap: () {
-                      setState(() {
-                        _selectedVersion = versionId;
-                        _selectedVersionDir = directory;
-                      });
-                      ConfigService.set("selected_version", _selectedVersion);
-                      ConfigService.set("selected_version_dir", _selectedVersionDir);
-                      Navigator.pop(context);
-                    },
+              child: ListView(
+                children: grouped.entries.map((entry) {
+                  final type = entry.key;
+                  final typeVersions = entry.value;
+                  final typeLabel = type == "minecraft" ? "Minecraft Versions".tl : "External Applications".tl;
+                  final typeIcon = type == "minecraft" ? Icons.layers_outlined : Icons.apps_outlined;
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: Row(
+                          children: [
+                            Icon(typeIcon, size: 16, color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 8),
+                            Text(typeLabel, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+                          ],
+                        ),
+                      ),
+                      ...typeVersions.map((v) {
+                        final versionId = v['id']!;
+                        final directory = v['directory']!;
+                        final appId = v['appId'];
+                        final icon = v['icon'];
+
+                        final isSelected = type == "minecraft" 
+                            ? (versionId == _selectedVersion && directory == _selectedVersionDir)
+                            : (appId == _selectedAppId);
+                        
+                        Widget? leading;
+                        if (type == "minecraft") {
+                          final iconPath = p.join(directory, "versions", versionId, "icon.png");
+                          final iconFile = File(iconPath);
+                          if (iconFile.existsSync()) {
+                            leading = ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(iconFile, width: 32, height: 32, fit: BoxFit.cover),
+                            );
+                          }
+                        } else {
+                          if (icon != null && icon.isNotEmpty && File(icon).existsSync()) {
+                            leading = ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(File(icon), width: 32, height: 32, fit: BoxFit.cover),
+                            );
+                          }
+                        }
+                        
+                        return ListTile(
+                          leading: leading ?? Icon(type == "minecraft" ? Icons.layers : Icons.apps, color: isSelected ? Theme.of(context).colorScheme.primary : null),
+                          title: Text(versionId, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                          subtitle: Text(directory, style: const TextStyle(fontSize: 10), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          trailing: isSelected ? const Icon(Icons.check_circle, size: 18) : null,
+                          onTap: () {
+                            setState(() {
+                              _selectedVersion = versionId;
+                              _selectedVersionDir = directory;
+                              _selectedType = type;
+                              _selectedAppId = appId;
+                            });
+                            ConfigService.set("selected_version", _selectedVersion);
+                            ConfigService.set("selected_version_dir", _selectedVersionDir);
+                            ConfigService.set("selected_type", _selectedType);
+                            ConfigService.set("selected_app_id", _selectedAppId);
+                            Navigator.pop(context);
+                          },
+                        );
+                      }).toList(),
+                    ],
                   );
-                },
+                }).toList(),
               ),
             ),
           ],
@@ -454,7 +514,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       showWarning("Please select a core first.".tl);
       return;
     }
-    final path = _selectedVersionDir!;
+    final path = _selectedType == "custom_app" ? p.dirname(_selectedVersionDir!) : _selectedVersionDir!;
     if (Platform.isWindows) {
       Process.run("explorer.exe", [path]);
     } else if (Platform.isMacOS) {
@@ -464,9 +524,137 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
+  Future<void> _launchCustomApp() async {
+    final app = ExternalAppService.instance.getCustomApps().firstWhere((e) => e.id == _selectedAppId);
+    
+    setState(() {
+      _homeState = HomeState.launching;
+      _launchStatus = "Launching external application...".tl;
+      _launchProgress = 0.5;
+    });
+
+    try {
+      final List<String> argsList = app.args.isNotEmpty ? app.args.split(" ") : [];
+      
+      // Parse environment variables
+      final Map<String, String> env = Map.from(Platform.environment);
+      if (app.envVars.isNotEmpty) {
+        final pairs = app.envVars.split(";");
+        for (var p in pairs) {
+          final kv = p.split("=");
+          if (kv.length == 2) env[kv[0].trim()] = kv[1].trim();
+        }
+      }
+
+      Process? process;
+      int? pid;
+
+      if (app.runAsAdmin && Platform.isWindows) {
+        // Use PowerShell to start with elevation and handle priority
+        final argsString = argsList.map((a) => "'$a'").join(",");
+        final priorityMap = {"Idle": "Idle", "Normal": "Normal", "High": "High", "Realtime": "RealtimeProcess"};
+        final priorityStr = priorityMap[app.priority] ?? "Normal";
+        
+        final psCmd = '\$p = Start-Process "${app.exePath}" -ArgumentList $argsString -WorkingDirectory "${app.workingDir ?? p.dirname(app.exePath)}" -Verb RunAs -PassThru; if (\$p) { \$p.PriorityClass = "$priorityStr"; \$p.Id }';
+        
+        final result = await Process.run('powershell', ['-Command', '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $psCmd']);
+        
+        if (result.exitCode == 0) {
+           pid = int.tryParse(result.stdout.toString().trim());
+           if (pid != null) {
+             showInfo("Elevated process started (PID: $pid). Console output capture limited.".tl);
+           }
+        } else {
+           throw Exception("Elevation failed: ${result.stderr}");
+        }
+      } else {
+        process = await Process.start(
+          app.exePath, 
+          argsList, 
+          workingDirectory: app.workingDir,
+          environment: env,
+        );
+        pid = process.pid;
+
+        // Handle Process Priority for normal launch
+        if (Platform.isWindows && app.priority != "Normal") {
+          final priorityMap = {"Idle": 64, "Normal": 32, "High": 128, "Realtime": 256};
+          final level = priorityMap[app.priority] ?? 32;
+          Process.run('wmic', ['process', 'where', 'ProcessId=${process.pid}', 'CALL', 'setpriority', '$level']);
+        }
+      }
+      
+      if (pid != null) {
+        final runningCore = RunningCore(
+          id: app.id,
+          version: app.name,
+          loader: "External".tl,
+          userName: "Custom",
+          avatar: app.iconPath,
+          accountType: "External",
+          identityName: "User",
+          process: process,
+          pid: pid,
+          killOnExit: app.killOnExit,
+        );
+
+        setState(() {
+          CoreManager.instance.addCore(runningCore);
+          _selectedCore = runningCore;
+          _homeState = HomeState.running;
+          _showRunningHandle = true;
+        });
+
+        if (process != null) {
+          process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+            _addLogToCore(runningCore, line);
+          });
+          process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+            _addLogToCore(runningCore, line);
+          });
+
+          process.exitCode.then((code) {
+            runningCore.exitCode = code;
+            if (mounted) {
+              CoreManager.instance.removeCore(runningCore);
+              _checkEmptyCores();
+            }
+          });
+        } else {
+          // For elevated PID-only tracking, we rely on _startStatsMonitoring to detect exit
+          _addLogToCore(runningCore, "Elevated process tracking active (PID: $pid). Log capture disabled.".tl);
+        }
+
+        _pageController.animateToPage(1, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+      }
+    } catch (e) {
+      setState(() {
+        _launchError = e.toString();
+        _homeState = HomeState.normal;
+      });
+      _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+      showError("Failed to launch application: $e".tl);
+    }
+  }
+
+  void _checkEmptyCores() {
+    if (CoreManager.instance.runningCores.isEmpty) {
+      setState(() {
+        _showRunningHandle = false;
+        _homeState = HomeState.normal;
+      });
+      _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+    }
+  }
+
   Future<void> _startLaunch() async {
     if (_selectedVersion == null || _selectedVersionDir == null) {
       showWarning("Please select a core first.".tl);
+      return;
+    }
+
+    if (_selectedType == "custom_app" && _selectedAppId != null) {
+      _launchCustomApp();
       return;
     }
 
@@ -916,7 +1104,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               key: ValueKey("tips_${_showTranslatedTips}_${_translatedSentences?.length}_${sentences.hashCode}"),
                               sentences: (_showTranslatedTips ? (_translatedSentences ?? sentences) : sentences)
                                   .map((e) => e.replaceAll("Windows 11", "Android").replaceAll("RinUI", "Flutter"))
-                                  .toList()..add("絡可好き好き"),
+                                  .toList()..add("絡可好き好き")..removeWhere((e) => ["编辑器", "国际化", "插件"].any((a) => e.contains(a))),
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: theme.colorScheme.outline,
                                 fontWeight: FontWeight.w500,
@@ -935,7 +1123,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                 key: ValueKey("tips_${_showTranslatedTips}_${_translatedSentences?.length}_${sentences.hashCode}"),
                                 sentences: (_showTranslatedTips ? (_translatedSentences ?? sentences) : sentences)
                                     .map((e) => e.replaceAll("Windows 11", "Android").replaceAll("RinUI", "Flutter"))
-                                    .toList()..add("絡可好き好き"),
+                                    .toList()..add("絡可好き好き")..removeWhere((e) => ["编辑器", "国际化", "插件"].any((a) => e.contains(a))),
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   color: theme.colorScheme.outline,
                                   fontWeight: FontWeight.w500,
@@ -1009,6 +1197,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           onOpenFolder: _openGameDir,
           selectedVersion: _selectedVersion,
           selectedVersionDir: _selectedVersionDir,
+          selectedType: _selectedType,
+          selectedAppId: _selectedAppId,
         ),
       ],
     );
@@ -1406,13 +1596,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       tooltip: "Forcefully terminate the game process.".tl,
                       color: isExited ? theme.disabledColor : Colors.redAccent,
                       onTap: isExited ? null : () {
-                        if (!WinProcess.isAlive(core.process.pid)) {
+                        final pid = core.effectivePid;
+                        if (!WinProcess.isAlive(pid)) {
                           showError("Process already terminated.".tl);
                           return;
                         }
                         core.isManuallyTerminated = true;
-                        core.process.kill();
-                        showSuccess("${"Terminating game process...".tl} (PID: ${core.process.pid})");
+                        if (core.process != null) {
+                          core.process!.kill();
+                        } else {
+                          Process.run('taskkill', ['/F', '/PID', '$pid']);
+                        }
+                        showSuccess("${"Terminating game process...".tl} (PID: $pid)");
                       },
                     ),
                     const SizedBox(width: 6),
@@ -1423,12 +1618,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       tooltip: "Freeze or thaw the game process to save CPU resources.".tl,
                       color: isExited ? theme.disabledColor : Colors.orangeAccent,
                       onTap: isExited ? null : () {
+                        final pid = core.effectivePid;
                         if (core.isSuspended) {
-                          WinProcess.resume(core.process.pid);
+                          WinProcess.resume(pid);
                           setState(() => core.isSuspended = false);
                           showSuccess("Process resumed.".tl);
                         } else {
-                          WinProcess.suspend(core.process.pid);
+                          WinProcess.suspend(pid);
                           setState(() => core.isSuspended = true);
                           showSuccess("Process suspended.".tl);
                         }
@@ -1443,7 +1639,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       color: isExited || isSuspended ? theme.disabledColor : (core.isEfficiencyMode ? Colors.green : Colors.greenAccent),
                       onTap: isExited || isSuspended ? null : () {
                         setState(() => core.isEfficiencyMode = !core.isEfficiencyMode);
-                        WinProcess.setEfficiencyMode(core.process.pid, core.isEfficiencyMode);
+                        WinProcess.setEfficiencyMode(core.effectivePid, core.isEfficiencyMode);
                         showSuccess(core.isEfficiencyMode ? "Efficiency mode enabled.".tl : "Efficiency mode disabled.".tl);
                       },
                     ),
@@ -1457,7 +1653,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       onTap: isExited || isSuspended || _isCleaningRam ? null : () {
                         setState(() => _isCleaningRam = true);
                         _cleanRamAnimController.repeat(reverse: true);
-                        WinProcess.cleanRAM(core.process.pid);
+                        WinProcess.cleanRAM(core.effectivePid);
                         showSuccess("Memory working set trimmed.".tl);
                         Timer(const Duration(seconds: 10), () {
                           if (mounted) {
@@ -1477,12 +1673,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         tooltip: "Developer: Manually trigger a process crash for testing.".tl,
                         color: isExited || isSuspended ? theme.disabledColor : Colors.purpleAccent,
                         onTap: isExited || isSuspended ? null : () {
-                          if (!WinProcess.isAlive(core.process.pid)) {
+                          final pid = core.effectivePid;
+                          if (!WinProcess.isAlive(pid)) {
                             showError("Process already terminated.".tl);
                             return;
                           }
                           core.isManuallyTerminated = false;
-                          core.process.kill();
+                          if (core.process != null) {
+                            core.process!.kill();
+                          } else {
+                            Process.run('taskkill', ['/F', '/PID', '$pid']);
+                          }
                           showWarning("Process crash triggered manually (Dev Mode).".tl);
                         },
                       ),
@@ -1921,7 +2122,7 @@ class _CoreStatsChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([animation, if (cleanAnim != null) cleanAnim!]),
+      animation: Listenable.merge([animation, ?cleanAnim]),
       builder: (context, child) {
         // Dynamic range: Find the max value in current data to adjust Y-axis scale
         double currentMax = data.isEmpty ? 0.1 : data.reduce((a, b) => a > b ? a : b);
@@ -2059,6 +2260,8 @@ class _BottomActionRail extends StatelessWidget {
   final VoidCallback onOpenFolder;
   final String? selectedVersion;
   final String? selectedVersionDir;
+  final String? selectedType;
+  final String? selectedAppId;
 
   const _BottomActionRail({
     required this.onLaunch,
@@ -2066,9 +2269,25 @@ class _BottomActionRail extends StatelessWidget {
     required this.onOpenFolder,
     this.selectedVersion,
     this.selectedVersionDir,
+    this.selectedType,
+    this.selectedAppId,
   });
 
   Widget _buildCoreIcon(ThemeData theme) {
+    if (selectedType == "custom_app" && selectedAppId != null) {
+      final app = ExternalAppService.instance.getCustomApps().firstWhere((e) => e.id == selectedAppId, orElse: () => CustomApp(id: "", name: "", exePath: ""));
+      if (app.iconPath != null && File(app.iconPath!).existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(File(app.iconPath!), width: 40, height: 40, fit: BoxFit.cover),
+        );
+      }
+      return Container(
+        width: 40, height: 40,
+        decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+        child: const Icon(Icons.apps, size: 20),
+      );
+    }
     if (selectedVersion != null && selectedVersionDir != null) {
       final iconPath = p.join(selectedVersionDir!, "versions", selectedVersion!, "icon.png");
       final iconFile = File(iconPath);
@@ -2087,6 +2306,20 @@ class _BottomActionRail extends StatelessWidget {
   }
 
   Widget _buildCoreIconDesktop(ThemeData theme) {
+    if (selectedType == "custom_app" && selectedAppId != null) {
+      final app = ExternalAppService.instance.getCustomApps().firstWhere((e) => e.id == selectedAppId, orElse: () => CustomApp(id: "", name: "", exePath: ""));
+      if (app.iconPath != null && File(app.iconPath!).existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(File(app.iconPath!), width: 48, height: 48, fit: BoxFit.cover),
+        );
+      }
+      return Container(
+        width: 48, height: 48,
+        decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+        child: const Icon(Icons.apps),
+      );
+    }
     if (selectedVersion != null && selectedVersionDir != null) {
       final iconPath = p.join(selectedVersionDir!, "versions", selectedVersion!, "icon.png");
       final iconFile = File(iconPath);

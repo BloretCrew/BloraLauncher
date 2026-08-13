@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'package:ffi/ffi.dart';
 
 final DynamicLibrary _executable = DynamicLibrary.executable();
 
@@ -17,16 +18,32 @@ typedef ProcessPidDart = void Function(int pid);
 typedef EfficiencyModeNative = Void Function(Uint32 pid, Bool enable);
 typedef EfficiencyModeDart = void Function(int pid, bool enable);
 
+typedef ExtractIconNative = Int32 Function(Pointer<Utf16> exePath, Pointer<Utf16> savePath);
+typedef ExtractIconDart = int Function(Pointer<Utf16> exePath, Pointer<Utf16> savePath);
+
 class WinProcess {
   static final _suspend = Platform.isWindows ? _executable.lookupFunction<ProcessPidNative, ProcessPidDart>("SuspendProcess") : null;
   static final _resume = Platform.isWindows ? _executable.lookupFunction<ProcessPidNative, ProcessPidDart>("ResumeProcess") : null;
   static final _cleanRAM = Platform.isWindows ? _executable.lookupFunction<ProcessPidNative, ProcessPidDart>("CleanProcessRAM") : null;
   static final _setEfficiency = Platform.isWindows ? _executable.lookupFunction<EfficiencyModeNative, EfficiencyModeDart>("SetEfficiencyMode") : null;
+  static final _extractIcon = Platform.isWindows ? _executable.lookupFunction<ExtractIconNative, ExtractIconDart>("ExtractHighResIcon") : null;
 
   static void suspend(int pid) => _suspend?.call(pid);
   static void resume(int pid) => _resume?.call(pid);
   static void cleanRAM(int pid) => _cleanRAM?.call(pid);
   static void setEfficiencyMode(int pid, bool enable) => _setEfficiency?.call(pid, enable);
+
+  static int extractHighResIcon(String exePath, String savePath) {
+    if (_extractIcon == null) return -1;
+    final exePtr = exePath.toNativeUtf16();
+    final savePtr = savePath.toNativeUtf16();
+    try {
+      return _extractIcon!(exePtr, savePtr);
+    } finally {
+      malloc.free(exePtr);
+      malloc.free(savePtr);
+    }
+  }
 
   static final _getMem = Platform.isWindows ? _executable.lookupFunction<Uint64 Function(Uint32), int Function(int)>("GetProcessMemoryUsage") : null;
   static final _getCpu = Platform.isWindows ? _executable.lookupFunction<Uint64 Function(Uint32), int Function(int)>("GetProcessCpuTime") : null;

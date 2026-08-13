@@ -11,6 +11,7 @@ import '../core/java_config.dart';
 import '../main.dart';
 import '../services/download_service.dart';
 import 'java_selector_view.dart';
+import 'external_app_selector_view.dart';
 
 class DownloadPage extends StatefulWidget {
   const DownloadPage({super.key});
@@ -70,6 +71,17 @@ class _DownloadPageState extends State<DownloadPage> {
             onBack: () => setState(() {
               _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOutCubic);
             },),
+          ),
+          PageType.external => ExternalAppEditorView(
+            onBack: () => setState(() {
+              _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOutCubic);
+            },),
+            onSaved: () {
+              setState(() {
+                _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOutCubic);
+              });
+              showInfo("Application added. You can find it in Cores page.".tl);
+            },
           ),
           _ => VersionSelectorView(
             onBack: () => setState(() {
@@ -182,7 +194,10 @@ class _DownloadPageState extends State<DownloadPage> {
             title: "External / Modpack".tl,
             subtitle: "Add custom launchers or modpack files".tl,
             onPressed: () {
-              // TODO: Backend.addCustomApp()
+              setState(() {
+                _selectedPageType = PageType.external;
+              });
+              _navigateToSelector();
             },
           ),
           DownloadCard(

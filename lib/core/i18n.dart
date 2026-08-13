@@ -125,7 +125,7 @@ class I18n extends ChangeNotifier {
     _calledKeys.add(key);
     final value = _localizedValues[key];
     
-    if (value == null) {
+    if (value == null && ConfigService.get("develop_mode")) {
       if (!_missingValues.containsKey(key)) {
         _missingValues[key] = "";
         _saveMissingKeys();
