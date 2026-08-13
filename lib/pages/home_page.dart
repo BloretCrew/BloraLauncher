@@ -497,7 +497,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             Navigator.pop(context);
                           },
                         );
-                      }).toList(),
+                      }),
                     ],
                   );
                 }).toList(),
@@ -550,7 +550,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       int? pid;
 
       if (app.runAsAdmin && Platform.isWindows) {
-        // Use PowerShell to start with elevation and handle priority
         final argsString = argsList.map((a) => "'$a'").join(",");
         final priorityMap = {"Idle": "Idle", "Normal": "Normal", "High": "High", "Realtime": "RealtimeProcess"};
         final priorityStr = priorityMap[app.priority] ?? "Normal";
@@ -576,7 +575,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         );
         pid = process.pid;
 
-        // Handle Process Priority for normal launch
         if (Platform.isWindows && app.priority != "Normal") {
           final priorityMap = {"Idle": 64, "Normal": 32, "High": 128, "Realtime": 256};
           final level = priorityMap[app.priority] ?? 32;
@@ -621,7 +619,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             }
           });
         } else {
-          // For elevated PID-only tracking, we rely on _startStatsMonitoring to detect exit
           _addLogToCore(runningCore, "Elevated process tracking active (PID: $pid). Log capture disabled.".tl);
         }
 
@@ -673,16 +670,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _launchStatus = "Checking file integrity...".tl;
       _isLaunchCancelled = false;
       _activeLaunchingProcess = null;
-      _isTransitioningToRunning = false; // Reset flag
+      _isTransitioningToRunning = false;
     });
 
     _pageController.animateToPage(1, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
 
     try {
-      // Check for cancellation before expensive tasks
       if (_isLaunchCancelled) return;
 
-      // 1. Account validation (Microsoft Account Validation)
       final List<dynamic> accountListRaw = ConfigService.get("MinecraftAccountList") ?? [];
       final int chosenIndex = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
       
@@ -761,8 +756,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final String mcUsername = account['username'] ?? "BloretPlayer";
       final String mcUuid = account['uuid'] ?? "";
       final String mcType = account['type'] ?? "Offline";
-      
-      // Construct MC Avatar URL (Rounded Rectangle later in UI)
+
       final String mcAvatar = mcUuid.isNotEmpty 
           ? "https://mc-heads.net/avatar/$mcUuid/100" 
           : "https://mc-heads.net/avatar/$mcUsername/100";
@@ -934,13 +928,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     
     core.logs.add(line);
     if (core.logs.length > 500) core.logs.removeAt(0);
-    
-    // Throttled UI update for logs
+
     _logUpdateTimer ??= Timer(const Duration(milliseconds: 100), () {
       if (mounted) setState(() {});
       _logUpdateTimer = null;
-      
-      // Only scroll if this core is currently selected
+
       if (_selectedCore == core) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_logScrollController.hasClients) {
@@ -968,7 +960,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             _showRunningHandle = true;
             _isTransitioningToRunning = false;
           });
-          // Silently jump to index 1 as the middle page is now removed.
           _pageController.jumpToPage(1);
         }
       });
@@ -989,7 +980,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final theme = Theme.of(context);
     final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
-    // Define pages dynamically based on state to "remove" the middle page
     final List<Widget> pages = [
       _buildNormalLayout(theme, isPortrait),
     ];
@@ -998,7 +988,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       pages.add(_buildLaunchingLayout(theme, isPortrait));
       pages.add(_buildRunningLayout(theme, isPortrait));
     } else {
-      // Normal or Running: Skip launching page
       pages.add(_buildRunningLayout(theme, isPortrait));
     }
 

@@ -1,15 +1,16 @@
 import 'dart:io';
-import 'package:bloret_launcher/pages/mods_page.dart';
-import 'package:bloret_launcher/widgets/google_widgets.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
 import '../core/i18n.dart';
 import '../core/grammer_candy.dart';
 import '../services/download_service.dart';
 import '../services/launch_service.dart';
-import 'package:intl/intl.dart';
-
 import '../widgets/button.dart';
+import '../widgets/google_widgets.dart';
+import 'mods_page.dart';
 
 class VersionSelectorView extends StatefulWidget {
   final VoidCallback onBack;
@@ -36,6 +37,8 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
 
   MinecraftVersion? _selectedVersion;
   final TextEditingController _customNameController = TextEditingController();
+  String? _customIconPath;
+  String? _selectedTargetDir;
 
   // Loader State
   final Map<LoaderType, List<String>> _loaderVersionsMap = {};
@@ -51,6 +54,7 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
   void initState() {
     super.initState();
     _loadData();
+    _selectedTargetDir = LaunchService.instance.getPreferredDownloadDir();
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.trim().toLowerCase();
@@ -182,6 +186,7 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                       _isLoadingLoadersMap.clear();
                       _expandedLoaders.clear();
                       _isAccelerated = false;
+                      _customIconPath = null;
                     });
                   }
                 },
@@ -201,8 +206,15 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
               Tooltip(
                 message: "Click to change icon".tl,
                 child: InkWell(
-                  onTap: () {
-                    // TODO: Implement icon change
+                  onTap: () async {
+                    FilePickerResult? result = await FilePicker.platform.pickFiles(
+                      type: FileType.image,
+                    );
+                    if (result != null && result.files.single.path != null) {
+                      setState(() {
+                        _customIconPath = result.files.single.path;
+                      });
+                    }
                   },
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
@@ -212,12 +224,18 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                       color: theme.colorScheme.primary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: Icon(
-                        _isAccelerated
-                            ? Icons.bolt_outlined
-                            : Icons.auto_awesome_outlined,
-                        size: 32,
-                        color: theme.colorScheme.primary),
+                    child: _customIconPath != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: Image.file(File(_customIconPath!),
+                                fit: BoxFit.cover),
+                          )
+                        : Icon(
+                            _isAccelerated
+                                ? Icons.bolt_outlined
+                                : Icons.auto_awesome_outlined,
+                            size: 32,
+                            color: theme.colorScheme.primary),
                   ),
                 ),
               ),
@@ -238,7 +256,32 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: () async {
+                        String? path = await FilePicker.platform.getDirectoryPath();
+                        if (path != null) {
+                          setState(() {
+                            _selectedTargetDir = path;
+                          });
+                        }
+                      },
+                      child: Row(
+                        children: [
+                          Icon(Icons.folder_outlined, size: 14, color: theme.colorScheme.outline),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              _selectedTargetDir ?? "Select Target Directory".tl,
+                              style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         Container(
@@ -558,20 +601,44 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
 
   void _startInstallation() async {
     if (_selectedVersion == null) return;
-    final String versionId = _selectedVersion!.id;
+    final String baseVersionId = _selectedVersion!.id;
     final String customName = _customNameController.text.trim().isEmpty
-        ? versionId
+        ? baseVersionId
         : _customNameController.text.trim();
-    final String targetPath = LaunchService.instance.getPreferredDownloadDir();
+    final String targetPath = _selectedTargetDir ?? LaunchService.instance.getPreferredDownloadDir();
     final targetDir = Directory(targetPath);
 
-    if (_isAccelerated && (versionId == "1.21.8" || versionId == "1.21.7")) {
+    String finalVersionId = baseVersionId;
+    if (_selectedLoader != null && _selectedLoader != LoaderType.vanilla) {
+      if (_selectedLoaderVersion == null) {
+        showWarning("Please select a loader version first".tl);
+        return;
+      }
+      finalVersionId = "$baseVersionId-${_selectedLoader!.name}-$_selectedLoaderVersion";
+    }
+
+    // Helper to copy icon
+    Future<void> copyIcon(String vid) async {
+      if (_customIconPath != null) {
+        try {
+          final versionPath = p.join(targetDir.path, "versions", vid);
+          await Directory(versionPath).create(recursive: true);
+          final destFile = File(p.join(versionPath, "icon.png"));
+          await File(_customIconPath!).copy(destFile.path);
+          debugPrint("Icon copied to ${destFile.path}");
+        } catch (e) {
+          debugPrint("Failed to copy icon: $e");
+        }
+      }
+    }
+
+    if (_isAccelerated && (baseVersionId == "1.21.8" || baseVersionId == "1.21.7")) {
       final url =
-          "https://raw.gitcode.com/Bloret/$versionId/archive/refs/heads/main.zip";
+          "https://raw.gitcode.com/Bloret/$baseVersionId/archive/refs/heads/main.zip";
       await DownloadService.instance.downloadFile(
-        "Minecraft_$versionId",
+        "Minecraft_$baseVersionId",
         url,
-        "minecraft_source_$versionId.zip",
+        "minecraft_source_$baseVersionId.zip",
         (path, updateStatus) async {
           updateStatus("Extracting...".tl);
           final success = await DownloadService.instance.extractZip(
@@ -579,27 +646,26 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
             targetDir,
             stripRoot: true,
           );
-          try {
-            await File(path).delete();
-          } catch (_) {}
           if (success) {
+            await copyIcon(finalVersionId);
             showSuccess("Minecraft $customName installed".tl);
           } else {
             showError("Installation failed".tl);
           }
+          try {
+            await File(path).delete();
+          } catch (_) {}
           return success;
         },
       );
     } else if (_selectedLoader == null || _selectedLoader == LoaderType.vanilla) {
+      await copyIcon(finalVersionId);
       await DownloadService.instance
-          .installVanilla(_selectedVersion!.url, versionId, targetDir);
+          .installVanilla(baseVersionId, _selectedVersion!.url, targetDir);
     } else {
-      if (_selectedLoaderVersion == null) {
-        showWarning("Please select a loader version first".tl);
-        return;
-      }
+      await copyIcon(finalVersionId);
       await DownloadService.instance.installLoader(
-          versionId, _selectedLoaderVersion!, _selectedLoader!, targetDir);
+          baseVersionId, _selectedLoaderVersion!, _selectedLoader!, targetDir);
     }
     showSuccess("Installation task for %s submitted.".tl.format(customName));
     _pageController
@@ -616,6 +682,7 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
           _isLoadingLoadersMap.clear();
           _expandedLoaders.clear();
           _isAccelerated = false;
+          _customIconPath = null;
         });
       }
     });
@@ -824,8 +891,6 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
         key: const ValueKey("category_list"),
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
         children: [
-          // ... rest of the existing list children ...
-          // Latest Block
           Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
