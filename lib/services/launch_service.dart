@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+import 'package:archive/archive.dart';
 import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/download_service.dart';
 import 'package:bloret_launcher/services/external_app_service.dart';
 import 'package:path/path.dart' as p;
-import 'package:archive/archive.dart';
 
 import '../core/ffi_proxy.dart';
 import '../core/java_config.dart';
@@ -33,6 +34,8 @@ class RunningCore {
 
   bool isSuspended = false;
   bool isEfficiencyMode = false;
+  bool isDetached = false;
+  List<StreamSubscription>? subscriptions;
 
   int lastCpuTime = 0;
   DateTime lastCpuTimestamp = DateTime.now();
@@ -59,7 +62,8 @@ class CoreManager {
   CoreManager._();
 
   final List<RunningCore> _runningCores = [];
-  final StreamController<List<RunningCore>> _coresController = StreamController<List<RunningCore>>.broadcast();
+  final StreamController<List<RunningCore>> _coresController =
+      StreamController<List<RunningCore>>.broadcast();
 
   List<RunningCore> get runningCores => List.unmodifiable(_runningCores);
   Stream<List<RunningCore>> get coresStream => _coresController.stream;
@@ -98,7 +102,12 @@ class LaunchService {
   static final LaunchService instance = LaunchService._();
   LaunchService._();
 
-  Future<void> updateBlJson(String minecraftDir, String versionId, {bool fabricLoader = false, String? iconPath}) async {
+  Future<void> updateBlJson(
+    String minecraftDir,
+    String versionId, {
+    bool fabricLoader = false,
+    String? iconPath,
+  }) async {
     try {
       final blJsonPath = p.join(minecraftDir, "versions", ".BLF.json");
       final file = File(blJsonPath);
@@ -116,7 +125,9 @@ class LaunchService {
         blData["versions"] = {};
       }
 
-      final baseVersion = versionId.contains("-") ? versionId.split("-")[0] : versionId;
+      final baseVersion = versionId.contains("-")
+          ? versionId.split("-")[0]
+          : versionId;
 
       final versionEntry = {
         "Fabric": fabricLoader,
@@ -161,7 +172,9 @@ class LaunchService {
       final versionsMap = Map<String, dynamic>.from(blData["versions"] as Map);
       bool changed = false;
 
-      final List<FileSystemEntity> entities = await Directory(versionsPath).list().toList();
+      final List<FileSystemEntity> entities = await Directory(
+        versionsPath,
+      ).list().toList();
       for (var entity in entities) {
         if (entity is Directory) {
           final id = p.basename(entity.path);
@@ -184,7 +197,9 @@ class LaunchService {
 
       if (changed) {
         blData["versions"] = versionsMap;
-        await File(blJsonPath).writeAsString(JsonEncoder.withIndent("    ").convert(blData));
+        await File(
+          blJsonPath,
+        ).writeAsString(JsonEncoder.withIndent("    ").convert(blData));
       }
     } catch (e) {
       stderr.writeln("Failed to repair .BLF.json: $e");
@@ -204,15 +219,17 @@ class LaunchService {
             "type": "custom",
             "created": "1970-01-01T00:00:00.000Z",
             "lastUsed": "1970-01-01T00:00:00.000Z",
-            "gameDir": minecraftDir
-          }
+            "gameDir": minecraftDir,
+          },
         },
         "selectedProfile": "BloretLauncher",
-        "clientToken": "00000000000000000000000000000000"
+        "clientToken": "00000000000000000000000000000000",
       };
 
       await Directory(p.dirname(profilePath)).create(recursive: true);
-      await file.writeAsString(JsonEncoder.withIndent("    ").convert(defaultProfile));
+      await file.writeAsString(
+        JsonEncoder.withIndent("    ").convert(defaultProfile),
+      );
     } catch (e) {
       stderr.writeln("Failed to create launcher_profiles.json: $e");
     }
@@ -234,14 +251,23 @@ class LaunchService {
     return p1.length.compareTo(p2.length);
   }
 
-  Future<Map<String, dynamic>> loadMergedVersionJson(String minecraftDir, String versionId, [Set<String>? seen]) async {
+  Future<Map<String, dynamic>> loadMergedVersionJson(
+    String minecraftDir,
+    String versionId, [
+    Set<String>? seen,
+  ]) async {
     seen ??= {};
     if (seen.contains(versionId)) {
       throw Exception("Version inheritance loop: $versionId");
     }
     seen.add(versionId);
 
-    final versionJsonPath = p.join(minecraftDir, "versions", versionId, "$versionId.json");
+    final versionJsonPath = p.join(
+      minecraftDir,
+      "versions",
+      versionId,
+      "$versionId.json",
+    );
     final file = File(versionJsonPath);
     if (!await file.exists()) {
       throw Exception("Version JSON not found: $versionJsonPath");
@@ -253,7 +279,11 @@ class LaunchService {
       return data;
     }
 
-    final parentData = await loadMergedVersionJson(minecraftDir, parentId, seen);
+    final parentData = await loadMergedVersionJson(
+      minecraftDir,
+      parentId,
+      seen,
+    );
 
     final merged = Map<String, dynamic>.from(parentData);
     data.forEach((k, v) {
@@ -261,20 +291,20 @@ class LaunchService {
         final childLibs = v as List;
         final parentLibs = parentData['libraries'] as List? ?? [];
         final Map<String, dynamic> allLibsMap = {};
-        
+
         for (var lib in [...parentLibs, ...childLibs]) {
           final name = lib['name'] as String?;
           if (name == null) continue;
-          
+
           final parts = name.split(':');
           if (parts.length < 3) {
             allLibsMap[name] = lib;
             continue;
           }
-          
+
           final artifactId = "${parts[0]}:${parts[1]}";
           final version = parts[2];
-          
+
           final existing = allLibsMap[artifactId];
           if (existing == null) {
             allLibsMap[artifactId] = lib;
@@ -287,7 +317,8 @@ class LaunchService {
         }
         merged['libraries'] = allLibsMap.values.toList();
       } else if (k == "arguments") {
-        final parentArgs = parentData['arguments'] as Map<String, dynamic>? ?? {};
+        final parentArgs =
+            parentData['arguments'] as Map<String, dynamic>? ?? {};
         final childArgs = v as Map<String, dynamic>;
         final Map<String, dynamic> mergedArgs = {};
         for (var field in ["game", "jvm"]) {
@@ -303,12 +334,14 @@ class LaunchService {
     return merged;
   }
 
-  bool _matchRule(Map<String, dynamic> rule) {
+  bool _matchRule(Map<String, dynamic> rule, {int? javaVersion}) {
     final osRule = rule['os'] as Map<String, dynamic>?;
     if (osRule != null) {
       final name = osRule['name'];
       if (name != null) {
-        final currentOs = Platform.isWindows ? "windows" : (Platform.isMacOS ? "osx" : "linux");
+        final currentOs = Platform.isWindows
+            ? "windows"
+            : (Platform.isMacOS ? "osx" : "linux");
         if (name != currentOs) return false;
       }
       final arch = osRule['arch'] as String?;
@@ -324,30 +357,38 @@ class LaunchService {
         }
 
         if (arch == "x86" && currentArch == "x64") {
-           return false;
+          return false;
         }
         if (arch != currentArch) return false;
       }
       final versionRegex = osRule['version'] as String?;
-      if (versionRegex != null) {
-      }
+      if (versionRegex != null) {}
     }
-    
+
     final features = rule['features'] as Map<String, dynamic>?;
     if (features != null) {
-      for (var required in features.values) {
-        if (required == true) return false;
+      for (var entry in features.entries) {
+        final featureName = entry.key;
+        final required = entry.value;
+
+        if (featureName == 'is_java_23') {
+          if ((javaVersion ?? 0) < 23 && required == true) return false;
+          if ((javaVersion ?? 0) >= 23 && required == false) return false;
+        } else if (required == true) {
+          // General fallback for unknown features
+          return false;
+        }
       }
     }
-    
+
     return true;
   }
 
-  bool _rulesAllow(List? rules) {
+  bool _rulesAllow(List? rules, {int? javaVersion}) {
     if (rules == null || rules.isEmpty) return true;
     bool allowed = false;
     for (var rule in rules) {
-      if (_matchRule(rule as Map<String, dynamic>)) {
+      if (_matchRule(rule as Map<String, dynamic>, javaVersion: javaVersion)) {
         allowed = rule['action'] == 'allow';
       }
     }
@@ -360,19 +401,26 @@ class LaunchService {
     return p.join(minecraftDir, relPath);
   }
 
-  Future<String> buildClasspath(String minecraftDir, Map<String, dynamic> versionData, {Function(double)? onProgress}) async {
+  Future<String> buildClasspath(
+    String minecraftDir,
+    Map<String, dynamic> versionData, {
+    Function(double)? onProgress,
+  }) async {
     final libraries = versionData['libraries'] as List? ?? [];
     final List<String> cpEntries = [];
-    
+
     int processed = 0;
     for (var lib in libraries) {
       if (!_rulesAllow(lib['rules'])) continue;
-      
-      final libPath = _getLibraryPath(minecraftDir, lib as Map<String, dynamic>);
+
+      final libPath = _getLibraryPath(
+        minecraftDir,
+        lib as Map<String, dynamic>,
+      );
       if (libPath.isNotEmpty && await File(libPath).exists()) {
         cpEntries.add(libPath);
       }
-      
+
       processed++;
       if (onProgress != null && libraries.isNotEmpty) {
         onProgress(processed / libraries.length);
@@ -412,12 +460,18 @@ class LaunchService {
     return result;
   }
 
-  Future<void> _extractNatives(String zipPath, String extractTo, List<dynamic>? excludes) async {
+  Future<void> _extractNatives(
+    String zipPath,
+    String extractTo,
+    List<dynamic>? excludes,
+  ) async {
     try {
       final bytes = await File(zipPath).readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
-      final excludeList = excludes?.map((e) => e.toString().replaceAll('\\', '/')).toList() ?? [];
-      
+      final excludeList =
+          excludes?.map((e) => e.toString().replaceAll('\\', '/')).toList() ??
+          [];
+
       for (final file in archive) {
         if (file.isFile) {
           final fileName = file.name.replaceAll('\\', '/');
@@ -431,7 +485,10 @@ class LaunchService {
           if (isExcluded) continue;
 
           final name = p.basename(file.name);
-          if (name.endsWith(".dll") || name.endsWith(".so") || name.endsWith(".dylib") || name.contains("lwjgl")) {
+          if (name.endsWith(".dll") ||
+              name.endsWith(".so") ||
+              name.endsWith(".dylib") ||
+              name.contains("lwjgl")) {
             final data = file.content as List<int>;
             final outFile = File(p.join(extractTo, name));
             await outFile.create(recursive: true);
@@ -455,7 +512,10 @@ class LaunchService {
     return p.join(Directory.systemTemp.path, ".minecraft");
   }
 
-  Future<List<String>> getAvailableVersions(String minecraftDir, {String? query}) async {
+  Future<List<String>> getAvailableVersions(
+    String minecraftDir, {
+    String? query,
+  }) async {
     final versionsDir = Directory(p.join(minecraftDir, "versions"));
     if (!await versionsDir.exists()) return [];
 
@@ -467,7 +527,9 @@ class LaunchService {
           final id = p.basename(entity.path);
           final jsonFile = File(p.join(entity.path, "$id.json"));
           if (await jsonFile.exists()) {
-            if (query == null || query.isEmpty || id.toLowerCase().contains(query.toLowerCase())) {
+            if (query == null ||
+                query.isEmpty ||
+                id.toLowerCase().contains(query.toLowerCase())) {
               versions.add(id);
             }
           }
@@ -479,27 +541,27 @@ class LaunchService {
     return versions;
   }
 
-  Future<List<Map<String, String>>> getAllAvailableVersions({String? query}) async {
+  Future<List<Map<String, String>>> getAllAvailableVersions({
+    String? query,
+  }) async {
     final List<dynamic> dirsRaw = ConfigService.get('minecraft_dirs') ?? [];
     final List<String> dirs = List<String>.from(dirsRaw);
     final List<Map<String, String>> allVersions = [];
-    
+
     // 1. Scan Minecraft versions
     for (var dir in dirs) {
       final versions = await getAvailableVersions(dir, query: query);
       for (var v in versions) {
-        allVersions.add({
-          "id": v,
-          "directory": dir,
-          "type": "minecraft",
-        });
+        allVersions.add({"id": v, "directory": dir, "type": "minecraft"});
       }
     }
 
     // 2. Add Custom Apps
     final customApps = ExternalAppService.instance.getCustomApps();
     for (var app in customApps) {
-      if (query == null || query.isEmpty || app.name.toLowerCase().contains(query.toLowerCase())) {
+      if (query == null ||
+          query.isEmpty ||
+          app.name.toLowerCase().contains(query.toLowerCase())) {
         allVersions.add({
           "id": app.name,
           "appId": app.id,
@@ -513,7 +575,10 @@ class LaunchService {
     return allVersions;
   }
 
-  Future<List<Map<String, dynamic>>> getMissingFiles(String minecraftDir, String versionId) async {
+  Future<List<Map<String, dynamic>>> getMissingFiles(
+    String minecraftDir,
+    String versionId,
+  ) async {
     final versionData = await loadMergedVersionJson(minecraftDir, versionId);
     final List<Map<String, dynamic>> missing = [];
 
@@ -521,10 +586,10 @@ class LaunchService {
     final clientJarName = versionData['jar'] ?? versionId;
     final relativeJarPath = p.join('versions', versionId, '$versionId.jar');
     final clientJar = p.join(minecraftDir, relativeJarPath);
-    
+
     final downloads = versionData['downloads'] as Map<String, dynamic>?;
     final clientInfo = downloads?['client'] as Map<String, dynamic>?;
-    
+
     if (!await File(clientJar).exists()) {
       missing.add({
         "type": "jar",
@@ -542,10 +607,10 @@ class LaunchService {
     for (var lib in libraries) {
       final libData = lib as Map<String, dynamic>;
       if (!_rulesAllow(libData['rules'])) continue;
-      
+
       final libName = libData['name'] as String?;
       if (libName == null) continue;
-      
+
       final relPath = _getLibraryRelativePath(libData);
       final libPath = p.join(minecraftDir, relPath);
       final libDownloads = libData['downloads'] as Map<String, dynamic>?;
@@ -557,22 +622,32 @@ class LaunchService {
           "id": libName,
           "path": libPath,
           "relativePath": relPath,
-          "url": artifact?['url'] ?? (libData['url'] != null ? "${libData['url']}${relPath.replaceAll(p.separator, '/')}" : null),
+          "url":
+              artifact?['url'] ??
+              (libData['url'] != null
+                  ? "${libData['url']}${relPath.replaceAll(p.separator, '/')}"
+                  : null),
           "sha1": artifact?['sha1'],
           "size": artifact?['size'],
         });
       }
-      
+
       // Natives Classifier
-      final currentOs = Platform.isWindows ? "windows" : (Platform.isMacOS ? "osx" : "linux");
+      final currentOs = Platform.isWindows
+          ? "windows"
+          : (Platform.isMacOS ? "osx" : "linux");
       final natives = libData['natives'] as Map<String, dynamic>?;
       if (natives != null && natives.containsKey(currentOs)) {
         final classifier = natives[currentOs].replaceAll("\${arch}", "64");
-        final classifiers = libDownloads?['classifiers'] as Map<String, dynamic>?;
-        final nativeArtifact = classifiers?[classifier] as Map<String, dynamic>?;
-        
+        final classifiers =
+            libDownloads?['classifiers'] as Map<String, dynamic>?;
+        final nativeArtifact =
+            classifiers?[classifier] as Map<String, dynamic>?;
+
         if (nativeArtifact != null) {
-          final nativeRelPath = nativeArtifact['path'] ?? _getMavenArtifactPath(libName, classifier: classifier);
+          final nativeRelPath =
+              nativeArtifact['path'] ??
+              _getMavenArtifactPath(libName, classifier: classifier);
           final nativePath = p.join(minecraftDir, nativeRelPath);
           if (!await File(nativePath).exists()) {
             missing.add({
@@ -594,9 +669,13 @@ class LaunchService {
     final assetIndex = versionData['assetIndex'];
     if (assetIndex != null && assetIndex['id'] != null) {
       final assetIndexId = assetIndex['id'];
-      final relativeIndexPath = p.join("assets", "indexes", "$assetIndexId.json");
+      final relativeIndexPath = p.join(
+        "assets",
+        "indexes",
+        "$assetIndexId.json",
+      );
       final assetIndexPath = p.join(minecraftDir, relativeIndexPath);
-      
+
       if (!await File(assetIndexPath).exists()) {
         missing.add({
           "type": "asset_index",
@@ -613,22 +692,28 @@ class LaunchService {
           final indexContent = await File(assetIndexPath).readAsString();
           final indexData = jsonDecode(indexContent);
           final objects = indexData['objects'] as Map<String, dynamic>? ?? {};
-          
+
           for (var entry in objects.entries) {
             final assetMeta = entry.value as Map<String, dynamic>;
             final hash = assetMeta['hash'] as String?;
             if (hash == null) continue;
-            
-            final relObjPath = p.join("assets", "objects", hash.substring(0, 2), hash);
+
+            final relObjPath = p.join(
+              "assets",
+              "objects",
+              hash.substring(0, 2),
+              hash,
+            );
             final objPath = p.join(minecraftDir, relObjPath);
-            
+
             if (!await File(objPath).exists()) {
               missing.add({
                 "type": "asset_object",
                 "id": entry.key,
                 "path": objPath,
                 "relativePath": relObjPath,
-                "url": "https://resources.download.minecraft.net/${hash.substring(0, 2)}/$hash",
+                "url":
+                    "https://resources.download.minecraft.net/${hash.substring(0, 2)}/$hash",
                 "sha1": hash,
                 "size": assetMeta['size'],
               });
@@ -656,18 +741,30 @@ class LaunchService {
     return _getMavenArtifactPath(name);
   }
 
-  String _getMavenArtifactPath(String name, {String? classifier, String extension = "jar"}) {
+  String _getMavenArtifactPath(
+    String name, {
+    String? classifier,
+    String extension = "jar",
+  }) {
     final parts = name.split(":");
     if (parts.length < 3) return "";
     final group = parts[0].replaceAll(".", p.separator);
     final artifact = parts[1];
     final version = parts[2];
-    final filename = "$artifact-$version${classifier != null ? "-$classifier" : ""}.$extension";
+    final filename =
+        "$artifact-$version${classifier != null ? "-$classifier" : ""}.$extension";
     return p.join("libraries", group, artifact, version, filename);
   }
 
-  Future<void> downloadMissingFiles(String minecraftDir, String versionId, {Function(String status, double progress)? onStatus}) async {
-    List<Map<String, dynamic>> missing = await getMissingFiles(minecraftDir, versionId);
+  Future<void> downloadMissingFiles(
+    String minecraftDir,
+    String versionId, {
+    Function(String status, double progress)? onStatus,
+  }) async {
+    List<Map<String, dynamic>> missing = await getMissingFiles(
+      minecraftDir,
+      versionId,
+    );
     if (missing.isEmpty) {
       onStatus?.call("All files are complete".tl, 1.0);
       return;
@@ -675,74 +772,90 @@ class LaunchService {
 
     bool indexDownloaded = false;
     int totalDownloaded = 0;
-    
+
     while (missing.isNotEmpty) {
       onStatus?.call("Completing files (${missing.length} pending)...".tl, 0.0);
-      
+
       final List<DownloadItem> items = [];
       for (var m in missing) {
         if (m['url'] == null) continue;
-        items.add(DownloadItem(
-          id: m['id'],
-          url: m['url'],
-          savePath: m['relativePath'],
-          sha1: m['sha1'],
-        ));
+        items.add(
+          DownloadItem(
+            id: m['id'],
+            url: m['url'],
+            savePath: m['relativePath'],
+            sha1: m['sha1'],
+          ),
+        );
         if (m['type'] == 'asset_index') indexDownloaded = true;
       }
 
       if (items.isEmpty) break;
-      
-      await DownloadService.instance.downloadBatch(items, Directory(minecraftDir));
+
+      await DownloadService.instance.downloadBatch(
+        items,
+        Directory(minecraftDir),
+      );
       totalDownloaded += items.length;
-      
+
       // If index was downloaded, need to re-scan objects
       if (indexDownloaded) {
-        indexDownloaded = false; 
+        indexDownloaded = false;
         missing = await getMissingFiles(minecraftDir, versionId);
       } else {
-        break; 
+        break;
       }
     }
-    
+
     onStatus?.call("Completed $totalDownloaded files".tl, 1.0);
   }
 
   Future<Process> launch({
     required String version,
     required String minecraftDir,
+    bool killOnExit = false,
     Function(String status, double progress)? onStatus,
   }) async {
-    // 1. Repair metadata and configuration files
     onStatus?.call("Checking version metadata...".tl, 0.0);
     await repairBlJson(minecraftDir);
     await _ensureLauncherProfile(minecraftDir);
 
-    // 2. Complete missing files
     onStatus?.call("Checking game integrity...".tl, 0.02);
-    await downloadMissingFiles(minecraftDir, version, onStatus: (s, p) => onStatus?.call(s, 0.02 + p * 0.03));
+    await downloadMissingFiles(
+      minecraftDir,
+      version,
+      onStatus: (s, p) => onStatus?.call(s, 0.02 + p * 0.03),
+    );
 
     onStatus?.call("Loading version configuration...".tl, 0.05);
     final versionData = await loadMergedVersionJson(minecraftDir, version);
-    
+
     onStatus?.call("Verifying Java environment...".tl, 0.1);
     String? javaPath;
     String javaVersionStr = ConfigService.get("java_version") ?? "8";
 
-    final String selectionMode = ConfigService.get('java_selection_mode') ?? "auto";
-    
+    final String selectionMode =
+        ConfigService.get('java_selection_mode') ?? "auto";
+
     if (selectionMode == "auto") {
       final String? cachedJava = ConfigService.get('detected_java_list');
       if (cachedJava != null) {
         try {
-          final List<Map<String, String>> detectedJavas = (jsonDecode(cachedJava) as List)
-              .map((e) => Map<String, String>.from(e))
-              .toList();
-          final bestMatch = JavaConfig.findBestJavaMatch(version, detectedJavas);
+          final List<Map<String, String>> detectedJavas =
+              (jsonDecode(cachedJava) as List)
+                  .map((e) => Map<String, String>.from(e))
+                  .toList();
+          final bestMatch = JavaConfig.findBestJavaMatch(
+            version,
+            detectedJavas,
+          );
           if (bestMatch != null) {
             javaPath = bestMatch['path'];
             javaVersionStr = bestMatch['version'] ?? "8";
-            logger.info("Auto-selected Java for $version: ${bestMatch['detail']} at $javaPath", LogSource.system);
+            logger.info(
+              "Auto-selected Java for $version: ${bestMatch['detail']} at $javaPath",
+              LogSource.system,
+            );
           }
         } catch (e) {
           logger.error("Auto Java selection failed: $e", LogSource.system);
@@ -756,30 +869,50 @@ class LaunchService {
     }
 
     if (javaPath == null || javaPath.isEmpty) {
-      throw Exception("Java path not configured, please select or auto-detect in settings.");
+      throw Exception(
+        "Java path not configured, please select or auto-detect in settings.",
+      );
     }
-    
-    String javaExe = p.join(javaPath, 'bin', Platform.isWindows ? 'java.exe' : 'java');
+
+    String javaExe = p.join(
+      javaPath,
+      'bin',
+      Platform.isWindows ? 'java.exe' : 'java',
+    );
     if (!await File(javaExe).exists()) {
-      if (await File(javaPath).exists() && (javaPath.toLowerCase().endsWith("java.exe") || javaPath.toLowerCase().endsWith("java"))) {
+      if (await File(javaPath).exists() &&
+          (javaPath.toLowerCase().endsWith("java.exe") ||
+              javaPath.toLowerCase().endsWith("java"))) {
         javaExe = javaPath;
       } else {
-        throw Exception("Java executable does not exist: $javaExe\nPlease ensure the Java path in settings is a correct JDK/JRE root directory or points directly to the java executable.");
+        // If selection failed in auto mode, clear invalid cache
+        if (selectionMode == "auto") {
+          ConfigService.set('detected_java_list', null);
+          throw Exception(
+            "The selected Java path no longer exists: $javaPath\nAuto-detection cache has been cleared. Please try again or re-scan in settings."
+                .tl,
+          );
+        }
+        throw Exception(
+          "Java executable does not exist: $javaExe\nPlease ensure the Java path in settings is a correct JDK/JRE root directory or points directly to the java executable."
+              .tl,
+        );
       }
     }
 
     final int javaVersion = int.tryParse(javaVersionStr) ?? 8;
 
     onStatus?.call("Loading account information...".tl, 0.15);
-    final List<dynamic> accountListRaw = ConfigService.get("MinecraftAccountList") ?? [];
+    final List<dynamic> accountListRaw =
+        ConfigService.get("MinecraftAccountList") ?? [];
     final int chosenIndex = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
-    
+
     if (accountListRaw.isEmpty || chosenIndex >= accountListRaw.length) {
       throw Exception("No valid account found, please log in first.");
     }
 
-    final Map<String, dynamic> account = accountListRaw[chosenIndex] is String 
-        ? jsonDecode(accountListRaw[chosenIndex]) 
+    final Map<String, dynamic> account = accountListRaw[chosenIndex] is String
+        ? jsonDecode(accountListRaw[chosenIndex])
         : accountListRaw[chosenIndex];
     final String username = account['username'] ?? "BloretPlayer";
     final String uuid = account['uuid'] ?? "00000000000000000000000000000000";
@@ -789,18 +922,37 @@ class LaunchService {
     final bool isMicrosoft = account['type'] == "Microsoft";
 
     onStatus?.call("Scanning library files...".tl, 0.2);
-    final cp = await buildClasspath(minecraftDir, versionData, onProgress: (p) {
-      onStatus?.call("Scanning library files ($version)...".tl, 0.2 + (p * 0.3));
-    });
+    final cp = await buildClasspath(
+      minecraftDir,
+      versionData,
+      onProgress: (p) {
+        onStatus?.call(
+          "Scanning library files ($version)...".tl,
+          0.2 + (p * 0.3),
+        );
+      },
+    );
 
     final clientJarName = versionData['jar'] ?? version;
-    final clientJar = p.join(minecraftDir, 'versions', clientJarName, '$clientJarName.jar');
+    final clientJar = p.join(
+      minecraftDir,
+      'versions',
+      clientJarName,
+      '$clientJarName.jar',
+    );
     if (!await File(clientJar).exists()) {
-      throw Exception("Game core JAR not found: $clientJar\nPlease check if this version is fully installed.");
+      throw Exception(
+        "Game core JAR not found: $clientJar\nPlease check if this version is fully installed.",
+      );
     }
 
     final fullClasspath = '$clientJar${Platform.isWindows ? ';' : ':'}$cp';
-    final nativesDir = p.join(minecraftDir, "versions", version, "$version-natives");
+    final nativesDir = p.join(
+      minecraftDir,
+      "versions",
+      version,
+      "$version-natives",
+    );
     if (!await Directory(nativesDir).exists()) {
       await Directory(nativesDir).create(recursive: true);
     }
@@ -810,7 +962,10 @@ class LaunchService {
     for (var lib in libraries) {
       if (!_rulesAllow(lib['rules'])) continue;
       if (lib['natives'] != null || lib['extract'] != null) {
-        final libPath = _getLibraryPath(minecraftDir, lib as Map<String, dynamic>);
+        final libPath = _getLibraryPath(
+          minecraftDir,
+          lib as Map<String, dynamic>,
+        );
         if (libPath.isNotEmpty && await File(libPath).exists()) {
           final excludes = lib['extract']?['exclude'] as List<dynamic>?;
           await _extractNatives(libPath, nativesDir, excludes);
@@ -834,9 +989,12 @@ class LaunchService {
       "version_name": version,
       "game_directory": p.join(minecraftDir, "versions", version),
       "assets_root": p.join(minecraftDir, "assets"),
-      "assets_index_name": (versionData['assetIndex']?['id'] ?? version).toString(),
+      "assets_index_name": (versionData['assetIndex']?['id'] ?? version)
+          .toString(),
       "auth_uuid": uuid,
-      "auth_access_token": isMicrosoft ? accessToken : "00000000000000000000000000000000",
+      "auth_access_token": isMicrosoft
+          ? accessToken
+          : "00000000000000000000000000000000",
       "user_type": isMicrosoft ? "msa" : "legacy",
       "version_type": "BloraLauncher-Flutter",
       "clientid": clientId,
@@ -846,7 +1004,6 @@ class LaunchService {
 
     final List<String> args = [];
 
-    // JVM Args
     final int minMem = ConfigService.get('java_min_memory') ?? 512;
     final int maxMem = ConfigService.get('java_max_memory') ?? 4096;
     args.addAll(["-Xms${minMem}M", "-Xmx${maxMem}M"]);
@@ -855,12 +1012,7 @@ class LaunchService {
       args.add("-XstartOnFirstThread");
     }
 
-    // Matching launch.py's launcher_jvm_args
     args.addAll([
-      "-Djava.library.path=$nativesDir",
-      "-Djna.tmpdir=$nativesDir",
-      "-Dorg.lwjgl.system.SharedLibraryExtractPath=$nativesDir",
-      "-Dio.netty.native.workdir=$nativesDir",
       "-Dminecraft.launcher.brand=BloraLauncher-Flutter",
       "-Dminecraft.launcher.version=361",
       "-Doolloo.jlw.tmpdir=$tempDir",
@@ -910,13 +1062,14 @@ class LaunchService {
       args.add("--enable-native-access=ALL-UNNAMED");
     }
 
+    // 4. Load JVM Arguments from version JSON (Modern 1.13+)
     final jvmArguments = versionData['arguments']?['jvm'] as List?;
     if (jvmArguments != null) {
       for (final entry in jvmArguments) {
         if (entry is String) {
           args.add(_replaceVariables(entry, variables));
         } else if (entry is Map<String, dynamic>) {
-          if (_rulesAllow(entry['rules'])) {
+          if (_rulesAllow(entry['rules'], javaVersion: javaVersion)) {
             final value = entry['value'];
             if (value is String) {
               args.add(_replaceVariables(value, variables));
@@ -929,15 +1082,24 @@ class LaunchService {
         }
       }
     } else {
+      // Old version (1.12.2 and below) fallback
       args.add("-Djava.library.path=${variables['natives_directory']}");
+      args.add("-Djna.tmpdir=${variables['natives_directory']}");
+      args.add(
+        "-Dorg.lwjgl.system.SharedLibraryExtractPath=${variables['natives_directory']}",
+      );
+      args.add("-Dio.netty.native.workdir=${variables['natives_directory']}");
       args.add("-cp");
       args.add(variables['classpath']!);
     }
 
-    // Fabric / Forge support
-    final libraryNames = (versionData['libraries'] as List? ?? []).map((e) => e['name'].toString().toLowerCase()).toList();
-    final bool isFabric = version.toLowerCase().contains("fabric") || libraryNames.any((name) => name.contains("fabric"));
-    final bool isForge = version.toLowerCase().contains("forge") || libraryNames.any((name) => name.contains("forge") || name.contains("neoforged"));
+    // 5. Fabric / Forge support
+    final libraryNames = (versionData['libraries'] as List? ?? [])
+        .map((e) => e['name'].toString().toLowerCase())
+        .toList();
+    final bool isFabric =
+        version.toLowerCase().contains("fabric") ||
+        libraryNames.any((name) => name.contains("fabric"));
 
     if (isFabric) {
       args.add("-DFabricMcEmu=net.minecraft.client.main.Main");
@@ -945,24 +1107,25 @@ class LaunchService {
       if (await Directory(modsDir).exists()) {
         args.add("-Dfabric.addMods=$modsDir");
       }
-    } else if (isForge) {
-      // Forge usually handles itself via its own main class and libraries
     }
 
-    // Main Class
-    final mainClass = versionData['mainClass'] ?? "net.minecraft.client.main.Main";
+    // 6. Main Class
+    final mainClass =
+        versionData['mainClass'] ?? "net.minecraft.client.main.Main";
     args.add(mainClass);
 
-    // Game Args
+    // 7. Game Args
     final gameArguments = versionData['arguments']?['game'] as List?;
-    String templateText = jsonEncode(gameArguments ?? versionData['minecraftArguments'] ?? "");
-    
+    String templateText = jsonEncode(
+      gameArguments ?? versionData['minecraftArguments'] ?? "",
+    );
+
     if (gameArguments != null) {
       for (final entry in gameArguments) {
         if (entry is String) {
           args.add(_replaceVariables(entry, variables));
         } else if (entry is Map<String, dynamic>) {
-          if (_rulesAllow(entry['rules'])) {
+          if (_rulesAllow(entry['rules'], javaVersion: javaVersion)) {
             final value = entry['value'];
             if (value is String) {
               args.add(_replaceVariables(value, variables));
@@ -982,18 +1145,31 @@ class LaunchService {
       }
     }
 
-    // Explicitly add clientId/xuid if needed (matching launch.py)
+    // 8. Microsoft Account Extras
     if (isMicrosoft) {
-      if (templateText.contains("\${clientid}") && clientId.isNotEmpty && !args.contains("--clientId")) {
+      if (templateText.contains("\${clientid}") &&
+          clientId.isNotEmpty &&
+          !args.contains("--clientId")) {
         args.addAll(["--clientId", clientId]);
       }
-      if (templateText.contains("\${auth_xuid}") && xuid.isNotEmpty && !args.contains("--xuid")) {
+      if (templateText.contains("\${auth_xuid}") &&
+          xuid.isNotEmpty &&
+          !args.contains("--xuid")) {
         args.addAll(["--xuid", xuid]);
       }
     }
 
+    logger.info("Launch arguments: ${args.join(' ')}", LogSource.system);
+
     onStatus?.call("Launching Minecraft...".tl, 0.95);
-    return await Process.start(javaExe, args, workingDirectory: variables['game_directory']);
+    return await Process.start(
+      javaExe,
+      args,
+      workingDirectory: variables['game_directory'],
+      mode: killOnExit
+          ? ProcessStartMode.normal
+          : ProcessStartMode.detachedWithStdio,
+    );
   }
 
   Future<bool> isVersionComplete(String minecraftDir, String versionId) async {

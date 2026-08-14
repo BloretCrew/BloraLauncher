@@ -3,28 +3,29 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:dio/dio.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher_string.dart';
 
-import '../core/i18n.dart';
-import '../core/logger.dart';
+import '../core/ffi_proxy.dart';
 import '../core/global.dart';
 import '../core/grammer_candy.dart';
-import '../core/ffi_proxy.dart';
+import '../core/i18n.dart';
+import '../core/logger.dart';
 import '../main.dart';
 import '../services/bloriko.dart';
 import '../services/config_service.dart';
+import '../services/external_app_service.dart';
 import '../services/launch_service.dart';
 import '../services/passport_service.dart';
 import '../services/stats_service.dart';
-import '../services/external_app_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/button.dart';
+import '../widgets/process_picker_dialog.dart';
 import '../widgets/sliding_text.dart';
 
 enum HomeState { normal, launching, running }
@@ -69,16 +70,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   String? _launchError;
   final ScrollController _logScrollController = ScrollController();
 
-  bool get _anyCrashed => CoreManager.instance.runningCores.any((c) => (c.exitCode ?? 0) != 0 && !c.isManuallyTerminated);
+  bool get _anyCrashed => CoreManager.instance.runningCores.any(
+    (c) => (c.exitCode ?? 0) != 0 && !c.isManuallyTerminated,
+  );
 
-  bool get _isChinese => ConfigService.getLanguage().toLowerCase().startsWith("zh");
+  bool get _isChinese =>
+      ConfigService.getLanguage().toLowerCase().startsWith("zh");
 
   bool get _showTranslatedTips => TranslationStore.showTranslated;
   List<String>? get _translatedSentences => TranslationStore.translatedTips;
   bool _isTranslating = false;
 
   bool get _showTranslatedServer => TranslationStore.showTranslated;
-  String? get _translatedServerBestTime => TranslationStore.translatedServerBestTime;
+  String? get _translatedServerBestTime =>
+      TranslationStore.translatedServerBestTime;
   String? get _translatedServerText => TranslationStore.translatedServerText;
   bool _apiAvailable = false;
 
@@ -86,16 +91,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     for (int i = 0; i < 5; i++) {
       try {
         final dio = Dio();
-        final response = await dio.get(
-          "https://translate.googleapis.com/translate_a/single",
-          queryParameters: {
-            "client": "gtx",
-            "sl": "auto",
-            "tl": "zh-CN",
-            "dt": "t",
-            "q": "ping",
-          },
-        ).timeout(const Duration(seconds: 3));
+        final response = await dio
+            .get(
+              "https://translate.googleapis.com/translate_a/single",
+              queryParameters: {
+                "client": "gtx",
+                "sl": "auto",
+                "tl": "zh-CN",
+                "dt": "t",
+                "q": "ping",
+              },
+            )
+            .timeout(const Duration(seconds: 3));
 
         if (mounted) {
           setState(() {
@@ -146,7 +153,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // Robust restoration function that handles spaces and case changes
         String restore(String content, String placeholder, String brand) {
           final escaped = placeholder.replaceAll('_', r'[_ ]*');
-          return content.replaceAll(RegExp(escaped, caseSensitive: false), brand);
+          return content.replaceAll(
+            RegExp(escaped, caseSensitive: false),
+            brand,
+          );
         }
 
         result = restore(result, "___BLORET_P___", "Bloret");
@@ -166,7 +176,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _toggleTranslation() async {
     // If translations exist and match current state, just toggle visibility
     bool langMatch = TranslationStore.lastLang == ConfigService.getLanguage();
-    bool tipsMatch = _translatedSentences != null && _translatedSentences!.length == sentences.length && TranslationStore.lastTipsHash == sentences.hashCode;
+    bool tipsMatch =
+        _translatedSentences != null &&
+        _translatedSentences!.length == sentences.length &&
+        TranslationStore.lastTipsHash == sentences.hashCode;
     bool serverMatch = _translatedServerBestTime != null;
 
     if (langMatch && tipsMatch && serverMatch) {
@@ -197,12 +210,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         if (server?.text != null) {
           serverTasks.add(_googleTranslate(server!.text));
         }
-        
+
         if (serverTasks.isNotEmpty) {
           final results = await Future.wait(serverTasks);
           int idx = 0;
-          if (server?.bestTime != null) TranslationStore.translatedServerBestTime = results[idx++];
-          if (server?.text != null) TranslationStore.translatedServerText = results[idx++];
+          if (server?.bestTime != null)
+            TranslationStore.translatedServerBestTime = results[idx++];
+          if (server?.text != null)
+            TranslationStore.translatedServerText = results[idx++];
         }
       }());
 
@@ -219,17 +234,33 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   void _onLanguageChanged() {
-    if (TranslationStore.showTranslated && TranslationStore.translatedTips == null && !_isTranslating) {
+    if (TranslationStore.showTranslated &&
+        TranslationStore.translatedTips == null &&
+        !_isTranslating) {
       _toggleTranslation();
     }
   }
 
-  Widget _buildTranslateButton({required bool isTranslating, required VoidCallback onPressed, required bool isTranslated}) {
+  Widget _buildTranslateButton({
+    required bool isTranslating,
+    required VoidCallback onPressed,
+    required bool isTranslated,
+  }) {
     return IconButton(
       onPressed: isTranslating ? null : onPressed,
       icon: isTranslating
-          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-          : Icon(isTranslated ? Icons.translate : Icons.translate_outlined, size: 16, color: isTranslated ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline),
+          ? const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(
+              isTranslated ? Icons.translate : Icons.translate_outlined,
+              size: 16,
+              color: isTranslated
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.outline,
+            ),
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(),
       visualDensity: VisualDensity.compact,
@@ -238,10 +269,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   void _parseLogForProgress(String line) {
-    if (line.contains("FabricLoader") || line.contains("Forge Mod Loader") || line.contains("NeoForge")) {
+    if (line.contains("FabricLoader") ||
+        line.contains("Forge Mod Loader") ||
+        line.contains("NeoForge")) {
       _updateLaunchInfo("Initializing mod loader...".tl, 0.1);
     } else if (line.contains("Setting user:")) {
-      _updateLaunchInfo("Verifying identity and preparing environment...".tl, 0.2);
+      _updateLaunchInfo(
+        "Verifying identity and preparing environment...".tl,
+        0.2,
+      );
     } else if (line.contains("Initializing Game")) {
       _updateLaunchInfo("Initializing game engine...".tl, 0.3);
     } else if (line.contains("OpenAL initialized")) {
@@ -252,7 +288,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _updateLaunchInfo("Creating game window...".tl, 0.65);
     } else if (line.contains("Reloading ResourceManager")) {
       _updateLaunchInfo("Loading resource packs and data packs...".tl, 0.8);
-    } else if (line.contains("ModelManager") || line.contains("Building models")) {
+    } else if (line.contains("ModelManager") ||
+        line.contains("Building models")) {
       _updateLaunchInfo("Rendering 3D models...".tl, 0.88);
     } else if (line.contains("TextureAtlas") || line.contains("Stitching")) {
       _updateLaunchInfo("Optimizing textures...".tl, 0.95);
@@ -274,7 +311,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _checkApi();
     _loadSelectedVersion();
     I18n.instance.addListener(_onLanguageChanged);
-    
+
     // Resume selected core if any exists in manager
     if (CoreManager.instance.runningCores.isNotEmpty) {
       _selectedCore = CoreManager.instance.runningCores.last;
@@ -302,7 +339,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         setState(() {
           sentences.clear();
           sentences.addAll(config!.blTips);
-          TranslationStore.translatedTips = null; // Reset translations if source changes
+          TranslationStore.translatedTips =
+              null; // Reset translations if source changes
           TranslationStore.lastTipsHash = null;
         });
       } else {
@@ -347,13 +385,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             }
 
             final currentCpuTime = WinProcess.getCpuTime(pid);
-            if (currentCpuTime == 0 && core.lastCpuTime != 0) {
-
-            }
+            if (currentCpuTime == 0 && core.lastCpuTime != 0) {}
             final deltaCpuTime = currentCpuTime - core.lastCpuTime;
-            final deltaTimeMs = now.difference(core.lastCpuTimestamp).inMilliseconds;
+            final deltaTimeMs = now
+                .difference(core.lastCpuTimestamp)
+                .inMilliseconds;
 
-            double cpuPercent = (deltaCpuTime / 10000.0) / (deltaTimeMs * coreCount);
+            double cpuPercent =
+                (deltaCpuTime / 10000.0) / (deltaTimeMs * coreCount);
             cpuPercent = cpuPercent.clamp(0.0, 1.0);
 
             core.lastCpuTime = currentCpuTime;
@@ -381,7 +420,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _selectedVersionDir = ConfigService.get("selected_version_dir");
     _selectedType = ConfigService.get("selected_type") ?? "minecraft";
     _selectedAppId = ConfigService.get("selected_app_id");
-    
+
     if (_selectedVersion == null && _selectedType == "minecraft") {
       // Try to pick first available
       LaunchService.instance.getAllAvailableVersions().then((versions) {
@@ -425,7 +464,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           children: [
             Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Text("Select Core".tl, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              child: Text(
+                "Select Core".tl,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
             const Divider(height: 1),
             Expanded(
@@ -433,8 +478,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 children: grouped.entries.map((entry) {
                   final type = entry.key;
                   final typeVersions = entry.value;
-                  final typeLabel = type == "minecraft" ? "Minecraft Versions".tl : "External Applications".tl;
-                  final typeIcon = type == "minecraft" ? Icons.layers_outlined : Icons.apps_outlined;
+                  final typeLabel = type == "minecraft"
+                      ? "Minecraft Versions".tl
+                      : "External Applications".tl;
+                  final typeIcon = type == "minecraft"
+                      ? Icons.layers_outlined
+                      : Icons.apps_outlined;
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -443,9 +492,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                         child: Row(
                           children: [
-                            Icon(typeIcon, size: 16, color: Theme.of(context).colorScheme.primary),
+                            Icon(
+                              typeIcon,
+                              size: 16,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
                             const SizedBox(width: 8),
-                            Text(typeLabel, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+                            Text(
+                              typeLabel,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -455,34 +515,73 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         final appId = v['appId'];
                         final icon = v['icon'];
 
-                        final isSelected = type == "minecraft" 
-                            ? (versionId == _selectedVersion && directory == _selectedVersionDir)
+                        final isSelected = type == "minecraft"
+                            ? (versionId == _selectedVersion &&
+                                  directory == _selectedVersionDir)
                             : (appId == _selectedAppId);
-                        
+
                         Widget? leading;
                         if (type == "minecraft") {
-                          final iconPath = p.join(directory, "versions", versionId, "icon.png");
+                          final iconPath = p.join(
+                            directory,
+                            "versions",
+                            versionId,
+                            "icon.png",
+                          );
                           final iconFile = File(iconPath);
                           if (iconFile.existsSync()) {
                             leading = ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.file(iconFile, width: 32, height: 32, fit: BoxFit.cover),
+                              child: Image.file(
+                                iconFile,
+                                width: 32,
+                                height: 32,
+                                fit: BoxFit.cover,
+                              ),
                             );
                           }
                         } else {
-                          if (icon != null && icon.isNotEmpty && File(icon).existsSync()) {
+                          if (icon != null &&
+                              icon.isNotEmpty &&
+                              File(icon).existsSync()) {
                             leading = ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.file(File(icon), width: 32, height: 32, fit: BoxFit.cover),
+                              child: Image.file(
+                                File(icon),
+                                width: 32,
+                                height: 32,
+                                fit: BoxFit.cover,
+                              ),
                             );
                           }
                         }
-                        
+
                         return ListTile(
-                          leading: leading ?? Icon(type == "minecraft" ? Icons.layers : Icons.apps, color: isSelected ? Theme.of(context).colorScheme.primary : null),
-                          title: Text(versionId, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                          subtitle: Text(directory, style: const TextStyle(fontSize: 10), maxLines: 1, overflow: TextOverflow.ellipsis),
-                          trailing: isSelected ? const Icon(Icons.check_circle, size: 18) : null,
+                          leading:
+                              leading ??
+                              Icon(
+                                type == "minecraft" ? Icons.layers : Icons.apps,
+                                color: isSelected
+                                    ? Theme.of(context).colorScheme.primary
+                                    : null,
+                              ),
+                          title: Text(
+                            versionId,
+                            style: TextStyle(
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                          subtitle: Text(
+                            directory,
+                            style: const TextStyle(fontSize: 10),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: isSelected
+                              ? const Icon(Icons.check_circle, size: 18)
+                              : null,
                           onTap: () {
                             setState(() {
                               _selectedVersion = versionId;
@@ -490,10 +589,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               _selectedType = type;
                               _selectedAppId = appId;
                             });
-                            ConfigService.set("selected_version", _selectedVersion);
-                            ConfigService.set("selected_version_dir", _selectedVersionDir);
+                            ConfigService.set(
+                              "selected_version",
+                              _selectedVersion,
+                            );
+                            ConfigService.set(
+                              "selected_version_dir",
+                              _selectedVersionDir,
+                            );
                             ConfigService.set("selected_type", _selectedType);
-                            ConfigService.set("selected_app_id", _selectedAppId);
+                            ConfigService.set(
+                              "selected_app_id",
+                              _selectedAppId,
+                            );
                             Navigator.pop(context);
                           },
                         );
@@ -514,7 +622,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       showWarning("Please select a core first.".tl);
       return;
     }
-    final path = _selectedType == "custom_app" ? p.dirname(_selectedVersionDir!) : _selectedVersionDir!;
+    final path = _selectedType == "custom_app"
+        ? p.dirname(_selectedVersionDir!)
+        : _selectedVersionDir!;
     if (Platform.isWindows) {
       Process.run("explorer.exe", [path]);
     } else if (Platform.isMacOS) {
@@ -525,8 +635,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _launchCustomApp() async {
-    final app = ExternalAppService.instance.getCustomApps().firstWhere((e) => e.id == _selectedAppId);
-    
+    final app = ExternalAppService.instance.getCustomApps().firstWhere(
+      (e) => e.id == _selectedAppId,
+    );
+
+    final shellState = context.findAncestorStateOfType<MainShellState>();
+    if (shellState != null) {
+      shellState.setNavExtended(false);
+      await Future.delayed(const Duration(milliseconds: 450));
+    }
+
+    if (!mounted) return;
+
     setState(() {
       _homeState = HomeState.launching;
       _launchStatus = "Launching external application...".tl;
@@ -534,8 +654,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
 
     try {
-      final List<String> argsList = app.args.isNotEmpty ? app.args.split(" ") : [];
-      
+      final List<String> argsList = app.args.isNotEmpty
+          ? app.args.split(" ")
+          : [];
+
       // Parse environment variables
       final Map<String, String> env = Map.from(Platform.environment);
       if (app.envVars.isNotEmpty) {
@@ -551,37 +673,64 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
       if (app.runAsAdmin && Platform.isWindows) {
         final argsString = argsList.map((a) => "'$a'").join(",");
-        final priorityMap = {"Idle": "Idle", "Normal": "Normal", "High": "High", "Realtime": "RealtimeProcess"};
+        final priorityMap = {
+          "Idle": "Idle",
+          "Normal": "Normal",
+          "High": "High",
+          "Realtime": "RealtimeProcess",
+        };
         final priorityStr = priorityMap[app.priority] ?? "Normal";
-        
-        final psCmd = '\$p = Start-Process "${app.exePath}" -ArgumentList $argsString -WorkingDirectory "${app.workingDir ?? p.dirname(app.exePath)}" -Verb RunAs -PassThru; if (\$p) { \$p.PriorityClass = "$priorityStr"; \$p.Id }';
-        
-        final result = await Process.run('powershell', ['-Command', '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $psCmd']);
-        
+
+        final psCmd =
+            '\$p = Start-Process "${app.exePath}" -ArgumentList $argsString -WorkingDirectory "${app.workingDir ?? p.dirname(app.exePath)}" -Verb RunAs -PassThru; if (\$p) { \$p.PriorityClass = "$priorityStr"; \$p.Id }';
+
+        final result = await Process.run('powershell', [
+          '-Command',
+          '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $psCmd',
+        ]);
+
         if (result.exitCode == 0) {
-           pid = int.tryParse(result.stdout.toString().trim());
-           if (pid != null) {
-             showInfo("Elevated process started (PID: $pid). Console output capture limited.".tl);
-           }
+          pid = int.tryParse(result.stdout.toString().trim());
+          if (pid != null) {
+            showInfo(
+              "Elevated process started (PID: $pid). Console output capture limited."
+                  .tl,
+            );
+          }
         } else {
-           throw Exception("Elevation failed: ${result.stderr}");
+          throw Exception("Elevation failed: ${result.stderr}");
         }
       } else {
         process = await Process.start(
-          app.exePath, 
-          argsList, 
+          app.exePath,
+          argsList,
           workingDirectory: app.workingDir,
           environment: env,
+          mode: app.killOnExit
+              ? ProcessStartMode.normal
+              : ProcessStartMode.detachedWithStdio,
         );
         pid = process.pid;
 
         if (Platform.isWindows && app.priority != "Normal") {
-          final priorityMap = {"Idle": 64, "Normal": 32, "High": 128, "Realtime": 256};
+          final priorityMap = {
+            "Idle": 64,
+            "Normal": 32,
+            "High": 128,
+            "Realtime": 256,
+          };
           final level = priorityMap[app.priority] ?? 32;
-          Process.run('wmic', ['process', 'where', 'ProcessId=${process.pid}', 'CALL', 'setpriority', '$level']);
+          Process.run('wmic', [
+            'process',
+            'where',
+            'ProcessId=${process.pid}',
+            'CALL',
+            'setpriority',
+            '$level',
+          ]);
         }
       }
-      
+
       if (pid != null) {
         final runningCore = RunningCore(
           id: app.id,
@@ -604,32 +753,70 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         });
 
         if (process != null) {
-          process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-            _addLogToCore(runningCore, line);
-          });
-          process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-            _addLogToCore(runningCore, line);
-          });
+          try {
+            process.stdout
+                .transform(utf8.decoder)
+                .transform(const LineSplitter())
+                .listen((line) {
+                  _addLogToCore(runningCore, line);
+                });
+            process.stderr
+                .transform(utf8.decoder)
+                .transform(const LineSplitter())
+                .listen((line) {
+                  _addLogToCore(runningCore, line);
+                });
+          } catch (e) {
+            _addLogToCore(
+              runningCore,
+              "Process output capture unavailable (Detached mode).".tl,
+            );
+          }
 
           process.exitCode.then((code) {
             runningCore.exitCode = code;
             if (mounted) {
-              CoreManager.instance.removeCore(runningCore);
-              _checkEmptyCores();
+              final isActualCrash =
+                  code != 0 &&
+                  !runningCore.isManuallyTerminated &&
+                  app.killOnExit;
+              if (isActualCrash) {
+                // If it crashed, stay in the running layout to show logs
+                setState(() {
+                  _showLogsInRunning = true;
+                  _selectedCore = runningCore;
+                  _showRunningHandle = true;
+                });
+              } else {
+                CoreManager.instance.removeCore(runningCore);
+                _checkEmptyCores();
+              }
             }
           });
         } else {
-          _addLogToCore(runningCore, "Elevated process tracking active (PID: $pid). Log capture disabled.".tl);
+          _addLogToCore(
+            runningCore,
+            "Elevated process tracking active (PID: $pid). Log capture disabled."
+                .tl,
+          );
         }
 
-        _pageController.animateToPage(1, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+        _pageController.animateToPage(
+          1,
+          duration: const Duration(milliseconds: 700),
+          curve: Curves.easeOutExpo,
+        );
       }
     } catch (e) {
       setState(() {
         _launchError = e.toString();
         _homeState = HomeState.normal;
       });
-      _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+      _pageController.animateToPage(
+        0,
+        duration: const Duration(milliseconds: 700),
+        curve: Curves.easeOutExpo,
+      );
       showError("Failed to launch application: $e".tl);
     }
   }
@@ -640,8 +827,52 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         _showRunningHandle = false;
         _homeState = HomeState.normal;
       });
-      _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+      _pageController.animateToPage(
+        0,
+        duration: const Duration(milliseconds: 700),
+        curve: Curves.easeOutExpo,
+      );
     }
+  }
+
+  Future<void> _showAttachProcessDialog() async {
+    showDialog(
+      context: context,
+      builder: (context) => ProcessPickerDialog(
+        onSelected: (p) {
+          final pid = p['ProcessId'] as int;
+          final name = p['Name'] as String;
+
+          final runningCore = RunningCore(
+            id: "attached_$pid",
+            version: name,
+            loader: "Attached".tl,
+            userName: "System",
+            accountType: "External",
+            identityName: "User",
+            pid: pid,
+            killOnExit: false,
+          );
+
+          setState(() {
+            CoreManager.instance.addCore(runningCore);
+            _selectedCore = runningCore;
+            _showRunningHandle = true;
+          });
+
+          if (_homeState == HomeState.normal) {
+            setState(() => _homeState = HomeState.running);
+            _pageController.animateToPage(
+              1,
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeOutExpo,
+            );
+          }
+
+          showSuccess("${"Attached to process".tl} (PID: $pid)");
+        },
+      ),
+    );
   }
 
   Future<void> _startLaunch() async {
@@ -673,18 +904,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _isTransitioningToRunning = false;
     });
 
-    _pageController.animateToPage(1, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+    _pageController.animateToPage(
+      1,
+      duration: const Duration(milliseconds: 700),
+      curve: Curves.easeOutExpo,
+    );
 
     try {
       if (_isLaunchCancelled) return;
 
-      final List<dynamic> accountListRaw = ConfigService.get("MinecraftAccountList") ?? [];
+      final List<dynamic> accountListRaw =
+          ConfigService.get("MinecraftAccountList") ?? [];
       final int chosenIndex = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
-      
+
       Map<String, dynamic> account = {};
       if (accountListRaw.isNotEmpty && chosenIndex < accountListRaw.length) {
-        account = accountListRaw[chosenIndex] is String 
-            ? jsonDecode(accountListRaw[chosenIndex]) 
+        account = accountListRaw[chosenIndex] is String
+            ? jsonDecode(accountListRaw[chosenIndex])
             : accountListRaw[chosenIndex];
       }
 
@@ -696,18 +932,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           logger.warning("Microsoft token refresh failed: $e", .network);
         }
         if (_isLaunchCancelled) return;
-        
+
         final bool syncSuccess = await PassportService.syncMinecraftAccounts();
         if (_isLaunchCancelled) return;
-        
-        if (!syncSuccess && (account['access_token'] == null || account['access_token'].isEmpty)) {
-          throw Exception("Microsoft session expired. Please re-login in Passport page.".tl);
+
+        if (!syncSuccess &&
+            (account['access_token'] == null ||
+                account['access_token'].isEmpty)) {
+          throw Exception(
+            "Microsoft session expired. Please re-login in Passport page.".tl,
+          );
         }
       }
 
       if (_isLaunchCancelled) return;
       setState(() => _launchStatus = "Checking file integrity...".tl);
-      final missing = await LaunchService.instance.getMissingFiles(_selectedVersionDir!, _selectedVersion!);
+      final missing = await LaunchService.instance.getMissingFiles(
+        _selectedVersionDir!,
+        _selectedVersion!,
+      );
       if (_isLaunchCancelled) return;
 
       if (missing.isNotEmpty) {
@@ -716,10 +959,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             context: context,
             builder: (context) => AlertDialog(
               title: Text("Missing Files".tl),
-              content: Text("Current core is missing ${missing.length} files. Download and complete them before launch?".tl),
+              content: Text(
+                "Current core is missing ${missing.length} files. Download and complete them before launch?"
+                    .tl,
+              ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Skip".tl)),
-                TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Download & Launch".tl)),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: Text("Skip".tl),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: Text("Download & Launch".tl),
+                ),
               ],
             ),
           );
@@ -727,16 +979,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           if (confirm == true) {
             if (_isLaunchCancelled) return;
             setState(() => _launchStatus = "Downloading missing files...".tl);
-            await LaunchService.instance.downloadMissingFiles(_selectedVersionDir!, _selectedVersion!, onStatus: (status, p) {
-              if (mounted) {
-                setState(() {
-                _launchStatus = status;
-                _launchProgress = p * 0.5;
-              });
-              }
-            });
+            await LaunchService.instance.downloadMissingFiles(
+              _selectedVersionDir!,
+              _selectedVersion!,
+              onStatus: (status, p) {
+                if (mounted) {
+                  setState(() {
+                    _launchStatus = status;
+                    _launchProgress = p * 0.5;
+                  });
+                }
+              },
+            );
             if (_isLaunchCancelled) return;
-            showInfo("Download tasks submitted. Please wait for completion in the overlay.".tl);
+            showInfo(
+              "Download tasks submitted. Please wait for completion in the overlay."
+                  .tl,
+            );
           }
         }
       }
@@ -748,8 +1007,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       });
 
       if (accountListRaw.isNotEmpty && chosenIndex < accountListRaw.length) {
-        account = accountListRaw[chosenIndex] is String 
-            ? jsonDecode(accountListRaw[chosenIndex]) 
+        account = accountListRaw[chosenIndex] is String
+            ? jsonDecode(accountListRaw[chosenIndex])
             : accountListRaw[chosenIndex];
       }
 
@@ -757,13 +1016,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final String mcUuid = account['uuid'] ?? "";
       final String mcType = account['type'] ?? "Offline";
 
-      final String mcAvatar = mcUuid.isNotEmpty 
-          ? "https://mc-heads.net/avatar/$mcUuid/100" 
+      final String mcAvatar = mcUuid.isNotEmpty
+          ? "https://mc-heads.net/avatar/$mcUuid/100"
           : "https://mc-heads.net/avatar/$mcUsername/100";
+
+      final bool killOnExit =
+          ConfigService.get("minecraft_kill_on_exit") ?? false;
 
       final process = await LaunchService.instance.launch(
         version: _selectedVersion!,
         minecraftDir: _selectedVersionDir!,
+        killOnExit: killOnExit,
         onStatus: (status, progress) {
           if (mounted) {
             setState(() {
@@ -781,12 +1044,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       }
 
       final identityId = ConfigService.get("user_identity");
-      final identityName = identityId == "sister" ? "Sister".tl : identityId == "little_sister" ? "Little Sister".tl : "Brother".tl;
+      final identityName = identityId == "sister"
+          ? "Sister".tl
+          : identityId == "little_sister"
+          ? "Little Sister".tl
+          : "Brother".tl;
 
       // Parse version and loader from selected version string
       String displayVersion = _selectedVersion!;
       String displayLoader = "Vanilla".tl;
-      
+
       if (_selectedVersion!.contains("-")) {
         final parts = _selectedVersion!.split("-");
         displayVersion = parts[0];
@@ -802,27 +1069,53 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         accountType: mcType,
         identityName: identityName,
         process: process,
+        pid: process.pid,
+        killOnExit: killOnExit,
       );
 
       setState(() {
         CoreManager.instance.addCore(newCore);
         _selectedCore = newCore;
       });
-      
-      process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-        _addLogToCore(newCore, line);
-        _parseLogForProgress(line);
 
-        if (line.contains("Created: ") && line.contains("x") || line.contains("GLFW window created")) {
-           if (_homeState == HomeState.launching) {
-             _onWindowCreated();
-           }
+      try {
+        final sub1 = process.stdout
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .listen((line) {
+              _addLogToCore(newCore, line);
+              _parseLogForProgress(line);
+
+              if (line.contains("Created: ") && line.contains("x") ||
+                  line.contains("GLFW window created")) {
+                if (_homeState == HomeState.launching) {
+                  _onWindowCreated();
+                }
+              }
+            });
+
+        final sub2 = process.stderr
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .listen((line) {
+              _addLogToCore(newCore, line);
+              _parseLogForProgress(line);
+            });
+        newCore.subscriptions = [sub1, sub2];
+      } catch (e) {
+        _addLogToCore(
+          newCore,
+          "Process output capture unavailable (Detached mode).".tl,
+        );
+      }
+
+      // Fallback for transition: if logs fail or window signal never comes
+      Future.delayed(const Duration(seconds: 4), () {
+        if (mounted &&
+            _homeState == HomeState.launching &&
+            _selectedCore == newCore) {
+          _onWindowCreated();
         }
-      });
-
-      process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-        _addLogToCore(newCore, line);
-        _parseLogForProgress(line);
       });
 
       if (mounted) {
@@ -842,15 +1135,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
         final endTime = DateTime.now();
         final duration = endTime.difference(newCore.startTime).inSeconds;
-        StatsService.instance.addSession(SessionRecord(
-          version: newCore.version,
-          startTime: newCore.startTime,
-          endTime: endTime,
-          total: duration,
-        ));
+        StatsService.instance.addSession(
+          SessionRecord(
+            version: newCore.version,
+            startTime: newCore.startTime,
+            endTime: endTime,
+            total: duration,
+          ),
+        );
 
         if (mounted) {
-          final isActualCrash = code != 0 && !newCore.isManuallyTerminated;
+          final isActualCrash =
+              code != 0 &&
+              !newCore.isManuallyTerminated &&
+              newCore.killOnExit &&
+              !newCore.isDetached;
 
           if (isActualCrash && !_isTransitioningToRunning) {
             _isTransitioningToRunning = true;
@@ -859,38 +1158,58 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               _selectedCore = newCore;
               _showRunningHandle = true;
             });
-            
+
             if (_homeState == HomeState.normal) {
               setState(() => _homeState = HomeState.running);
-              _pageController.animateToPage(1, duration: const Duration(milliseconds: 800), curve: Curves.easeOutExpo).then((_) {
-                _isTransitioningToRunning = false;
-              });
-            } else if (_homeState == HomeState.launching) {
-              _pageController.animateToPage(2, duration: const Duration(milliseconds: 800), curve: Curves.easeOutExpo).then((_) {
-                if (mounted) {
-                  setState(() {
-                    _homeState = HomeState.running;
+              _pageController
+                  .animateToPage(
+                    1,
+                    duration: const Duration(milliseconds: 800),
+                    curve: Curves.easeOutExpo,
+                  )
+                  .then((_) {
                     _isTransitioningToRunning = false;
                   });
-                  _pageController.jumpToPage(1);
-                }
-              });
+            } else if (_homeState == HomeState.launching) {
+              _pageController
+                  .animateToPage(
+                    2,
+                    duration: const Duration(milliseconds: 800),
+                    curve: Curves.easeOutExpo,
+                  )
+                  .then((_) {
+                    if (mounted) {
+                      setState(() {
+                        _homeState = HomeState.running;
+                        _isTransitioningToRunning = false;
+                      });
+                      _pageController.jumpToPage(1);
+                    }
+                  });
             }
           }
 
           // Transition logic for launching state
-          if (_homeState == HomeState.launching && _selectedCore == newCore && !_isTransitioningToRunning) {
+          if (_homeState == HomeState.launching &&
+              _selectedCore == newCore &&
+              !_isTransitioningToRunning) {
             _isTransitioningToRunning = true;
-            _pageController.animateToPage(2, duration: const Duration(milliseconds: 800), curve: Curves.easeOutExpo).then((_) {
-              if (mounted) {
-                setState(() {
-                  _homeState = HomeState.running;
-                  _showRunningHandle = true;
-                  _isTransitioningToRunning = false;
+            _pageController
+                .animateToPage(
+                  2,
+                  duration: const Duration(milliseconds: 800),
+                  curve: Curves.easeOutExpo,
+                )
+                .then((_) {
+                  if (mounted) {
+                    setState(() {
+                      _homeState = HomeState.running;
+                      _showRunningHandle = true;
+                      _isTransitioningToRunning = false;
+                    });
+                    _pageController.jumpToPage(1);
+                  }
                 });
-                _pageController.jumpToPage(1);
-              }
-            });
           }
 
           setState(() {
@@ -898,14 +1217,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               // Normal exit or manual kill: always remove to close running layout
               CoreManager.instance.removeCore(newCore);
               if (_selectedCore == newCore) {
-                _selectedCore = CoreManager.instance.runningCores.isNotEmpty ? CoreManager.instance.runningCores.last : null;
+                _selectedCore = CoreManager.instance.runningCores.isNotEmpty
+                    ? CoreManager.instance.runningCores.last
+                    : null;
               }
             }
-            
+
             if (CoreManager.instance.runningCores.isEmpty) {
               _showRunningHandle = false;
               if (_homeState == HomeState.running) {
-                _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+                _pageController.animateToPage(
+                  0,
+                  duration: const Duration(milliseconds: 700),
+                  curve: Curves.easeOutExpo,
+                );
                 _homeState = HomeState.normal;
               }
             }
@@ -925,7 +1250,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _addLogToCore(RunningCore core, String line) {
     if (!mounted) return;
-    
+
     core.logs.add(line);
     if (core.logs.length > 500) core.logs.removeAt(0);
 
@@ -949,40 +1274,64 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _onWindowCreated() {
     if (!mounted || _isTransitioningToRunning) return;
-    
+
+    final core = _selectedCore;
+    if (core != null && !core.killOnExit) {
+      core.isDetached = true;
+      if (core.subscriptions != null) {
+        for (var s in core.subscriptions!) {
+          s.cancel();
+        }
+        core.subscriptions = null;
+      }
+      core.logs.clear();
+      debugPrint("Core ${core.id} detached after window creation.");
+    }
+
     if (_homeState == HomeState.launching) {
       _isTransitioningToRunning = true;
       // We are at index 1 (launching). Animate to index 2 (running) while still in launching state.
-      _pageController.animateToPage(2, duration: const Duration(milliseconds: 800), curve: Curves.easeOutExpo).then((_) {
-        if (mounted) {
-          setState(() {
-            _homeState = HomeState.running;
-            _showRunningHandle = true;
-            _isTransitioningToRunning = false;
+      _pageController
+          .animateToPage(
+            2,
+            duration: const Duration(milliseconds: 800),
+            curve: Curves.easeOutExpo,
+          )
+          .then((_) {
+            if (mounted) {
+              setState(() {
+                _homeState = HomeState.running;
+                _showRunningHandle = true;
+                _isTransitioningToRunning = false;
+              });
+              _pageController.jumpToPage(1);
+            }
           });
-          _pageController.jumpToPage(1);
-        }
-      });
     } else if (_homeState == HomeState.normal) {
       _isTransitioningToRunning = true;
       setState(() {
         _homeState = HomeState.running;
         _showRunningHandle = true;
       });
-      _pageController.animateToPage(1, duration: const Duration(milliseconds: 800), curve: Curves.easeOutExpo).then((_) {
-        _isTransitioningToRunning = false;
-      });
+      _pageController
+          .animateToPage(
+            1,
+            duration: const Duration(milliseconds: 800),
+            curve: Curves.easeOutExpo,
+          )
+          .then((_) {
+            _isTransitioningToRunning = false;
+          });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final isPortrait =
+        MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
-    final List<Widget> pages = [
-      _buildNormalLayout(theme, isPortrait),
-    ];
+    final List<Widget> pages = [_buildNormalLayout(theme, isPortrait)];
 
     if (_homeState == HomeState.launching) {
       pages.add(_buildLaunchingLayout(theme, isPortrait));
@@ -1012,7 +1361,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   child: InkWell(
                     onTap: () {
                       setState(() => _homeState = HomeState.running);
-                      _pageController.animateToPage(1, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+                      _pageController.animateToPage(
+                        1,
+                        duration: const Duration(milliseconds: 700),
+                        curve: Curves.easeOutExpo,
+                      );
                     },
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 400),
@@ -1020,10 +1373,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       width: _isHandleExtended ? 42 : 12,
                       height: 140,
                       decoration: BoxDecoration(
-                        color: (_anyCrashed ? Colors.redAccent : theme.colorScheme.primary).withValues(alpha: 0.85),
-                        borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+                        color:
+                            (_anyCrashed
+                                    ? Colors.redAccent
+                                    : theme.colorScheme.primary)
+                                .withValues(alpha: 0.85),
+                        borderRadius: const BorderRadius.horizontal(
+                          left: Radius.circular(16),
+                        ),
                         boxShadow: [
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 8, offset: const Offset(-2, 2))
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 8,
+                            offset: const Offset(-2, 2),
+                          ),
                         ],
                       ),
                       child: Column(
@@ -1037,13 +1400,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           if (_isHandleExtended) ...[
                             const SizedBox(height: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
-                                color: theme.colorScheme.onPrimary.withValues(alpha: 0.2),
+                                color: theme.colorScheme.onPrimary.withValues(
+                                  alpha: 0.2,
+                                ),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                CoreManager.instance.runningCores.length.toString(),
+                                CoreManager.instance.runningCores.length
+                                    .toString(),
                                 style: TextStyle(
                                   color: theme.colorScheme.onPrimary,
                                   fontSize: 10,
@@ -1070,7 +1439,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       children: [
         Expanded(
           child: ListView(
-            padding: EdgeInsets.only(left: Platform.isAndroid ? 24 : 36, top: 24, bottom: 24, right: 24),
+            padding: EdgeInsets.only(
+              left: Platform.isAndroid ? 24 : 36,
+              top: 24,
+              bottom: 24,
+              right: 24,
+            ),
             children: [
               SlideFadeIn(
                 controller: _listController,
@@ -1084,50 +1458,112 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       children: [
                         isPortrait
                             ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("$name Launcher",
-                                style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            SlidingTextCycle(
-                              key: ValueKey("tips_${_showTranslatedTips}_${_translatedSentences?.length}_${sentences.hashCode}"),
-                              sentences: (_showTranslatedTips ? (_translatedSentences ?? sentences) : sentences)
-                                  .map((e) => e.replaceAll("Windows 11", "Android").replaceAll("RinUI", "Flutter"))
-                                  .toList()..add("絡可好き好き")..removeWhere((e) => ["编辑器", "国际化", "插件"].any((a) => e.contains(a))),
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.outline,
-                                fontWeight: FontWeight.w500,
-                              ) ?? const TextStyle(),
-                            ),
-                          ],
-                        )
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "$name Launcher",
+                                    style: theme.textTheme.headlineLarge
+                                        ?.copyWith(fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  SlidingTextCycle(
+                                    key: ValueKey(
+                                      "tips_${_showTranslatedTips}_${_translatedSentences?.length}_${sentences.hashCode}",
+                                    ),
+                                    sentences:
+                                        (_showTranslatedTips
+                                                ? (_translatedSentences ??
+                                                      sentences)
+                                                : sentences)
+                                            .map(
+                                              (e) => e
+                                                  .replaceAll(
+                                                    "Windows 11",
+                                                    "Android",
+                                                  )
+                                                  .replaceAll(
+                                                    "RinUI",
+                                                    "Flutter",
+                                                  ),
+                                            )
+                                            .toList()
+                                          ..add("絡可好き好き")
+                                          ..removeWhere(
+                                            (e) => [
+                                              "编辑器",
+                                              "国际化",
+                                              "插件",
+                                            ].any((a) => e.contains(a)),
+                                          ),
+                                    style:
+                                        theme.textTheme.bodyMedium?.copyWith(
+                                          color: theme.colorScheme.outline,
+                                          fontWeight: FontWeight.w500,
+                                        ) ??
+                                        const TextStyle(),
+                                  ),
+                                ],
+                              )
                             : Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text("$name Launcher",
-                                style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: SlidingTextCycle(
-                                key: ValueKey("tips_${_showTranslatedTips}_${_translatedSentences?.length}_${sentences.hashCode}"),
-                                sentences: (_showTranslatedTips ? (_translatedSentences ?? sentences) : sentences)
-                                    .map((e) => e.replaceAll("Windows 11", "Android").replaceAll("RinUI", "Flutter"))
-                                    .toList()..add("絡可好き好き")..removeWhere((e) => ["编辑器", "国际化", "插件"].any((a) => e.contains(a))),
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.outline,
-                                  fontWeight: FontWeight.w500,
-                                ) ?? const TextStyle(),
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    "$name Launcher",
+                                    style: theme.textTheme.headlineLarge
+                                        ?.copyWith(fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: SlidingTextCycle(
+                                      key: ValueKey(
+                                        "tips_${_showTranslatedTips}_${_translatedSentences?.length}_${sentences.hashCode}",
+                                      ),
+                                      sentences:
+                                          (_showTranslatedTips
+                                                  ? (_translatedSentences ??
+                                                        sentences)
+                                                  : sentences)
+                                              .map(
+                                                (e) => e
+                                                    .replaceAll(
+                                                      "Windows 11",
+                                                      "Android",
+                                                    )
+                                                    .replaceAll(
+                                                      "RinUI",
+                                                      "Flutter",
+                                                    ),
+                                              )
+                                              .toList()
+                                            ..add("絡可好き好き")
+                                            ..removeWhere(
+                                              (e) => [
+                                                "编辑器",
+                                                "国际化",
+                                                "插件",
+                                              ].any((a) => e.contains(a)),
+                                            ),
+                                      style:
+                                          theme.textTheme.bodyMedium?.copyWith(
+                                            color: theme.colorScheme.outline,
+                                            fontWeight: FontWeight.w500,
+                                          ) ??
+                                          const TextStyle(),
+                                    ),
+                                  ),
+                                  if (!_isChinese && _apiAvailable)
+                                    const SizedBox(width: 28),
+                                ],
                               ),
-                            ),
-                            if (!_isChinese && _apiAvailable) const SizedBox(width: 28),
-                          ],
-                        ),
                         if (!_isChinese && _apiAvailable)
                           Positioned(
                             right: 0,
                             top: -4,
                             child: Padding(
-                              padding: const EdgeInsets.only(top: 10, right: 10),
+                              padding: const EdgeInsets.only(
+                                top: 10,
+                                right: 10,
+                              ),
                               child: _buildTranslateButton(
                                 isTranslating: _isTranslating,
                                 onPressed: _toggleTranslation,
@@ -1144,20 +1580,30 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               SlideFadeIn(
                 controller: _listController,
                 delay: 0.4,
-                child: Hero(tag: "bloriko_agent", child: _buildAgentInput(theme)),
+                child: Hero(
+                  tag: "bloriko_agent",
+                  child: _buildAgentInput(theme),
+                ),
               ),
               const SizedBox(height: 12),
               SlideFadeIn(
                 controller: _listController,
                 delay: 0.5,
-                child: Text("$agentName ${"relies on AI. It may make mistakes, please verify important information.".tl}",
-                    style: theme.textTheme.bodySmall?.copyWith(fontSize: 14)),
+                child: Text(
+                  "$agentName ${"relies on AI. It may make mistakes, please verify important information.".tl}",
+                  style: theme.textTheme.bodySmall?.copyWith(fontSize: 14),
+                ),
               ),
               const SizedBox(height: 32),
               SlideFadeIn(
                 controller: _listController,
                 delay: 0.6,
-                child: Text("Information".tl, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                child: Text(
+                  "Information".tl,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               SlideFadeIn(
@@ -1173,16 +1619,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 12),
-                    Text("Bloret Server data provided by Bloret Server Check".tl, style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+                    Text(
+                      "Bloret Server data provided by Bloret Server Check".tl,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
                   ],
                 ),
-              )
+              ),
             ],
           ),
         ),
         _BottomActionRail(
           onLaunch: _startLaunch,
           onSwitchCore: _showVersionSelector,
+          onDebug: _showAttachProcessDialog,
           onOpenFolder: _openGameDir,
           selectedVersion: _selectedVersion,
           selectedVersionDir: _selectedVersionDir,
@@ -1194,16 +1646,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildLaunchingLayout(ThemeData theme, bool isPortrait) {
-    final List<dynamic> accountListRaw = ConfigService.get("MinecraftAccountList") ?? [];
+    final List<dynamic> accountListRaw =
+        ConfigService.get("MinecraftAccountList") ?? [];
     final int chosenIndex = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
     Map<String, dynamic> account = {};
     if (accountListRaw.isNotEmpty && chosenIndex < accountListRaw.length) {
-      account = accountListRaw[chosenIndex] is String ? jsonDecode(accountListRaw[chosenIndex]) : accountListRaw[chosenIndex];
+      account = accountListRaw[chosenIndex] is String
+          ? jsonDecode(accountListRaw[chosenIndex])
+          : accountListRaw[chosenIndex];
     }
     final String mcUsername = account['username'] ?? "Guest".tl;
     final String mcUuid = account['uuid'] ?? "";
     final String mcType = account['type'] ?? "Offline";
-    final String mcAvatar = mcUuid.isNotEmpty ? "https://mc-heads.net/avatar/$mcUuid/100" : "https://mc-heads.net/avatar/$mcUsername/100";
+    final String mcAvatar = mcUuid.isNotEmpty
+        ? "https://mc-heads.net/avatar/$mcUuid/100"
+        : "https://mc-heads.net/avatar/$mcUsername/100";
 
     return Container(
       key: const ValueKey("launching_home"),
@@ -1216,7 +1673,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
-                width: 80, height: 80,
+                width: 80,
+                height: 80,
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(20),
@@ -1224,7 +1682,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 child: const Icon(Icons.inventory_2, size: 40),
               ),
               const SizedBox(height: 24),
-              Text(_selectedVersion ?? "...", style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                _selectedVersion ?? "...",
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               Text("Minecraft Core".tl, style: theme.textTheme.bodyMedium),
               const SizedBox(height: 48),
               Row(
@@ -1233,25 +1696,46 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: CachedNetworkImage(
-                      imageUrl: mcAvatar, 
-                      width: 44, height: 44, 
-                      fit: BoxFit.cover, 
-                      errorWidget: (_,_,_) => Container(color: Colors.blueGrey, width: 44, height: 44, child: const Icon(Icons.person, color: Colors.white70))
+                      imageUrl: mcAvatar,
+                      width: 44,
+                      height: 44,
+                      fit: BoxFit.cover,
+                      errorWidget: (_, _, _) => Container(
+                        color: Colors.blueGrey,
+                        width: 44,
+                        height: 44,
+                        child: const Icon(Icons.person, color: Colors.white70),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 14),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(mcUsername, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                      Text("$mcType ${"Account".tl}", style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)),
+                      Text(
+                        mcUsername,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        "$mcType ${"Account".tl}",
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
                     ],
                   ),
                 ],
               ),
               const SizedBox(height: 64),
               if (_launchError == null) ...[
-                Text(_launchStatus, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  _launchStatus,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 16),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
@@ -1262,7 +1746,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text("${(_launchProgress * 100).toInt()}%", style: theme.textTheme.bodySmall),
+                Text(
+                  "${(_launchProgress * 100).toInt()}%",
+                  style: theme.textTheme.bodySmall,
+                ),
                 const SizedBox(height: 32),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1272,14 +1759,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         setState(() {
                           _isLaunchCancelled = true;
                           _activeLaunchingProcess?.kill();
-                          if (_selectedCore != null && _selectedCore!.process == _activeLaunchingProcess) {
+                          if (_selectedCore != null &&
+                              _selectedCore!.process ==
+                                  _activeLaunchingProcess) {
                             _selectedCore!.isManuallyTerminated = true;
                           }
                           _homeState = HomeState.normal;
                         });
-                        _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+                        _pageController.animateToPage(
+                          0,
+                          duration: const Duration(milliseconds: 700),
+                          curve: Curves.easeOutExpo,
+                        );
                         showInfo("Launch cancelled.".tl);
-                      }, 
+                      },
                       text: "Cancel Launch".tl,
                       icon: Icons.cancel_outlined,
                     ),
@@ -1291,7 +1784,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             _homeState = HomeState.running;
                             _showRunningHandle = true;
                           });
-                          _pageController.animateToPage(1, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+                          _pageController.animateToPage(
+                            1,
+                            duration: const Duration(milliseconds: 700),
+                            curve: Curves.easeOutExpo,
+                          );
                         } else {
                           showWarning("Game core not initialized yet.".tl);
                         }
@@ -1304,13 +1801,30 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ] else ...[
                 const Icon(Icons.error_outline, color: Colors.red, size: 48),
                 const SizedBox(height: 12),
-                Text("Launch Failed".tl, style: theme.textTheme.titleMedium?.copyWith(color: Colors.red, fontWeight: FontWeight.bold)),
-                Text(_launchError!, style: theme.textTheme.bodySmall, textAlign: TextAlign.center),
+                Text(
+                  "Launch Failed".tl,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  _launchError!,
+                  style: theme.textTheme.bodySmall,
+                  textAlign: TextAlign.center,
+                ),
                 const SizedBox(height: 24),
-                BloretButton(onPressed: () {
-                  _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
-                  setState(() => _homeState = HomeState.normal);
-                }, text: "Back to Home".tl),
+                BloretButton(
+                  onPressed: () {
+                    _pageController.animateToPage(
+                      0,
+                      duration: const Duration(milliseconds: 700),
+                      curve: Curves.easeOutExpo,
+                    );
+                    setState(() => _homeState = HomeState.normal);
+                  },
+                  text: "Back to Home".tl,
+                ),
               ],
             ],
           ),
@@ -1323,7 +1837,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final core = _selectedCore;
     if (core == null) return Center(child: Text("No running cores".tl));
     final isExited = core.exitCode != null;
-    final isCrashed = isExited && core.exitCode != 0 && !core.isManuallyTerminated;
+    final isCrashed =
+        isExited && core.exitCode != 0 && !core.isManuallyTerminated;
     final isSuspended = core.isSuspended;
     final isEfficiency = core.isEfficiencyMode;
 
@@ -1341,27 +1856,42 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     IconButton(
                       icon: const Icon(Icons.arrow_back),
                       onPressed: () {
-                        _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
+                        _pageController.animateToPage(
+                          0,
+                          duration: const Duration(milliseconds: 700),
+                          curve: Curves.easeOutExpo,
+                        );
                         setState(() => _homeState = HomeState.normal);
                       },
                     ),
                     const SizedBox(width: 8),
-                    Text("Running Core Info".tl, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                    Text(
+                      "Running Core Info".tl,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 24),
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 400),
-                    transitionBuilder: (Widget child, Animation<double> animation) {
-                      return FadeTransition(
-                        opacity: animation,
-                        child: SlideTransition(
-                          position: animation.drive(Tween(begin: const Offset(0.02, 0), end: Offset.zero).chain(CurveTween(curve: Curves.easeOutCubic))),
-                          child: child,
-                        ),
-                      );
-                    },
+                    transitionBuilder:
+                        (Widget child, Animation<double> animation) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: SlideTransition(
+                              position: animation.drive(
+                                Tween(
+                                  begin: const Offset(0.02, 0),
+                                  end: Offset.zero,
+                                ).chain(CurveTween(curve: Curves.easeOutCubic)),
+                              ),
+                              child: child,
+                            ),
+                          );
+                        },
                     child: KeyedSubtree(
                       key: ValueKey("core_details_${core.id}"),
                       child: ListView(
@@ -1376,37 +1906,73 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                 curve: Curves.easeInOut,
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(20),
-                                  gradient: isCrashed ? LinearGradient(
-                                    colors: [
-                                      Colors.redAccent.withValues(alpha: 0.15),
-                                      Colors.redAccent.withValues(alpha: 0.05),
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ) : (isSuspended ? LinearGradient(
-                                    colors: [
-                                      Colors.grey.withValues(alpha: 0.15),
-                                      Colors.grey.withValues(alpha: 0.05),
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ) : (isEfficiency ? LinearGradient(
-                                    colors: [
-                                      Colors.greenAccent.withValues(alpha: 0.1),
-                                      Colors.greenAccent.withValues(alpha: 0.02),
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ) : null)),
+                                  gradient: isCrashed
+                                      ? LinearGradient(
+                                          colors: [
+                                            Colors.redAccent.withValues(
+                                              alpha: 0.15,
+                                            ),
+                                            Colors.redAccent.withValues(
+                                              alpha: 0.05,
+                                            ),
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        )
+                                      : (isSuspended
+                                            ? LinearGradient(
+                                                colors: [
+                                                  Colors.grey.withValues(
+                                                    alpha: 0.15,
+                                                  ),
+                                                  Colors.grey.withValues(
+                                                    alpha: 0.05,
+                                                  ),
+                                                ],
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                              )
+                                            : (isEfficiency
+                                                  ? LinearGradient(
+                                                      colors: [
+                                                        Colors.greenAccent
+                                                            .withValues(
+                                                              alpha: 0.1,
+                                                            ),
+                                                        Colors.greenAccent
+                                                            .withValues(
+                                                              alpha: 0.02,
+                                                            ),
+                                                      ],
+                                                      begin: Alignment.topLeft,
+                                                      end:
+                                                          Alignment.bottomRight,
+                                                    )
+                                                  : null)),
                                 ),
                                 child: FluentCard(
                                   color: Colors.transparent,
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
                                         children: [
-                                          Text(isCrashed ? "Performance Snapshot".tl : "Real-time Performance".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : (isEfficiency && !isCrashed ? Colors.green : null))),
+                                          Text(
+                                            isCrashed
+                                                ? "Performance Snapshot".tl
+                                                : "Real-time Performance".tl,
+                                            style: theme.textTheme.titleMedium
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: isSuspended
+                                                      ? Colors.grey
+                                                      : (isEfficiency &&
+                                                                !isCrashed
+                                                            ? Colors.green
+                                                            : null),
+                                                ),
+                                          ),
                                         ],
                                       ),
                                       const SizedBox(height: 24),
@@ -1417,9 +1983,35 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                             Expanded(
                                               child: Column(
                                                 children: [
-                                                  Text("CPU Usage".tl, style: theme.textTheme.bodySmall?.copyWith(color: isSuspended ? Colors.grey : null)),
+                                                  Text(
+                                                    "CPU Usage".tl,
+                                                    style: theme
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: isSuspended
+                                                              ? Colors.grey
+                                                              : null,
+                                                        ),
+                                                  ),
                                                   const SizedBox(height: 8),
-                                                  Expanded(child: _CoreStatsChart(data: core.cpuUsage, color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : Colors.blueAccent), animation: _chartAnimationController, unit: "%", isStopped: isCrashed || isSuspended)),
+                                                  Expanded(
+                                                    child: _CoreStatsChart(
+                                                      data: core.cpuUsage,
+                                                      color: isCrashed
+                                                          ? Colors.redAccent
+                                                          : (isSuspended
+                                                                ? Colors.grey
+                                                                : Colors
+                                                                      .blueAccent),
+                                                      animation:
+                                                          _chartAnimationController,
+                                                      unit: "%",
+                                                      isStopped:
+                                                          isCrashed ||
+                                                          isSuspended,
+                                                    ),
+                                                  ),
                                                 ],
                                               ),
                                             ),
@@ -1427,9 +2019,40 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                             Expanded(
                                               child: Column(
                                                 children: [
-                                                  Text("Memory Usage".tl, style: theme.textTheme.bodySmall?.copyWith(color: isSuspended ? Colors.grey : null)),
+                                                  Text(
+                                                    "Memory Usage".tl,
+                                                    style: theme
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: isSuspended
+                                                              ? Colors.grey
+                                                              : null,
+                                                        ),
+                                                  ),
                                                   const SizedBox(height: 8),
-                                                  Expanded(child: _CoreStatsChart(data: core.memUsage, color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : Colors.greenAccent), animation: _chartAnimationController, unit: "GB", scaleFactor: 8.0, isStopped: isCrashed || isSuspended, isCleaning: _isCleaningRam, cleanAnim: _cleanRamAnimController)),
+                                                  Expanded(
+                                                    child: _CoreStatsChart(
+                                                      data: core.memUsage,
+                                                      color: isCrashed
+                                                          ? Colors.redAccent
+                                                          : (isSuspended
+                                                                ? Colors.grey
+                                                                : Colors
+                                                                      .greenAccent),
+                                                      animation:
+                                                          _chartAnimationController,
+                                                      unit: "GB",
+                                                      scaleFactor: 8.0,
+                                                      isStopped:
+                                                          isCrashed ||
+                                                          isSuspended,
+                                                      isCleaning:
+                                                          _isCleaningRam,
+                                                      cleanAnim:
+                                                          _cleanRamAnimController,
+                                                    ),
+                                                  ),
                                                 ],
                                               ),
                                             ),
@@ -1441,25 +2064,35 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                 ),
                               ),
                               Positioned(
-                                right: 20, top: 20,
+                                right: 20,
+                                top: 20,
                                 child: AnimatedOpacity(
                                   duration: const Duration(milliseconds: 500),
                                   opacity: isCrashed ? 0.1 : 0.0,
-                                  child: Icon(Icons.warning_amber_outlined, size: 100, color: Colors.redAccent),
+                                  child: Icon(
+                                    Icons.warning_amber_outlined,
+                                    size: 100,
+                                    color: Colors.redAccent,
+                                  ),
                                 ),
                               ),
                               Positioned(
-                                right: 15, top: 15,
+                                right: 15,
+                                top: 15,
                                 child: AnimatedOpacity(
                                   duration: const Duration(milliseconds: 500),
-                                  opacity: (isEfficiency && !isCrashed) ? 0.08 : 0.0,
+                                  opacity: (isEfficiency && !isCrashed)
+                                      ? 0.08
+                                      : 0.0,
                                   child: AnimatedSwitcher(
                                     duration: const Duration(milliseconds: 500),
                                     child: Icon(
-                                      Icons.energy_savings_leaf, 
+                                      Icons.energy_savings_leaf,
                                       key: ValueKey("leaf_$isSuspended"),
-                                      size: 110, 
-                                      color: isSuspended ? Colors.grey : Colors.green
+                                      size: 110,
+                                      color: isSuspended
+                                          ? Colors.grey
+                                          : Colors.green,
                                     ),
                                   ),
                                 ),
@@ -1491,8 +2124,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           opacity: isSuspended ? 0.5 : 1.0,
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: core.avatar != null && core.avatar!.isNotEmpty
-                                ? CachedNetworkImage(imageUrl: core.avatar!, width: 36, height: 36, fit: BoxFit.cover, errorWidget: (_,_,_) => const Icon(Icons.account_circle, size: 36))
+                            child:
+                                core.avatar != null && core.avatar!.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: core.avatar!,
+                                    width: 36,
+                                    height: 36,
+                                    fit: BoxFit.cover,
+                                    errorWidget: (_, _, _) => const Icon(
+                                      Icons.account_circle,
+                                      size: 36,
+                                    ),
+                                  )
                                 : const Icon(Icons.account_circle, size: 36),
                           ),
                         ),
@@ -1501,8 +2144,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(core.userName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isSuspended ? Colors.grey : null), overflow: TextOverflow.ellipsis),
-                              Text("${core.accountType} ${"Account".tl}", style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                              Text(
+                                core.userName,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: isSuspended ? Colors.grey : null,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                "${core.accountType} ${"Account".tl}",
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -1516,12 +2173,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text("Running Cores".tl, style: TextStyle(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : null)),
+                        Text(
+                          "Running Cores".tl,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: isSuspended ? Colors.grey : null,
+                          ),
+                        ),
                         const SizedBox(height: 16),
                         Expanded(
                           child: ListView.builder(
                             itemCount: CoreManager.instance.runningCores.length,
-                            itemBuilder: (context, index) => _buildRunningCoreItem(theme, CoreManager.instance.runningCores[index]),
+                            itemBuilder: (context, index) =>
+                                _buildRunningCoreItem(
+                                  theme,
+                                  CoreManager.instance.runningCores[index],
+                                ),
                           ),
                         ),
                       ],
@@ -1538,7 +2205,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Widget _buildProcessActions(ThemeData theme, RunningCore core) {
     final isExited = core.exitCode != null;
-    final isCrashed = isExited && core.exitCode != 0 && !core.isManuallyTerminated;
+    final isCrashed =
+        isExited && core.exitCode != 0 && !core.isManuallyTerminated;
     final isSuspended = core.isSuspended;
 
     return Stack(
@@ -1548,21 +2216,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           curve: Curves.easeInOut,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            gradient: isCrashed ? LinearGradient(
-              colors: [
-                Colors.redAccent.withValues(alpha: 0.2),
-                Colors.redAccent.withValues(alpha: 0.05),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ) : (isSuspended ? LinearGradient(
-              colors: [
-                Colors.grey.withValues(alpha: 0.2),
-                Colors.grey.withValues(alpha: 0.05),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ) : null),
+            gradient: isCrashed
+                ? LinearGradient(
+                    colors: [
+                      Colors.redAccent.withValues(alpha: 0.2),
+                      Colors.redAccent.withValues(alpha: 0.05),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : (isSuspended
+                      ? LinearGradient(
+                          colors: [
+                            Colors.grey.withValues(alpha: 0.2),
+                            Colors.grey.withValues(alpha: 0.05),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : null),
           ),
           child: FluentCard(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -1572,7 +2244,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               children: [
                 Row(
                   children: [
-                    Text(isCrashed ? "Process unabled".tl : "Process Control".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isSuspended ? Colors.grey : null)),
+                    Text(
+                      isCrashed ? "Process unabled".tl : "Process Control".tl,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: isSuspended ? Colors.grey : null,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -1584,74 +2262,110 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       label: "Kill".tl,
                       tooltip: "Forcefully terminate the game process.".tl,
                       color: isExited ? theme.disabledColor : Colors.redAccent,
-                      onTap: isExited ? null : () {
-                        final pid = core.effectivePid;
-                        if (!WinProcess.isAlive(pid)) {
-                          showError("Process already terminated.".tl);
-                          return;
-                        }
-                        core.isManuallyTerminated = true;
-                        if (core.process != null) {
-                          core.process!.kill();
-                        } else {
-                          Process.run('taskkill', ['/F', '/PID', '$pid']);
-                        }
-                        showSuccess("${"Terminating game process...".tl} (PID: $pid)");
-                      },
+                      onTap: isExited
+                          ? null
+                          : () {
+                              final pid = core.effectivePid;
+                              if (!WinProcess.isAlive(pid)) {
+                                showError("Process already terminated.".tl);
+                                return;
+                              }
+                              core.isManuallyTerminated = true;
+                              if (core.process != null) {
+                                core.process!.kill();
+                              } else {
+                                Process.run('taskkill', ['/F', '/PID', '$pid']);
+                              }
+                              showSuccess(
+                                "${"Terminating game process...".tl} (PID: $pid)",
+                              );
+                            },
                     ),
                     const SizedBox(width: 6),
                     _buildActionButton(
                       theme,
-                      icon: core.isSuspended ? Icons.play_circle_outline : Icons.pause_circle_outline,
+                      icon: core.isSuspended
+                          ? Icons.play_circle_outline
+                          : Icons.pause_circle_outline,
                       label: core.isSuspended ? "Resume".tl : "Suspend".tl,
-                      tooltip: "Freeze or thaw the game process to save CPU resources.".tl,
-                      color: isExited ? theme.disabledColor : Colors.orangeAccent,
-                      onTap: isExited ? null : () {
-                        final pid = core.effectivePid;
-                        if (core.isSuspended) {
-                          WinProcess.resume(pid);
-                          setState(() => core.isSuspended = false);
-                          showSuccess("Process resumed.".tl);
-                        } else {
-                          WinProcess.suspend(pid);
-                          setState(() => core.isSuspended = true);
-                          showSuccess("Process suspended.".tl);
-                        }
-                      },
+                      tooltip:
+                          "Freeze or thaw the game process to save CPU resources."
+                              .tl,
+                      color: isExited
+                          ? theme.disabledColor
+                          : Colors.orangeAccent,
+                      onTap: isExited
+                          ? null
+                          : () {
+                              final pid = core.effectivePid;
+                              if (core.isSuspended) {
+                                WinProcess.resume(pid);
+                                setState(() => core.isSuspended = false);
+                                showSuccess("Process resumed.".tl);
+                              } else {
+                                WinProcess.suspend(pid);
+                                setState(() => core.isSuspended = true);
+                                showSuccess("Process suspended.".tl);
+                              }
+                            },
                     ),
                     const SizedBox(width: 6),
                     _buildActionButton(
                       theme,
                       icon: Icons.bolt,
                       label: "Efficiency".tl,
-                      tooltip: "Enable Windows Efficiency Mode to reduce power consumption.".tl,
-                      color: isExited || isSuspended ? theme.disabledColor : (core.isEfficiencyMode ? Colors.green : Colors.greenAccent),
-                      onTap: isExited || isSuspended ? null : () {
-                        setState(() => core.isEfficiencyMode = !core.isEfficiencyMode);
-                        WinProcess.setEfficiencyMode(core.effectivePid, core.isEfficiencyMode);
-                        showSuccess(core.isEfficiencyMode ? "Efficiency mode enabled.".tl : "Efficiency mode disabled.".tl);
-                      },
+                      tooltip:
+                          "Enable Windows Efficiency Mode to reduce power consumption."
+                              .tl,
+                      color: isExited || isSuspended
+                          ? theme.disabledColor
+                          : (core.isEfficiencyMode
+                                ? Colors.green
+                                : Colors.greenAccent),
+                      onTap: isExited || isSuspended
+                          ? null
+                          : () {
+                              setState(
+                                () => core.isEfficiencyMode =
+                                    !core.isEfficiencyMode,
+                              );
+                              WinProcess.setEfficiencyMode(
+                                core.effectivePid,
+                                core.isEfficiencyMode,
+                              );
+                              showSuccess(
+                                core.isEfficiencyMode
+                                    ? "Efficiency mode enabled.".tl
+                                    : "Efficiency mode disabled.".tl,
+                              );
+                            },
                     ),
                     const SizedBox(width: 6),
                     _buildActionButton(
                       theme,
                       icon: Icons.cleaning_services_outlined,
                       label: "Clean RAM".tl,
-                      tooltip: "Trim process working set. May cause temporary disk I/O lag as memory is swapped back from disk.".tl,
-                      color: isExited || isSuspended || _isCleaningRam ? theme.disabledColor : Colors.blueAccent,
-                      onTap: isExited || isSuspended || _isCleaningRam ? null : () {
-                        setState(() => _isCleaningRam = true);
-                        _cleanRamAnimController.repeat(reverse: true);
-                        WinProcess.cleanRAM(core.effectivePid);
-                        showSuccess("Memory working set trimmed.".tl);
-                        Timer(const Duration(seconds: 10), () {
-                          if (mounted) {
-                            setState(() => _isCleaningRam = false);
-                            _cleanRamAnimController.stop();
-                            _cleanRamAnimController.reset();
-                          }
-                        });
-                      },
+                      tooltip:
+                          "Trim process working set. May cause temporary disk I/O lag as memory is swapped back from disk."
+                              .tl,
+                      color: isExited || isSuspended || _isCleaningRam
+                          ? theme.disabledColor
+                          : Colors.blueAccent,
+                      onTap: isExited || isSuspended || _isCleaningRam
+                          ? null
+                          : () {
+                              setState(() => _isCleaningRam = true);
+                              _cleanRamAnimController.repeat(reverse: true);
+                              WinProcess.cleanRAM(core.effectivePid);
+                              showSuccess("Memory working set trimmed.".tl);
+                              Timer(const Duration(seconds: 10), () {
+                                if (mounted) {
+                                  setState(() => _isCleaningRam = false);
+                                  _cleanRamAnimController.stop();
+                                  _cleanRamAnimController.reset();
+                                }
+                              });
+                            },
                     ),
                     if (ConfigService.get("develop_mode") ?? false) ...[
                       const SizedBox(width: 6),
@@ -1659,22 +2373,35 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         theme,
                         icon: Icons.bug_report_outlined,
                         label: "Crash".tl,
-                        tooltip: "Developer: Manually trigger a process crash for testing.".tl,
-                        color: isExited || isSuspended ? theme.disabledColor : Colors.purpleAccent,
-                        onTap: isExited || isSuspended ? null : () {
-                          final pid = core.effectivePid;
-                          if (!WinProcess.isAlive(pid)) {
-                            showError("Process already terminated.".tl);
-                            return;
-                          }
-                          core.isManuallyTerminated = false;
-                          if (core.process != null) {
-                            core.process!.kill();
-                          } else {
-                            Process.run('taskkill', ['/F', '/PID', '$pid']);
-                          }
-                          showWarning("Process crash triggered manually (Dev Mode).".tl);
-                        },
+                        tooltip:
+                            "Developer: Manually trigger a process crash for testing."
+                                .tl,
+                        color: isExited || isSuspended
+                            ? theme.disabledColor
+                            : Colors.purpleAccent,
+                        onTap: isExited || isSuspended
+                            ? null
+                            : () {
+                                final pid = core.effectivePid;
+                                if (!WinProcess.isAlive(pid)) {
+                                  showError("Process already terminated.".tl);
+                                  return;
+                                }
+                                core.isManuallyTerminated = false;
+                                if (core.process != null) {
+                                  core.process!.kill();
+                                } else {
+                                  Process.run('taskkill', [
+                                    '/F',
+                                    '/PID',
+                                    '$pid',
+                                  ]);
+                                }
+                                showWarning(
+                                  "Process crash triggered manually (Dev Mode)."
+                                      .tl,
+                                );
+                              },
                       ),
                     ],
                   ],
@@ -1684,32 +2411,55 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
         ),
         Positioned(
-          right: 20, top: 10,
+          right: 20,
+          top: 10,
           child: AnimatedOpacity(
             duration: const Duration(milliseconds: 500),
             opacity: isCrashed ? 0.1 : 0.0,
-            child: Icon(Icons.warning_amber_outlined, size: 80, color: Colors.redAccent),
+            child: Icon(
+              Icons.warning_amber_outlined,
+              size: 80,
+              color: Colors.redAccent,
+            ),
           ),
         ),
         Positioned(
-          right: 20, top: 10,
+          right: 20,
+          top: 10,
           child: AnimatedOpacity(
             duration: const Duration(milliseconds: 500),
             opacity: isSuspended ? 0.1 : 0.0,
-            child: const Icon(Icons.pause_circle_outline, size: 80, color: Colors.grey),
+            child: const Icon(
+              Icons.pause_circle_outline,
+              size: 80,
+              color: Colors.grey,
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildActionButton(ThemeData theme, {required IconData icon, required String label, required String tooltip, required Color color, required VoidCallback? onTap}) {
+  Widget _buildActionButton(
+    ThemeData theme, {
+    required IconData icon,
+    required String label,
+    required String tooltip,
+    required Color color,
+    required VoidCallback? onTap,
+  }) {
     final bool isDisabled = onTap == null;
     return Expanded(
       child: Tooltip(
         message: isDisabled ? "" : tooltip,
         child: Material(
-          color: isDisabled ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.05) : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.15),
+          color: isDisabled
+              ? theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.05,
+                )
+              : theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.15,
+                ),
           borderRadius: BorderRadius.circular(10),
           child: InkWell(
             onTap: onTap,
@@ -1718,7 +2468,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: isDisabled ? Colors.transparent : color.withValues(alpha: 0.1)),
+                border: Border.all(
+                  color: isDisabled
+                      ? Colors.transparent
+                      : color.withValues(alpha: 0.1),
+                ),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1728,7 +2482,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   Flexible(
                     child: Text(
                       label,
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1745,8 +2503,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildRunningCoreItem(ThemeData theme, RunningCore core) {
     final isSelected = _selectedCore == core;
     final isExited = core.exitCode != null;
-    final isCrashed = isExited && core.exitCode != 0 && !core.isManuallyTerminated;
-    final bool hasStatus = isExited || core.isSuspended || core.isEfficiencyMode;
+    final isCrashed =
+        isExited && core.exitCode != 0 && !core.isManuallyTerminated;
+    final bool hasStatus =
+        isExited || core.isSuspended || core.isEfficiencyMode;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -1757,11 +2517,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: isSelected 
-                ? (isCrashed ? Colors.redAccent : theme.colorScheme.primaryContainer).withValues(alpha: 0.5) 
-                : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+            color: isSelected
+                ? (isCrashed
+                          ? Colors.redAccent
+                          : theme.colorScheme.primaryContainer)
+                      .withValues(alpha: 0.5)
+                : theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.3,
+                  ),
             borderRadius: BorderRadius.circular(12),
-            border: isSelected ? Border.all(color: (isCrashed ? Colors.redAccent : theme.colorScheme.primary).withValues(alpha: 0.5)) : null,
+            border: isSelected
+                ? Border.all(
+                    color:
+                        (isCrashed
+                                ? Colors.redAccent
+                                : theme.colorScheme.primary)
+                            .withValues(alpha: 0.5),
+                  )
+                : null,
           ),
           child: Row(
             children: [
@@ -1769,26 +2542,40 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 alignment: Alignment.bottomRight,
                 children: [
                   ClipPath(
-                    clipper: hasStatus ? const _BottomRightCircleClipper(radius: 6) : null,
+                    clipper: hasStatus
+                        ? const _BottomRightCircleClipper(radius: 6)
+                        : null,
                     child: Opacity(
                       opacity: (isExited && !isCrashed) ? 0.4 : 1.0,
                       child: Icon(
-                        CupertinoIcons.cube, 
-                        color: isCrashed ? Colors.redAccent : (core.isSuspended ? theme.colorScheme.outline : theme.colorScheme.primary), 
-                        size: 24
+                        CupertinoIcons.cube,
+                        color: isCrashed
+                            ? Colors.redAccent
+                            : (core.isSuspended
+                                  ? theme.colorScheme.outline
+                                  : theme.colorScheme.primary),
+                        size: 24,
                       ),
                     ),
                   ),
                   if (isExited)
                     Icon(
-                      isCrashed ? Icons.close : Icons.check, 
+                      isCrashed ? Icons.close : Icons.check,
                       size: 10,
-                      color: isCrashed ? Colors.redAccent : Colors.grey
+                      color: isCrashed ? Colors.redAccent : Colors.grey,
                     )
                   else if (core.isSuspended)
-                    const Icon(Icons.pause, size: 10, color: Colors.orangeAccent)
+                    const Icon(
+                      Icons.pause,
+                      size: 10,
+                      color: Colors.orangeAccent,
+                    )
                   else if (core.isEfficiencyMode)
-                    const Icon(Icons.energy_savings_leaf, size: 10, color: Colors.greenAccent),
+                    const Icon(
+                      Icons.energy_savings_leaf,
+                      size: 10,
+                      color: Colors.greenAccent,
+                    ),
                 ],
               ),
               const SizedBox(width: 12),
@@ -1798,42 +2585,75 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(core.version, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text(
+                        core.version,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
                       Text(core.loader, style: const TextStyle(fontSize: 10)),
                     ],
                   ),
                 ),
               ),
               if (isExited)
-                 IconButton(
-                    icon: Icon(Icons.delete_outline, size: 16, color: isCrashed ? Colors.redAccent : Colors.grey),
-                    onPressed: () {
-                      setState(() {
-                        CoreManager.instance.removeCore(core);
-                        if (_selectedCore == core) {
-                          _selectedCore = CoreManager.instance.runningCores.isNotEmpty ? CoreManager.instance.runningCores.last : null;
+                IconButton(
+                  icon: Icon(
+                    Icons.delete_outline,
+                    size: 16,
+                    color: isCrashed ? Colors.redAccent : Colors.grey,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      CoreManager.instance.removeCore(core);
+                      if (_selectedCore == core) {
+                        _selectedCore =
+                            CoreManager.instance.runningCores.isNotEmpty
+                            ? CoreManager.instance.runningCores.last
+                            : null;
+                      }
+
+                      if (CoreManager.instance.runningCores.isEmpty) {
+                        _showRunningHandle = false;
+                        if (_homeState == HomeState.running) {
+                          _pageController.animateToPage(
+                            0,
+                            duration: const Duration(milliseconds: 700),
+                            curve: Curves.easeOutExpo,
+                          );
+                          _homeState = HomeState.normal;
                         }
-                        
-                        if (CoreManager.instance.runningCores.isEmpty) {
-                          _showRunningHandle = false;
-                          if (_homeState == HomeState.running) {
-                            _pageController.animateToPage(0, duration: const Duration(milliseconds: 700), curve: Curves.easeOutExpo);
-                            _homeState = HomeState.normal;
-                          }
-                        }
-                      });
-                    },
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                 )
+                      }
+                    });
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                )
               else if (isSelected)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
-                    color: Colors.greenAccent.withValues(alpha: 0.1),
+                    color:
+                        (core.isDetached
+                                ? Colors.orangeAccent
+                                : Colors.greenAccent)
+                            .withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Text("ACTIVE", style: TextStyle(color: Colors.greenAccent, fontSize: 9, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    core.isDetached ? "DETACHED" : "ACTIVE",
+                    style: TextStyle(
+                      color: core.isDetached
+                          ? Colors.orangeAccent
+                          : Colors.greenAccent,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
             ],
           ),
@@ -1849,6 +2669,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final isExited = exitCode != null;
     final isCrashed = isExited && exitCode != 0 && !core!.isManuallyTerminated;
     final isSuspended = core?.isSuspended ?? false;
+
+    // Detect if log capture is unavailable (e.g. detached or elevated process)
+    final bool isLogUnavailable =
+        (core?.process == null && core?.pid != null && logs.isEmpty);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -1868,46 +2692,101 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     if (_showLogsInRunning) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         if (_logScrollController.hasClients) {
-                          _logScrollController.jumpTo(_logScrollController.position.maxScrollExtent);
+                          _logScrollController.jumpTo(
+                            _logScrollController.position.maxScrollExtent,
+                          );
                         }
                       });
                     }
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 500),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                    color: isCrashed ? Colors.redAccent.withValues(alpha: 0.05) : (isSuspended ? Colors.grey.withValues(alpha: 0.05) : theme.colorScheme.primary.withValues(alpha: 0.05)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
+                    color: isCrashed
+                        ? Colors.redAccent.withValues(alpha: 0.05)
+                        : (isSuspended
+                              ? Colors.grey.withValues(alpha: 0.05)
+                              : theme.colorScheme.primary.withValues(
+                                  alpha: 0.05,
+                                )),
                     child: Row(
                       children: [
-                        Icon(Icons.description_outlined, size: 18, color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : theme.colorScheme.primary)),
+                        Icon(
+                          Icons.description_outlined,
+                          size: 18,
+                          color: isCrashed
+                              ? Colors.redAccent
+                              : (isSuspended
+                                    ? Colors.grey
+                                    : theme.colorScheme.primary),
+                        ),
                         const SizedBox(width: 12),
-                        Text(isCrashed ? "Crash Logs".tl : (isExited ? "Exit Logs".tl : "Launch Logs".tl), style: TextStyle(color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : theme.colorScheme.primary), fontSize: 13, fontWeight: FontWeight.bold)),
+                        Text(
+                          isCrashed
+                              ? "Crash Logs".tl
+                              : (isExited ? "Exit Logs".tl : "Launch Logs".tl),
+                          style: TextStyle(
+                            color: isCrashed
+                                ? Colors.redAccent
+                                : (isSuspended
+                                      ? Colors.grey
+                                      : theme.colorScheme.primary),
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         if (isExited) ...[
                           const SizedBox(width: 8),
-                          Text("(Exit Code: $exitCode)", style: TextStyle(fontSize: 10, color: isCrashed ? Colors.redAccent : theme.colorScheme.outline)),
+                          Text(
+                            "(Exit Code: $exitCode)",
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: isCrashed
+                                  ? Colors.redAccent
+                                  : theme.colorScheme.outline,
+                            ),
+                          ),
                         ],
                         const Spacer(),
-                        if (isCrashed) 
-                           BloretButton(
-                              height: 32,
-                              onPressed: () {
-                                final lastLogs = logs.length > 30 
-                                    ? logs.sublist(logs.length - 30).join("\n") 
-                                    : logs.join("\n");
-                                final prompt = "My Minecraft game crashed with exit code $exitCode.\n\nHere are the last few lines of the log:\n```\n$lastLogs\n```\n\nCan you help me analyze why it crashed?".tl;
-                                Bloriko.instance.startNewSession(prompt);
-                                context.findAncestorStateOfType<MainShellState>()?.setState(() {
-                                  context.findAncestorStateOfType<MainShellState>()?.selectedIndex = 1;
-                                });
-                              },
-                              icon: Icons.psychology_outlined,
-                              text: "Analyze".tl,
-                           ),
+                        if (isCrashed)
+                          BloretButton(
+                            height: 32,
+                            onPressed: () {
+                              final lastLogs = logs.length > 30
+                                  ? logs.sublist(logs.length - 30).join("\n")
+                                  : logs.join("\n");
+                              final prompt =
+                                  "My Minecraft game crashed with exit code $exitCode.\n\nHere are the last few lines of the log:\n```\n$lastLogs\n```\n\nCan you help me analyze why it crashed?"
+                                      .tl;
+                              Bloriko.instance.startNewSession(prompt);
+                              context
+                                  .findAncestorStateOfType<MainShellState>()
+                                  ?.setState(() {
+                                    context
+                                            .findAncestorStateOfType<
+                                              MainShellState
+                                            >()
+                                            ?.selectedIndex =
+                                        1;
+                                  });
+                            },
+                            icon: Icons.psychology_outlined,
+                            text: "Analyze".tl,
+                          ),
                         const SizedBox(width: 12),
                         Icon(
-                          _showLogsInRunning ? Icons.expand_less : Icons.expand_more,
+                          _showLogsInRunning
+                              ? Icons.expand_less
+                              : Icons.expand_more,
                           size: 20,
-                          color: isCrashed ? Colors.redAccent : (isSuspended ? Colors.grey : theme.colorScheme.primary),
+                          color: isCrashed
+                              ? Colors.redAccent
+                              : (isSuspended
+                                    ? Colors.grey
+                                    : theme.colorScheme.primary),
                         ),
                       ],
                     ),
@@ -1916,23 +2795,67 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ),
               if (_showLogsInRunning)
                 Expanded(
-                  child: ListView.builder(
-                    controller: _logScrollController,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: logs.length,
-                    itemBuilder: (context, index) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: SelectableText(
-                        logs[index],
-                        style: TextStyle(
-                          color: isCrashed ? Colors.redAccent.withValues(alpha: 0.8) : theme.colorScheme.onSurface.withValues(alpha: 0.8),
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                          height: 1.4,
+                  child: (isLogUnavailable || core?.isDetached == true)
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.visibility_off_outlined,
+                                size: 80,
+                                color: theme.colorScheme.outline.withValues(
+                                  alpha: 0.2,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              Text(
+                                "NO LOGS AVAILABLE".tl,
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 2,
+                                  color: theme.colorScheme.outline.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                core?.isDetached == true
+                                    ? "Logs are disabled for detached processes"
+                                          .tl
+                                    : "Process is running in detached or elevated mode"
+                                          .tl,
+                                style: TextStyle(
+                                  color: theme.colorScheme.outline.withValues(
+                                    alpha: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: _logScrollController,
+                          padding: const EdgeInsets.all(16),
+                          itemCount: logs.length,
+                          itemBuilder: (context, index) => Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: SelectableText(
+                              logs[index],
+                              style: TextStyle(
+                                color: isCrashed
+                                    ? Colors.redAccent.withValues(alpha: 0.8)
+                                    : theme.colorScheme.onSurface.withValues(
+                                        alpha: 0.8,
+                                      ),
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  ),
                 ),
             ],
           ),
@@ -1954,64 +2877,101 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               clipBehavior: .antiAlias,
               decoration: BoxDecoration(
                 color: Colors.grey,
-                shape: BoxShape.circle
+                shape: BoxShape.circle,
               ),
-              child: Bloriko.type == "bloriko" ? Image.asset("assets/bloriko.png") : const Icon(Icons.person,),
+              child: Bloriko.type == "bloriko"
+                  ? Image.asset("assets/bloriko.png")
+                  : const Icon(Icons.person),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isShort = constraints.maxWidth < 300;
-                    final identityId = ConfigService.get("user_identity");
-                    final identity = identityId == "sister" ? "Sister".tl : identityId == "little_sister" ? "Little Sister".tl : "Brother".tl;
+                builder: (context, constraints) {
+                  final isShort = constraints.maxWidth < 300;
+                  final identityId = ConfigService.get("user_identity");
+                  final identity = identityId == "sister"
+                      ? "Sister".tl
+                      : identityId == "little_sister"
+                      ? "Little Sister".tl
+                      : "Brother".tl;
 
-                    String hintText;
-                    if (isBusy) {
-                      hintText = isShort ? "Thinking...".tl : "$agentName ${"is thinking...".tl}";
+                  String hintText;
+                  if (isBusy) {
+                    hintText = isShort
+                        ? "Thinking...".tl
+                        : "$agentName ${"is thinking...".tl}";
+                  } else {
+                    if (isShort) {
+                      hintText = "${"To".tl} $agentName ${"ask".tl}...";
                     } else {
-                      if (isShort) {
-                        hintText = "${"To".tl} $agentName ${"ask".tl}...";
-                      } else {
-                        hintText = "${"About".tl} Minecraft ${"any questions, you can ask".tl} $agentName${Bloriko.type == "bloriko" ? ", $identity ~" : ""}";
-                      }
+                      hintText =
+                          "${"About".tl} Minecraft ${"any questions, you can ask".tl} $agentName${Bloriko.type == "bloriko" ? ", $identity ~" : ""}";
                     }
-
-                    return TextField(
-                      controller: homeInputController,
-                      onSubmitted: isBusy ? null : (value) {
-                        if (Platform.isAndroid) return;
-                        if (value.trim().isNotEmpty) {
-                          Bloriko.instance.startNewSession(value.trim());
-                          context.findAncestorStateOfType<MainShellState>()?.setState(() {
-                            context.findAncestorStateOfType<MainShellState>()?.selectedIndex = 1;
-                          });
-                        }
-                      },
-                      decoration: InputDecoration(
-                        hintText: hintText,
-                        isDense: true,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                      ),
-                    );
                   }
+
+                  return TextField(
+                    controller: homeInputController,
+                    onSubmitted: isBusy
+                        ? null
+                        : (value) {
+                            if (Platform.isAndroid) return;
+                            if (value.trim().isNotEmpty) {
+                              Bloriko.instance.startNewSession(value.trim());
+                              context
+                                  .findAncestorStateOfType<MainShellState>()
+                                  ?.setState(() {
+                                    context
+                                            .findAncestorStateOfType<
+                                              MainShellState
+                                            >()
+                                            ?.selectedIndex =
+                                        1;
+                                  });
+                            }
+                          },
+                    decoration: InputDecoration(
+                      hintText: hintText,
+                      isDense: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 14,
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
             const SizedBox(width: 12),
             IconButton.filled(
-                onPressed: isBusy ? null : () {
-                  final value = homeInputController.text.trim();
-                  if (value.isNotEmpty) {
-                    Bloriko.instance.startNewSession(value);
-                    context.findAncestorStateOfType<MainShellState>()?.setState(() {
-                      context.findAncestorStateOfType<MainShellState>()?.selectedIndex = 1;
-                    });
-                  }
-                },
-                icon: isBusy
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70))
-                    : const Icon(Icons.send)
+              onPressed: isBusy
+                  ? null
+                  : () {
+                      final value = homeInputController.text.trim();
+                      if (value.isNotEmpty) {
+                        Bloriko.instance.startNewSession(value);
+                        context
+                            .findAncestorStateOfType<MainShellState>()
+                            ?.setState(() {
+                              context
+                                      .findAncestorStateOfType<MainShellState>()
+                                      ?.selectedIndex =
+                                  1;
+                            });
+                      }
+                    },
+              icon: isBusy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white70,
+                      ),
+                    )
+                  : const Icon(Icons.send),
             ),
           ],
         );
@@ -2026,7 +2986,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         children: [
           Row(
             children: [
-              Image.asset(theme.brightness == Brightness.dark ? "assets/bloret_dark.png" : "assets/bloret_light.png", width: 48, height: 48, fit: BoxFit.cover,),
+              Image.asset(
+                theme.brightness == Brightness.dark
+                    ? "assets/bloret_dark.png"
+                    : "assets/bloret_light.png",
+                width: 48,
+                height: 48,
+                fit: BoxFit.cover,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -2034,52 +3001,108 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   children: [
                     Row(
                       children: [
-                        const Text("Bloret", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        const Text(
+                          "Bloret",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
                         const Spacer(),
-                        if (server?.links != null) Text(server?.url ?? "", style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)),
+                        if (server?.links != null)
+                          Text(
+                            server?.url ?? "",
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
                         const SizedBox(width: 8),
-                        if (server != null && server?.realTimeStatus != null && server?.realTimeStatus?.online == true) Text("${server?.realTimeStatus?.playersOnline ?? 0} / ${server?.realTimeStatus?.playersMax ?? 0}", style: theme.textTheme.bodySmall),
+                        if (server != null &&
+                            server?.realTimeStatus != null &&
+                            server?.realTimeStatus?.online == true)
+                          Text(
+                            "${server?.realTimeStatus?.playersOnline ?? 0} / ${server?.realTimeStatus?.playersMax ?? 0}",
+                            style: theme.textTheme.bodySmall,
+                          ),
                       ],
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        SizedBox(width: 16, height: 16, child: Image.asset("assets/icons/mc_be.png"),),
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: Image.asset("assets/icons/mc_be.png"),
+                        ),
                         const SizedBox(width: 8),
-                        Text("Bloret ${server?.text == null ? "" : "| ${_showTranslatedServer ? (_translatedServerText ?? server?.text) : server?.text}"}", style: theme.textTheme.bodySmall),
+                        Text(
+                          "Bloret ${server?.text == null ? "" : "| ${_showTranslatedServer ? (_translatedServerText ?? server?.text) : server?.text}"}",
+                          style: theme.textTheme.bodySmall,
+                        ),
                       ],
-                    )
+                    ),
                   ],
                 ),
-              )
+              ),
             ],
           ),
           const Divider(height: 24),
-          Text("$agentName ${"Recommended Time".tl}", style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(
+            "$agentName ${"Recommended Time".tl}",
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 12),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             transitionBuilder: (child, animation) {
               final sizeAnimation = CurvedAnimation(
-                parent: animation, curve: const Interval(0.0, 1.0, curve: Curves.easeOutBack));
+                parent: animation,
+                curve: const Interval(0.0, 1.0, curve: Curves.easeOutBack),
+              );
               final fadeAnimation = CurvedAnimation(
-                parent: animation, curve: const Interval(0.3, 1.0, curve: Curves.easeIn));
+                parent: animation,
+                curve: const Interval(0.3, 1.0, curve: Curves.easeIn),
+              );
               return FadeTransition(
                 opacity: fadeAnimation,
-                child: SizeTransition(sizeFactor: sizeAnimation, alignment: Alignment.centerLeft, child: child));
+                child: SizeTransition(
+                  sizeFactor: sizeAnimation,
+                  alignment: Alignment.centerLeft,
+                  child: child,
+                ),
+              );
             },
             child: server != null
-                ? KeyedSubtree(key: ValueKey(server != null), child: GptMarkdown(_showTranslatedServer ? (_translatedServerBestTime ?? server?.bestTime ?? "...") : (server?.bestTime ?? "..."), style: theme.textTheme.bodySmall))
+                ? KeyedSubtree(
+                    key: ValueKey(server != null),
+                    child: GptMarkdown(
+                      _showTranslatedServer
+                          ? (_translatedServerBestTime ??
+                                server?.bestTime ??
+                                "...")
+                          : (server?.bestTime ?? "..."),
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  )
                 : Row(
-              key: ValueKey(server != null),
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Expanded(child: Text("${"Hehe".tl}~ $agentName ${"is here! The current online player count is perfect for playing~".tl}", style: theme.textTheme.bodySmall)),
-                const SizedBox(width: 8),
-                const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-                const SizedBox(width: 4,)
-              ],
-            ),
+                    key: ValueKey(server != null),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "${"Hehe".tl}~ $agentName ${"is here! The current online player count is perfect for playing~".tl}",
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -2098,8 +3121,8 @@ class _CoreStatsChart extends StatelessWidget {
   final Animation<double>? cleanAnim;
 
   const _CoreStatsChart({
-    required this.data, 
-    required this.color, 
+    required this.data,
+    required this.color,
     required this.animation,
     this.unit,
     this.scaleFactor = 1.0,
@@ -2114,17 +3137,19 @@ class _CoreStatsChart extends StatelessWidget {
       animation: Listenable.merge([animation, ?cleanAnim]),
       builder: (context, child) {
         // Dynamic range: Find the max value in current data to adjust Y-axis scale
-        double currentMax = data.isEmpty ? 0.1 : data.reduce((a, b) => a > b ? a : b);
+        double currentMax = data.isEmpty
+            ? 0.1
+            : data.reduce((a, b) => a > b ? a : b);
         // Ensure a minimum scale so it doesn't look empty when usage is low
         double yRange = (currentMax * 1.2).clamp(0.1, 1.0);
 
         return CustomPaint(
-          painter: _SmoothChartPainter(
-            data, 
-            color, 
-            isStopped ? 0 : animation.value, 
-            yRange, 
-            unit, 
+          painter: _ChartPainter(
+            data,
+            color,
+            isStopped ? 0 : animation.value,
+            yRange,
+            unit,
             scaleFactor,
             isCleaning: isCleaning,
             cleanValue: cleanAnim?.value ?? 0.0,
@@ -2136,7 +3161,7 @@ class _CoreStatsChart extends StatelessWidget {
   }
 }
 
-class _SmoothChartPainter extends CustomPainter {
+class _ChartPainter extends CustomPainter {
   final List<double> data;
   final Color color;
   final double progress;
@@ -2146,12 +3171,12 @@ class _SmoothChartPainter extends CustomPainter {
   final bool isCleaning;
   final double cleanValue;
 
-  _SmoothChartPainter(
-    this.data, 
-    this.color, 
-    this.progress, 
-    this.yRange, 
-    this.unit, 
+  _ChartPainter(
+    this.data,
+    this.color,
+    this.progress,
+    this.yRange,
+    this.unit,
     this.scaleFactor, {
     this.isCleaning = false,
     this.cleanValue = 0.0,
@@ -2164,24 +3189,34 @@ class _SmoothChartPainter extends CustomPainter {
     // Determine line color and gradient based on cleaning state
     Color displayColor = color;
     if (isCleaning) {
-      displayColor = Color.lerp(Colors.greenAccent, Colors.blueAccent, cleanValue)!;
+      displayColor = Color.lerp(
+        Colors.greenAccent,
+        Colors.blueAccent,
+        cleanValue,
+      )!;
     }
 
     // --- Draw Grid and Labels ---
     final gridPaint = Paint()
       ..color = displayColor.withValues(alpha: 0.1)
       ..strokeWidth = 1;
-    
-    final labelStyle = TextStyle(color: displayColor.withValues(alpha: 0.6), fontSize: 9, fontWeight: FontWeight.bold);
-    
+
+    final labelStyle = TextStyle(
+      color: displayColor.withValues(alpha: 0.6),
+      fontSize: 9,
+      fontWeight: FontWeight.bold,
+    );
+
     // Draw 3 horizontal lines (0%, 50%, 100% of range)
     for (int i = 0; i <= 2; i++) {
       double y = size.height - (i * size.height / 2);
       canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-      
+
       double val = (i * yRange / 2) * scaleFactor;
-      String label = unit == "%" ? "${(val * 100).toInt()}%" : "${val.toStringAsFixed(1)}${unit ?? ""}";
-      
+      String label = unit == "%"
+          ? "${(val * 100).toInt()}%"
+          : "${val.toStringAsFixed(1)}${unit ?? ""}";
+
       final tp = TextPainter(
         text: TextSpan(text: label, style: labelStyle),
         textDirection: TextDirection.ltr,
@@ -2200,7 +3235,10 @@ class _SmoothChartPainter extends CustomPainter {
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [displayColor.withValues(alpha: 0.25), displayColor.withValues(alpha: 0.0)],
+        colors: [
+          displayColor.withValues(alpha: 0.25),
+          displayColor.withValues(alpha: 0.0),
+        ],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
       ..style = PaintingStyle.fill;
 
@@ -2240,12 +3278,13 @@ class _SmoothChartPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _SmoothChartPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _ChartPainter oldDelegate) => true;
 }
 
 class _BottomActionRail extends StatelessWidget {
   final VoidCallback onLaunch;
   final VoidCallback onSwitchCore;
+  final VoidCallback onDebug;
   final VoidCallback onOpenFolder;
   final String? selectedVersion;
   final String? selectedVersionDir;
@@ -2255,6 +3294,7 @@ class _BottomActionRail extends StatelessWidget {
   const _BottomActionRail({
     required this.onLaunch,
     required this.onSwitchCore,
+    required this.onDebug,
     required this.onOpenFolder,
     this.selectedVersion,
     this.selectedVersionDir,
@@ -2264,21 +3304,38 @@ class _BottomActionRail extends StatelessWidget {
 
   Widget _buildCoreIcon(ThemeData theme) {
     if (selectedType == "custom_app" && selectedAppId != null) {
-      final app = ExternalAppService.instance.getCustomApps().firstWhere((e) => e.id == selectedAppId, orElse: () => CustomApp(id: "", name: "", exePath: ""));
+      final app = ExternalAppService.instance.getCustomApps().firstWhere(
+        (e) => e.id == selectedAppId,
+        orElse: () => CustomApp(id: "", name: "", exePath: ""),
+      );
       if (app.iconPath != null && File(app.iconPath!).existsSync()) {
         return ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: Image.file(File(app.iconPath!), width: 40, height: 40, fit: BoxFit.cover),
+          child: Image.file(
+            File(app.iconPath!),
+            width: 40,
+            height: 40,
+            fit: BoxFit.cover,
+          ),
         );
       }
       return Container(
-        width: 40, height: 40,
-        decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: const Icon(Icons.apps, size: 20),
       );
     }
     if (selectedVersion != null && selectedVersionDir != null) {
-      final iconPath = p.join(selectedVersionDir!, "versions", selectedVersion!, "icon.png");
+      final iconPath = p.join(
+        selectedVersionDir!,
+        "versions",
+        selectedVersion!,
+        "icon.png",
+      );
       final iconFile = File(iconPath);
       if (iconFile.existsSync()) {
         return ClipRRect(
@@ -2288,29 +3345,50 @@ class _BottomActionRail extends StatelessWidget {
       }
     }
     return Container(
-      width: 40, height: 40,
-      decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: const Icon(Icons.inventory_2, size: 20),
     );
   }
 
   Widget _buildCoreIconDesktop(ThemeData theme) {
     if (selectedType == "custom_app" && selectedAppId != null) {
-      final app = ExternalAppService.instance.getCustomApps().firstWhere((e) => e.id == selectedAppId, orElse: () => CustomApp(id: "", name: "", exePath: ""));
+      final app = ExternalAppService.instance.getCustomApps().firstWhere(
+        (e) => e.id == selectedAppId,
+        orElse: () => CustomApp(id: "", name: "", exePath: ""),
+      );
       if (app.iconPath != null && File(app.iconPath!).existsSync()) {
         return ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: Image.file(File(app.iconPath!), width: 48, height: 48, fit: BoxFit.cover),
+          child: Image.file(
+            File(app.iconPath!),
+            width: 48,
+            height: 48,
+            fit: BoxFit.cover,
+          ),
         );
       }
       return Container(
-        width: 48, height: 48,
-        decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: const Icon(Icons.apps),
       );
     }
     if (selectedVersion != null && selectedVersionDir != null) {
-      final iconPath = p.join(selectedVersionDir!, "versions", selectedVersion!, "icon.png");
+      final iconPath = p.join(
+        selectedVersionDir!,
+        "versions",
+        selectedVersion!,
+        "icon.png",
+      );
       final iconFile = File(iconPath);
       if (iconFile.existsSync()) {
         return ClipRRect(
@@ -2320,8 +3398,12 @@ class _BottomActionRail extends StatelessWidget {
       }
     }
     return Container(
-      width: 48, height: 48,
-      decoration: BoxDecoration(color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: const Icon(Icons.inventory_2),
     );
   }
@@ -2329,17 +3411,21 @@ class _BottomActionRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final isPortrait =
+        MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
-    final List<dynamic> accountListRaw = ConfigService.get("MinecraftAccountList") ?? [];
+    final List<dynamic> accountListRaw =
+        ConfigService.get("MinecraftAccountList") ?? [];
     final int chosenIndex = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
     String username = "None";
     if (accountListRaw.isNotEmpty && chosenIndex < accountListRaw.length) {
-      final account = accountListRaw[chosenIndex] is String 
-          ? jsonDecode(accountListRaw[chosenIndex]) 
+      final account = accountListRaw[chosenIndex] is String
+          ? jsonDecode(accountListRaw[chosenIndex])
           : accountListRaw[chosenIndex];
       username = account['username'] ?? "None";
     }
+
+    final isExternal = selectedType == "custom_app";
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -2347,98 +3433,142 @@ class _BottomActionRail extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface.withValues(alpha: 0.8),
-        border: Border(top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1))),
+        border: Border(
+          top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
+        ),
       ),
       child: ClipRRect(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: isPortrait
               ? Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Row(
-                children: [
-                  _buildCoreIcon(theme),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
                       children: [
-                        Text(selectedVersion ?? "No Core Selected".tl, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
-                        Text("${"As".tl} $username ${"launch".tl} Minecraft", style: theme.textTheme.bodySmall?.copyWith(fontSize: 11)),
+                        _buildCoreIcon(theme),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                selectedVersion ?? "No Core Selected".tl,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                isExternal
+                                    ? "Ready to launch custom app".tl
+                                    : "${"As".tl} $username ${"launch".tl} Minecraft",
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  BloretIconButton(
-                    icon: Icons.folder_open,
-                    tooltip: "Game Directory".tl,
-                    onPressed: onOpenFolder,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: BloretButton(
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        BloretIconButton(
+                          icon: Icons.folder_open,
+                          tooltip: isExternal
+                              ? "Program Directory".tl
+                              : "Game Directory".tl,
+                          onPressed: onOpenFolder,
+                        ),
+                        const SizedBox(width: 12),
+                        BloretIconButton(
+                          icon: Icons.bug_report_outlined,
+                          tooltip: "Debug / Attach".tl,
+                          onPressed: onDebug,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: BloretButton(
+                            onPressed: onSwitchCore,
+                            icon: Icons.swap_horiz,
+                            text: "Switch Core".tl,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: BloretButton(
+                            onPressed: onLaunch,
+                            icon: Icons.play_arrow,
+                            text: "Launch".tl,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    _buildCoreIconDesktop(theme),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            selectedVersion ?? "No Core Selected".tl,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            isExternal
+                                ? "Ready to launch custom application".tl
+                                : "${"As".tl} $username ${"launch".tl} Minecraft",
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    BloretIconButton(
+                      icon: Icons.folder_open,
+                      tooltip: isExternal
+                          ? "Program Directory".tl
+                          : "Game Directory".tl,
+                      onPressed: onOpenFolder,
+                    ),
+                    const SizedBox(width: 12),
+                    BloretIconButton(
+                      icon: Icons.bug_report_outlined,
+                      tooltip: "Debug / Attach".tl,
+                      onPressed: onDebug,
+                    ),
+                    const SizedBox(width: 12),
+                    BloretButton(
                       onPressed: onSwitchCore,
                       icon: Icons.swap_horiz,
                       text: "Switch Core".tl,
+                      height: 48,
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: BloretButton(
-                      onPressed: onLaunch,
-                      icon: Icons.play_arrow,
-                      text: "Launch".tl,
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      height: 44,
+                      width: 140,
+                      child: BloretButton(
+                        onPressed: onLaunch,
+                        icon: Icons.play_arrow,
+                        text: "Launch".tl,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
-          )
-              : Row(
-            children: [
-              _buildCoreIconDesktop(theme),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(selectedVersion ?? "No Core Selected".tl, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16), overflow: TextOverflow.ellipsis),
-                    Text("${"As".tl} $username ${"launch".tl} Minecraft", style: theme.textTheme.bodySmall),
                   ],
                 ),
-              ),
-              const Spacer(),
-              BloretIconButton(
-                icon: Icons.folder_open,
-                tooltip: "Game Directory".tl,
-                onPressed: onOpenFolder,
-              ),
-              const SizedBox(width: 12),
-              BloretButton(
-                onPressed: onSwitchCore,
-                icon: Icons.swap_horiz,
-                text: "Switch Core".tl,
-                height: 48,
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                height: 44,
-                width: 140,
-                child: BloretButton(
-                  onPressed: onLaunch,
-                  icon: Icons.play_arrow,
-                  text: "Launch".tl,
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -2451,20 +3581,21 @@ class _BottomRightCircleClipper extends CustomClipper<Path> {
 
   @override
   Path getClip(Size size) {
-    Path path = Path()
-      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
-    
+    Path path = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+
     // The status icons are 10px, so their center is 5px from the edge if aligned bottomRight
     Path hole = Path()
-      ..addOval(Rect.fromCircle(
-        center: Offset(size.width - 5, size.height - 5),
-        radius: radius,
-      ));
-      
+      ..addOval(
+        Rect.fromCircle(
+          center: Offset(size.width - 5, size.height - 5),
+          radius: radius,
+        ),
+      );
+
     return Path.combine(PathOperation.difference, path, hole);
   }
 
   @override
-  bool shouldReclip(_BottomRightCircleClipper oldClipper) => oldClipper.radius != radius;
+  bool shouldReclip(_BottomRightCircleClipper oldClipper) =>
+      oldClipper.radius != radius;
 }
-

@@ -1,11 +1,12 @@
-import 'dart:io';
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:archive/archive_io.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
-import 'package:crypto/crypto.dart';
-import 'package:archive/archive_io.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../core/i18n.dart';
 import '../core/java_config.dart';
@@ -18,7 +19,12 @@ class MavenArtifact {
   final String path;
   final String? sha1;
 
-  MavenArtifact({required this.name, required this.url, required this.path, this.sha1});
+  MavenArtifact({
+    required this.name,
+    required this.url,
+    required this.path,
+    this.sha1,
+  });
 }
 
 enum LoaderType { vanilla, fabric, forge, neoforge, quilt }
@@ -68,7 +74,12 @@ class DownloadItem {
   final String savePath;
   final String? sha1;
 
-  DownloadItem({required this.id, required this.url, required this.savePath, this.sha1});
+  DownloadItem({
+    required this.id,
+    required this.url,
+    required this.savePath,
+    this.sha1,
+  });
 }
 
 class DownloadTask extends ChangeNotifier {
@@ -90,7 +101,8 @@ class DownloadTask extends ChangeNotifier {
     if (received != null) {
       final now = DateTime.now();
       final duration = now.difference(lastUpdate).inMilliseconds;
-      if (duration > 500) { // Update speed every 0.5s
+      if (duration > 500) {
+        // Update speed every 0.5s
         speed = (received - lastReceived) / (duration / 1000.0);
         lastUpdate = now;
         lastReceived = received;
@@ -108,17 +120,23 @@ class DownloadService extends ChangeNotifier {
 
   final Map<String, DownloadTask> _tasks = {};
   final Map<String, CancelToken> _cancelTokens = {};
-  final Dio _dio = Dio(BaseOptions(
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-      "Referer": "https://gitcode.com/",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    },
-  ));
+  final Dio _dio = Dio(
+    BaseOptions(
+      headers: {
+        "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Referer": "https://gitcode.com/",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      },
+    ),
+  );
 
   List<DownloadTask> getTasks() => _tasks.values.toList();
-  List<DownloadTask> get activeTasks => _tasks.values.where((t) => t.isDownloading).toList();
-  int get remainingTasks => _tasks.values.where((t) => t.progress < 1.0 && !t.status.contains("已取消")).length;
+  List<DownloadTask> get activeTasks =>
+      _tasks.values.where((t) => t.isDownloading).toList();
+  int get remainingTasks => _tasks.values
+      .where((t) => t.progress < 1.0 && !t.status.contains("已取消"))
+      .length;
 
   double get totalProgress {
     final active = activeTasks;
@@ -154,7 +172,11 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
-  Future<bool> downloadLibrary(String id, MavenArtifact artifact, Directory librariesDir) async {
+  Future<bool> downloadLibrary(
+    String id,
+    MavenArtifact artifact,
+    Directory librariesDir,
+  ) async {
     final savePath = p.join(librariesDir.path, artifact.path);
     final file = File(savePath);
 
@@ -170,11 +192,20 @@ class DownloadService extends ChangeNotifier {
     task.isDownloading = true;
 
     try {
-      await _dio.download(artifact.url, savePath, onReceiveProgress: (count, total) {
-        if (total != -1) {
-          task.update(count / total, "Transferring...".tl, received: count, total: total);
-        }
-      });
+      await _dio.download(
+        artifact.url,
+        savePath,
+        onReceiveProgress: (count, total) {
+          if (total != -1) {
+            task.update(
+              count / total,
+              "Transferring...".tl,
+              received: count,
+              total: total,
+            );
+          }
+        },
+      );
       return true;
     } catch (e) {
       debugPrint("Download Lib Failed $id: $e");
@@ -184,7 +215,10 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
-  Future<void> downloadBatch(List<DownloadItem> items, Directory baseDir) async {
+  Future<void> downloadBatch(
+    List<DownloadItem> items,
+    Directory baseDir,
+  ) async {
     final queue = List.from(items);
     final List<Future<void>> futures = [];
     for (int i = 0; i < 6 && queue.isNotEmpty; i++) {
@@ -206,7 +240,11 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
-  Future<bool> extractNative(File archive, Directory nativesDir, List<String> excludes) async {
+  Future<bool> extractNative(
+    File archive,
+    Directory nativesDir,
+    List<String> excludes,
+  ) async {
     try {
       final destination = nativesDir.absolute;
       await destination.create(recursive: true);
@@ -220,7 +258,8 @@ class DownloadService extends ChangeNotifier {
         if (excludes.any((ex) => filename.startsWith(ex))) continue;
 
         final targetPath = p.join(destination.path, filename);
-        if (!p.isWithin(destination.path, targetPath) && p.normalize(targetPath) != destination.path) {
+        if (!p.isWithin(destination.path, targetPath) &&
+            p.normalize(targetPath) != destination.path) {
           throw Exception("File path traversal protection failed: $filename");
         }
 
@@ -240,9 +279,15 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
-  Future<bool> extractZip(File archive, Directory destination, {bool stripRoot = false}) async {
+  Future<bool> extractZip(
+    File archive,
+    Directory destination, {
+    bool stripRoot = false,
+  }) async {
     try {
-      if (!await destination.exists()) await destination.create(recursive: true);
+      if (!await destination.exists()) {
+        await destination.create(recursive: true);
+      }
 
       final bytes = await archive.readAsBytes();
       final zipDecoder = ZipDecoder();
@@ -252,7 +297,8 @@ class DownloadService extends ChangeNotifier {
       if (stripRoot && archiveFile.isNotEmpty) {
         final firstPath = archiveFile.first.name.replaceAll('\\', '/');
         final segments = firstPath.split('/');
-        if (segments.length > 1 || (segments.length == 1 && !archiveFile.first.isFile)) {
+        if (segments.length > 1 ||
+            (segments.length == 1 && !archiveFile.first.isFile)) {
           final potentialRoot = segments[0];
           bool allMatch = true;
           for (final file in archiveFile) {
@@ -274,11 +320,12 @@ class DownloadService extends ChangeNotifier {
         } else if (rootFolder != null && filename == rootFolder) {
           continue; // Skip root folder entry
         }
-        
+
         if (filename.isEmpty) continue;
 
         final targetPath = p.join(destination.path, filename);
-        if (!p.isWithin(destination.path, targetPath) && p.normalize(targetPath) != destination.path) {
+        if (!p.isWithin(destination.path, targetPath) &&
+            p.normalize(targetPath) != destination.path) {
           continue; // Path traversal protection
         }
 
@@ -313,16 +360,25 @@ class DownloadService extends ChangeNotifier {
     return null;
   }
 
-  String getMavenArtifactPath(String name, {String? classifier, String extension = "jar"}) {
+  String getMavenArtifactPath(
+    String name, {
+    String? classifier,
+    String extension = "jar",
+  }) {
     final parts = name.split(":");
     final group = parts[0].replaceAll(".", "/");
     final artifact = parts[1];
     final version = parts[2];
-    final filename = "$artifact-$version${classifier != null ? '-$classifier' : ''}.$extension";
+    final filename =
+        "$artifact-$version${classifier != null ? '-$classifier' : ''}.$extension";
     return "$group/$artifact/$version/$filename";
   }
 
-  Map<String, dynamic> mergeVersionData(Map<String, dynamic> base, Map<String, dynamic> loader, String targetId) {
+  Map<String, dynamic> mergeVersionData(
+    Map<String, dynamic> base,
+    Map<String, dynamic> loader,
+    String targetId,
+  ) {
     final merged = Map<String, dynamic>.from(base);
     merged.addAll(loader);
     final baseLibs = (base['libraries'] as List? ?? []);
@@ -390,10 +446,12 @@ class DownloadService extends ChangeNotifier {
     } catch (e) {
       debugPrint("Failed to load versions from disk: $e");
     }
-    return [];
+    return <MinecraftVersion>[];
   }
 
-  Future<List<MinecraftVersion>> fetchAllVanillaVersions({bool forceRefresh = false}) async {
+  Future<List<MinecraftVersion>> fetchAllVanillaVersions({
+    bool forceRefresh = false,
+  }) async {
     if (!forceRefresh && _cachedVanillaVersions.isNotEmpty) {
       return _cachedVanillaVersions;
     }
@@ -413,7 +471,9 @@ class DownloadService extends ChangeNotifier {
     return await _performVersionsUpdate();
   }
 
-  Future<List<MinecraftVersion>> _performVersionsUpdate({int retries = 3}) async {
+  Future<List<MinecraftVersion>> _performVersionsUpdate({
+    int retries = 3,
+  }) async {
     _isVersionsUpdating = true;
     _versionsUpdateProgress = 0.0;
     _versionsUpdateStatus = "Connecting to manifest server...".tl;
@@ -437,10 +497,12 @@ class DownloadService extends ChangeNotifier {
           final List<dynamic> versions = response.data is String
               ? jsonDecode(response.data)['versions']
               : response.data['versions'];
-          
-          _cachedVanillaVersions = versions.map((v) => MinecraftVersion.fromJson(v)).toList();
+
+          _cachedVanillaVersions = versions
+              .map((v) => MinecraftVersion.fromJson(v))
+              .toList();
           await _saveVersionsToDisk(versions);
-          
+
           _versionsUpdateStatus = "Manifest updated".tl;
           _versionsUpdateProgress = 1.0;
           _isVersionsUpdating = false;
@@ -461,7 +523,7 @@ class DownloadService extends ChangeNotifier {
         break;
       }
     }
-    
+
     _isVersionsUpdating = false;
     notifyListeners();
     return _cachedVanillaVersions;
@@ -472,12 +534,16 @@ class DownloadService extends ChangeNotifier {
     await _performVersionsUpdate();
   }
 
-  Future<List<String>> fetchLoaderVersions(String mcVersion, LoaderType type) async {
+  Future<List<Map<String, dynamic>>> fetchLoaderVersions(
+    String mcVersion,
+    LoaderType type,
+  ) async {
     try {
       String url = "";
       switch (type) {
         case LoaderType.fabric:
-          url = "https://bmclapi2.bangbang93.com/fabric/loader/$mcVersion";
+          url =
+              "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/$mcVersion";
           break;
         case LoaderType.forge:
           url = "https://bmclapi2.bangbang93.com/forge/minecraft/$mcVersion";
@@ -489,67 +555,86 @@ class DownloadService extends ChangeNotifier {
           url = "https://meta.quiltmc.org/v3/versions/loader/$mcVersion";
           break;
         default:
-          return [];
+          return <Map<String, dynamic>>[];
       }
-      
+
       final response = await _dio.get(url);
       if (response.statusCode == 200) {
-        final List<dynamic> data = response.data is String 
-            ? jsonDecode(response.data) 
+        final List<dynamic> data = response.data is String
+            ? jsonDecode(response.data)
             : response.data;
-            
+
         if (type == LoaderType.fabric || type == LoaderType.quilt) {
-          return data.map((e) {
+          return data.map<Map<String, dynamic>>((e) {
             if (e is Map) {
-              if (e.containsKey('loader')) {
-                return e['loader']['version'].toString();
-              }
-              if (e.containsKey('version')) {
-                return e['version'].toString();
-              }
+              final loader = e['loader'] ?? e;
+              return {
+                'version': loader['version'].toString(),
+                'stable': loader['stable'] ?? true,
+                'type': (loader['stable'] ?? true) ? 'Stable' : 'Snapshot',
+              };
             }
-            return e.toString();
+            return {'version': e.toString(), 'stable': true, 'type': 'Stable'};
           }).toList();
         } else if (type == LoaderType.forge || type == LoaderType.neoforge) {
-          return data.map((e) {
-            if (e is Map && e.containsKey('version')) {
-              return e['version'].toString();
+          return data.map<Map<String, dynamic>>((e) {
+            if (e is Map) {
+              return {
+                'version': e['version'].toString(),
+                'stable': true,
+                'type': 'Stable',
+                'time': e['time'],
+              };
             }
-            return e.toString();
+            return {'version': e.toString(), 'stable': true, 'type': 'Stable'};
           }).toList();
         }
+      }
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        debugPrint("Loader versions not found (404) for $mcVersion ($type)");
+      } else {
+        debugPrint(
+          "Dio error fetching loader versions ($type) for $mcVersion: ${e.message}",
+        );
       }
     } catch (e) {
       debugPrint("Failed to fetch loader versions ($type) for $mcVersion: $e");
     }
-    return [];
+    return <Map<String, dynamic>>[];
   }
 
-  Future<void> installVanilla(String versionId, String url, Directory targetDir) async {
+  Future<void> installVanilla(
+    String versionId,
+    String url,
+    Directory targetDir,
+  ) async {
     final task = getTask("Install_$versionId");
     task.isDownloading = true;
     task.update(0.0, "Fetching metadata...".tl);
 
     try {
       final response = await _dio.get(url);
-      if (response.statusCode != 200) throw Exception("Failed to get version metadata");
-      
+      if (response.statusCode != 200) {
+        throw Exception("Failed to get version metadata");
+      }
+
       final versionData = response.data;
       final versionPath = p.join(targetDir.path, "versions", versionId);
       final jsonFile = File(p.join(versionPath, "$versionId.json"));
-      
+
       await jsonFile.parent.create(recursive: true);
       await jsonFile.writeAsString(jsonEncode(versionData));
-      
+
       task.update(0.3, "Completing game files...".tl);
       await LaunchService.instance.downloadMissingFiles(
-        targetDir.path, 
-        versionId, 
+        targetDir.path,
+        versionId,
         onStatus: (status, p) {
           task.update(0.3 + p * 0.6, status);
-        }
+        },
       );
-      
+
       task.update(1.0, "Installation Complete".tl);
     } catch (e) {
       task.update(0.0, "Installation Failed: $e".tl);
@@ -558,8 +643,15 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
-  Future<void> installLoader(String mcVersion, String loaderVersion, LoaderType type, Directory targetDir) async {
-    final String versionId = "$mcVersion-${type.name}-$loaderVersion";
+  Future<void> installLoader(
+    String mcVersion,
+    String loaderVersion,
+    LoaderType type,
+    Directory targetDir, {
+    String? customVersionId,
+  }) async {
+    final String versionId =
+        customVersionId ?? "$mcVersion-${type.name}-$loaderVersion";
     final task = getTask("Install_$versionId");
     task.isDownloading = true;
     task.update(0.0, "Preparing installation...".tl);
@@ -570,37 +662,44 @@ class DownloadService extends ChangeNotifier {
       await jsonFile.parent.create(recursive: true);
 
       Map<String, dynamic> loaderJson = {};
-      
+
       if (type == LoaderType.fabric) {
         task.update(0.2, "Fetching Fabric JSON...".tl);
-        final res = await _dio.get("https://bmclapi2.bangbang93.com/fabric/loader/$mcVersion/$loaderVersion/json");
+        final res = await _dio.get(
+          "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/$mcVersion/$loaderVersion/json",
+        );
         loaderJson = res.data;
       } else if (type == LoaderType.forge) {
         task.update(0.2, "Fetching Forge JSON...".tl);
-        final res = await _dio.get("https://bmclapi2.bangbang93.com/forge/download/$mcVersion-$loaderVersion/json");
+        final res = await _dio.get(
+          "https://bmclapi2.bangbang93.com/forge/download/$mcVersion-$loaderVersion/json",
+        );
         loaderJson = res.data;
       } else if (type == LoaderType.neoforge) {
         task.update(0.2, "Fetching NeoForge JSON...".tl);
-        final res = await _dio.get("https://bmclapi2.bangbang93.com/neoforge/version/$loaderVersion/json");
+        final res = await _dio.get(
+          "https://bmclapi2.bangbang93.com/neoforge/version/$loaderVersion/json",
+        );
         loaderJson = res.data;
       } else if (type == LoaderType.quilt) {
         task.update(0.2, "Fetching Quilt JSON...".tl);
         final res = await _dio.get(
-            "https://meta.quiltmc.org/v3/versions/loader/$mcVersion/$loaderVersion/profile/json");
+          "https://meta.quiltmc.org/v3/versions/loader/$mcVersion/$loaderVersion/profile/json",
+        );
         loaderJson = res.data;
       }
 
       await jsonFile.writeAsString(jsonEncode(loaderJson));
-      
+
       task.update(0.5, "Completing dependencies...".tl);
       await LaunchService.instance.downloadMissingFiles(
-        targetDir.path, 
-        versionId, 
+        targetDir.path,
+        versionId,
         onStatus: (status, p) {
           task.update(0.5 + p * 0.4, status);
-        }
+        },
       );
-      
+
       task.update(1.0, "Installation Complete");
     } catch (e) {
       task.update(0.0, "Installation Failed: $e");
@@ -611,17 +710,18 @@ class DownloadService extends ChangeNotifier {
   }
 
   Future<void> downloadFile(
-    String id, 
-    String url, 
-    String fileName, 
-    Future<bool> Function(String path, Function(String) updateStatus) onComplete
+    String id,
+    String url,
+    String fileName,
+    Future<bool> Function(String path, Function(String) updateStatus)
+    onComplete,
   ) async {
     final task = getTask(id);
     if (task.isDownloading) return;
-    
+
     final cancelToken = CancelToken();
     _cancelTokens[id] = cancelToken;
-    
+
     task.isDownloading = true;
     task.update(0.0, "Downloading...");
 
@@ -635,16 +735,24 @@ class DownloadService extends ChangeNotifier {
         cancelToken: cancelToken,
         onReceiveProgress: (count, total) {
           if (total != -1) {
-            task.update(count / total, "Downloading...".tl, received: count, total: total);
+            task.update(
+              count / total,
+              "Downloading...".tl,
+              received: count,
+              total: total,
+            );
           }
         },
       );
-      
+
       final success = await onComplete(savePath, (newStatus) {
         task.update(1.0, newStatus);
       });
-      
-      task.update(1.0, success ? "Installation Complete" : "Installation Failed");
+
+      task.update(
+        1.0,
+        success ? "Installation Complete" : "Installation Failed",
+      );
     } catch (e) {
       if (e is DioException && CancelToken.isCancel(e)) {
         task.update(0.0, "Canceled");
@@ -659,7 +767,8 @@ class DownloadService extends ChangeNotifier {
 
   Future<String?> findExistingJava(String version) async {
     await for (final java in JavaConfig.detectJava(includeDetails: false)) {
-      if (java['version'] == version || (java['version'] != null && java['version']!.startsWith(version))) {
+      if (java['version'] == version ||
+          (java['version'] != null && java['version']!.startsWith(version))) {
         return java['path'];
       }
     }

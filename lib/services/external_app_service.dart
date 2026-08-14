@@ -1,10 +1,14 @@
+import 'dart:convert';
 import 'dart:io';
+
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'config_service.dart';
-import '../core/logger.dart';
+
 import '../core/ffi_proxy.dart';
+import '../core/logger.dart';
 import '../main.dart';
+import '../tools/isolate.dart';
+import 'config_service.dart';
 
 class CustomApp {
   final String id;
@@ -34,7 +38,9 @@ class CustomApp {
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
+    'showname': name, // Compatibility with Python
     'exePath': exePath,
+    'path': exePath,  // Compatibility with Python
     'iconPath': iconPath,
     'args': args,
     'workingDir': workingDir,
@@ -45,9 +51,9 @@ class CustomApp {
   };
 
   factory CustomApp.fromJson(Map<String, dynamic> json) => CustomApp(
-    id: json['id'],
-    name: json['name'],
-    exePath: json['exePath'],
+    id: json['id'] ?? json['showname'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+    name: json['name'] ?? json['showname'] ?? "Unknown",
+    exePath: json['exePath'] ?? json['path'] ?? "",
     iconPath: json['iconPath'],
     args: json['args'] ?? "",
     workingDir: json['workingDir'],
@@ -63,13 +69,15 @@ class ExternalAppService {
   ExternalAppService._();
 
   List<CustomApp> getCustomApps() {
-    final List<dynamic>? raw = ConfigService.get('custom_apps');
+    final List<dynamic>? raw = ConfigService.get('custom_apps') ?? ConfigService.get('Customize');
     if (raw == null) return [];
     return raw.map((e) => CustomApp.fromJson(e)).toList();
   }
 
   Future<void> saveCustomApps(List<CustomApp> apps) async {
-    await ConfigService.set('custom_apps', apps.map((e) => e.toJson()).toList());
+    final List<Map<String, dynamic>> jsonList = apps.map((e) => e.toJson()).toList();
+    await ConfigService.set('custom_apps', jsonList);
+    await ConfigService.set('Customize', jsonList); // Keep both in sync
   }
 
   Future<void> addApp(CustomApp app) async {
@@ -84,6 +92,28 @@ class ExternalAppService {
     await saveCustomApps(apps);
   }
 
+  Future<List<Map<String, dynamic>>> listRunningProcesses() async {
+    if (!Platform.isWindows) return [];
+
+    try {
+      return await runIsolate(_listProcessesTask, null);
+    } catch (e) {
+      logger.error("Failed to list processes: $e", LogSource.system);
+    }
+    return [];
+  }
+
+  static Future<List<Map<String, dynamic>>> _listProcessesTask(dynamic _) async {
+    final psCommand = 'Get-CimInstance Win32_Process | Select-Object ProcessId, Name, ExecutablePath, ParentProcessId | ConvertTo-Json';
+    final result = await Process.run('powershell', ['-Command', psCommand]);
+    
+    if (result.exitCode == 0) {
+      final List<dynamic> data = jsonDecode(result.stdout);
+      return data.map((e) => Map<String, dynamic>.from(e)).toList();
+    }
+    return [];
+  }
+
   Future<String?> extractIcon(String exePath) async {
     if (!Platform.isWindows) return null;
 
@@ -94,27 +124,39 @@ class ExternalAppService {
 
       final iconPath = p.join(iconDir.path, '${DateTime.now().millisecondsSinceEpoch}.png');
 
-      // FFI FFI i c your M
-      final result = WinProcess.extractHighResIcon(exePath, iconPath);
+      final bool success = await runIsolate(_extractIconTask, {
+        'exePath': exePath,
+        'iconPath': iconPath,
+      });
       
-      if (result == 0 && File(iconPath).existsSync()) {
-        logger.info("High-res icon extracted successfully for $exePath", LogSource.system);
+      if (success && File(iconPath).existsSync()) {
         return iconPath;
-      } else {
-        logger.warning("High-res extraction failed (code: $result), trying fallback...", LogSource.system);
-
-        final psCommand = '''
-Add-Type -AssemblyName System.Drawing
-[System.Drawing.Icon]::ExtractAssociatedIcon("${exePath.replaceAll('"', '`"')}").ToBitmap().Save("${iconPath.replaceAll('"', '`"')}", [System.Drawing.Imaging.ImageFormat]::Png)
-''';
-        final fallbackResult = await Process.run('powershell', ['-Command', psCommand]);
-        if (fallbackResult.exitCode == 0 && File(iconPath).existsSync()) {
-          return iconPath;
-        }
       }
     } catch (e) {
       logger.error("Exception extracting icon: $e", LogSource.system);
     }
     return null;
+  }
+
+  static Future<bool> _extractIconTask(Map<String, String> params) async {
+    final exePath = params['exePath']!;
+    final iconPath = params['iconPath']!;
+
+    // FFI call in isolate
+    final result = WinProcess.extractHighResIcon(exePath, iconPath);
+    if (result == 0) return true;
+
+    // Fallback in isolate
+    final psCommand = '''
+Add-Type -AssemblyName System.Drawing
+try {
+  [System.Drawing.Icon]::ExtractAssociatedIcon("${exePath.replaceAll('"', '`"')}").ToBitmap().Save("${iconPath.replaceAll('"', '`"')}", [System.Drawing.Imaging.ImageFormat]::Png)
+  exit 0
+} catch {
+  exit 1
+}
+''';
+    final fallbackResult = await Process.run('powershell', ['-Command', psCommand]);
+    return fallbackResult.exitCode == 0;
   }
 }

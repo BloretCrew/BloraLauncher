@@ -1,17 +1,20 @@
 import 'dart:io';
+
 import 'package:bloret_launcher/pages/version_selector_view.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/launch_service.dart';
 import 'package:bloret_launcher/shell/main_shell.dart';
 import 'package:bloret_launcher/widgets/windows_widgets.dart';
 import 'package:flutter/material.dart';
-import '../core/i18n.dart';
+
 import '../core/grammer_candy.dart';
+import '../core/i18n.dart';
 import '../core/java_config.dart';
 import '../main.dart';
 import '../services/download_service.dart';
-import 'java_selector_view.dart';
 import 'external_app_selector_view.dart';
+import 'java_selector_view.dart';
+import 'mrpack_import_view.dart';
 
 class DownloadPage extends StatefulWidget {
   const DownloadPage({super.key});
@@ -20,12 +23,7 @@ class DownloadPage extends StatefulWidget {
   State<DownloadPage> createState() => _DownloadPageState();
 }
 
-enum PageType {
-  minecraft,
-  java,
-  external,
-  modrinth,
-}
+enum PageType { minecraft, java, external, modrinth }
 
 class _DownloadPageState extends State<DownloadPage> {
   final PageController _pageController = PageController();
@@ -55,8 +53,11 @@ class _DownloadPageState extends State<DownloadPage> {
     if (shell != null) {
       shell.setNavExtended(false);
     }
-    
-    _pageController.nextPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOutCubic);
+
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOutCubic,
+    );
   }
 
   @override
@@ -69,45 +70,77 @@ class _DownloadPageState extends State<DownloadPage> {
         switch (_selectedPageType) {
           PageType.java => JavaSelectorView(
             onBack: () => setState(() {
-              _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOutCubic);
-            },),
+              _pageController.previousPage(
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOutCubic,
+              );
+            }),
           ),
           PageType.external => ExternalAppEditorView(
             onBack: () => setState(() {
-              _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOutCubic);
-            },),
+              _pageController.previousPage(
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOutCubic,
+              );
+            }),
             onSaved: () {
               setState(() {
-                _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOutCubic);
+                _pageController.previousPage(
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeInOutCubic,
+                );
               });
               showInfo("Application added. You can find it in Cores page.".tl);
             },
           ),
+          PageType.modrinth => MrpackImportView(
+            onBack: () => setState(() {
+              _pageController.previousPage(
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOutCubic,
+              );
+            }),
+            onImported: () {
+              setState(() {
+                _pageController.previousPage(
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeInOutCubic,
+                );
+              });
+              showInfo("Modpack imported. You can find it in Cores page.".tl);
+            },
+          ),
           _ => VersionSelectorView(
             onBack: () => setState(() {
-              _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOutCubic);
-            },),
-          )
-        }
+              _pageController.previousPage(
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOutCubic,
+              );
+            }),
+          ),
+        },
       ],
     );
   }
 
   Widget _buildMainHome(BuildContext context) {
-    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final isPortrait =
+        MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: ListView(
-        padding: EdgeInsets.only(left: isPortrait ? 16 : 32, right: 16, top: 16, bottom: 16),
+        padding: EdgeInsets.only(
+          left: isPortrait ? 16 : 32,
+          right: 16,
+          top: 16,
+          bottom: 16,
+        ),
         children: [
           Padding(
             padding: const EdgeInsets.only(left: 8, top: 8),
             child: Text(
               "Download".tl,
-              style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
             ),
           ),
           const SizedBox(height: 16),
@@ -116,7 +149,11 @@ class _DownloadPageState extends State<DownloadPage> {
           _buildTargetDirSelector(),
           const SizedBox(height: 16),
           DownloadCard(
-            image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/mc_be.png", scale: 0.9,)),
+            image: SizedBox(
+              width: 42,
+              height: 42,
+              child: Image.asset("assets/icons/mc_be.png", scale: 0.9),
+            ),
             title: "Minecraft Versions".tl,
             subtitle: "Download and install vanilla Minecraft cores".tl,
             onPressed: () {
@@ -148,7 +185,11 @@ class _DownloadPageState extends State<DownloadPage> {
           //   onPressed: () => _navigateToSelector(LoaderType.neoforge),
           // ),
           DownloadCard(
-            image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/java.png")),
+            image: SizedBox(
+              width: 42,
+              height: 42,
+              child: Image.asset("assets/icons/java.png"),
+            ),
             title: "Java Runtime".tl,
             subtitle: "Java environment required for Minecraft".tl,
             onPressed: () {
@@ -157,40 +198,58 @@ class _DownloadPageState extends State<DownloadPage> {
             },
             onDownload: (v) async {
               final version = v.replaceAll("Java ", "");
-              
+
               updateStatus(String status) {
-                DownloadService.instance.getTask("Java_$version").update(0.0, status);
+                DownloadService.instance
+                    .getTask("Java_$version")
+                    .update(0.0, status);
               }
 
               updateStatus("Checking device...".tl);
-              final existingPath = await DownloadService.instance.findExistingJava(version);
+              final existingPath = await DownloadService.instance
+                  .findExistingJava(version);
               if (existingPath != null) {
-                showInfo("${"Java".tl} $version ${"is already installed at".tl}: $existingPath");
+                showInfo(
+                  "${"Java".tl} $version ${"is already installed at".tl}: $existingPath",
+                );
                 return;
               }
 
               final url = JavaConfig.versions[version]?["Windows"]?["x64"];
               if (url != null) {
                 await DownloadService.instance.downloadFile(
-                    "Java_$version", url, "java_$version.msi",
-                        (path, updateStatus) async {
-                      updateStatus("Starting installation...".tl);
-                      final result = await Process.start("msiexec", ["/i", path, "/quiet", "/qn"]);
-                      updateStatus("Installing in background...".tl);
-                      final exitCode = await result.exitCode;
-                      if (exitCode == 0) {
-                        showSuccess("Java %s installed".tl.format(version));
-                      } else {
-                        showError("Java %s installation failed".tl.format(version));
-                      }
-                      return exitCode == 0;
+                  "Java_$version",
+                  url,
+                  "java_$version.msi",
+                  (path, updateStatus) async {
+                    updateStatus("Starting installation...".tl);
+                    final result = await Process.start("msiexec", [
+                      "/i",
+                      path,
+                      "/quiet",
+                      "/qn",
+                    ]);
+                    updateStatus("Installing in background...".tl);
+                    final exitCode = await result.exitCode;
+                    if (exitCode == 0) {
+                      showSuccess("Java %s installed".tl.format(version));
+                    } else {
+                      showError(
+                        "Java %s installation failed".tl.format(version),
+                      );
                     }
+                    return exitCode == 0;
+                  },
                 );
               }
             },
           ),
           DownloadCard(
-            image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/ext.png")),
+            image: SizedBox(
+              width: 42,
+              height: 42,
+              child: Image.asset("assets/icons/ext.png"),
+            ),
             title: "External / Modpack".tl,
             subtitle: "Add custom launchers or modpack files".tl,
             onPressed: () {
@@ -201,11 +260,19 @@ class _DownloadPageState extends State<DownloadPage> {
             },
           ),
           DownloadCard(
-            image: SizedBox(width: 42, height: 42, child: CustomPaint(painter: ModrinthPainter(), size: const Size(42, 42))),
+            image: SizedBox(
+              width: 42,
+              height: 42,
+              child: CustomPaint(
+                painter: ModrinthPainter(),
+                size: const Size(42, 42),
+              ),
+            ),
             title: "Modrinth Modpack".tl,
             subtitle: "Import .mrpack format modpacks".tl,
             onPressed: () {
-              // TODO: Backend.importMrpack()
+              setState(() => _selectedPageType = PageType.modrinth);
+              _navigateToSelector();
             },
           ),
         ],
@@ -222,11 +289,25 @@ class _DownloadPageState extends State<DownloadPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("Download Target Directory".tl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+          Text(
+            "Download Target Directory".tl,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
+            ),
+          ),
           const SizedBox(height: 4),
           Win11Dropdown(
             initialValue: selectedTargetDir,
-            items: dirs.map((d) => Win11DropdownItem(value: d.toString(), label: d.toString())).toList(),
+            items: dirs
+                .map(
+                  (d) => Win11DropdownItem(
+                    value: d.toString(),
+                    label: d.toString(),
+                  ),
+                )
+                .toList(),
             onChanged: (v) {
               setState(() => selectedTargetDir = v);
             },
@@ -257,7 +338,8 @@ class DownloadCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final isPortrait =
+        MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
     if (isPortrait) {
       return FluentCard(
@@ -273,13 +355,19 @@ class DownloadCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text(subtitle, style: TextStyle(color: Colors.grey.shade600)),
+                      Text(
+                        title,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        subtitle,
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                Icon(Icons.arrow_forward)
+                Icon(Icons.arrow_forward),
               ],
             ),
           ],
@@ -297,13 +385,16 @@ class DownloadCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
                 Text(subtitle, style: TextStyle(color: Colors.grey.shade600)),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          Icon(Icons.arrow_forward)
+          Icon(Icons.arrow_forward),
         ],
       ),
     );
@@ -327,7 +418,6 @@ class ModrinthPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
-
 
 Path buildIconPath() {
   final Path path = Path();

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -48,7 +49,8 @@ class I18n extends ChangeNotifier {
         mode: FileMode.write,
         flush: true,
       );
-    } catch (_) {} finally {
+    } catch (_) {
+    } finally {
       _isSavingMissing = false;
     }
   }
@@ -77,14 +79,15 @@ class I18n extends ChangeNotifier {
       final Map<String, dynamic> jsonMap = json.decode(jsonString);
 
       _localizedValues.clear();
-      _localizedValues = jsonMap.map((key, value) => MapEntry(key, value.toString()));
+      _localizedValues = jsonMap.map(
+        (key, value) => MapEntry(key, value.toString()),
+      );
       _currentLang = lang;
 
       // Clear translation cache when language changes
       TranslationStore.resetCache();
 
       instance.notifyListeners();
-
     } catch (e) {
       if (lang != 'en_us') {
         await load('en_us');
@@ -100,13 +103,17 @@ class I18n extends ChangeNotifier {
     final Map<String, String> langs = {
       'en_us': 'English (US)',
       'zh_cn': '简体中文',
+      'zh_tw': '繁體中文',
+      'zh_ac': '范式中文',
       'ja_jp': '日本語',
-      'ru_ru': 'Русский'
+      'ru_ru': 'Русский',
     };
 
     try {
       final customDir = await getCustomLangDir();
-      final files = customDir.listSync().whereType<File>().where((f) => f.path.endsWith('.json'));
+      final files = customDir.listSync().whereType<File>().where(
+        (f) => f.path.endsWith('.json'),
+      );
       for (final f in files) {
         final content = await f.readAsString();
         final Map<String, dynamic> jsonMap = json.decode(content);
@@ -124,13 +131,14 @@ class I18n extends ChangeNotifier {
   static String translate(String key) {
     _calledKeys.add(key);
     final value = _localizedValues[key];
-    
+
     if (value == null && ConfigService.get("develop_mode")) {
       if (!_missingValues.containsKey(key)) {
         _missingValues[key] = "";
         _saveMissingKeys();
       }
-      if (_currentLang != 'en_us') debugPrint("----------MISSING KEY: $key-----------");
+      if (_currentLang != 'en_us')
+        debugPrint("----------MISSING KEY: $key-----------");
     }
 
     return value ?? key;
@@ -139,9 +147,9 @@ class I18n extends ChangeNotifier {
   /// Returns all keys that have been called via .tl as a sorted JSON string
   static String getCalledKeysJson() {
     final List<String> sortedKeys = _calledKeys.toList()..sort();
-    final Map<String, String> exportMap = { 
+    final Map<String, String> exportMap = {
       "__NAME__": "New Language",
-      for (var k in sortedKeys) k: k 
+      for (var k in sortedKeys) k: k,
     };
     return const JsonEncoder.withIndent('  ').convert(exportMap);
   }

@@ -1,11 +1,13 @@
 import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
-import '../core/i18n.dart';
+
 import '../core/grammer_candy.dart';
+import '../core/i18n.dart';
 import '../services/download_service.dart';
 import '../services/launch_service.dart';
 import '../widgets/button.dart';
@@ -15,10 +17,7 @@ import 'mods_page.dart';
 class VersionSelectorView extends StatefulWidget {
   final VoidCallback onBack;
 
-  const VersionSelectorView({
-    super.key,
-    required this.onBack,
-  });
+  const VersionSelectorView({super.key, required this.onBack});
 
   @override
   State<VersionSelectorView> createState() => _VersionSelectorViewState();
@@ -41,7 +40,8 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
   String? _selectedTargetDir;
 
   // Loader State
-  final Map<LoaderType, List<String>> _loaderVersionsMap = {};
+  final Map<LoaderType, List<Map<String, dynamic>>> _loaderVersionsMap =
+      <LoaderType, List<Map<String, dynamic>>>{};
   final Map<LoaderType, bool> _isLoadingLoadersMap = {};
   final Set<LoaderType> _expandedLoaders = {};
   LoaderType? _selectedLoader;
@@ -83,8 +83,8 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
   }
 
   Future<void> _loadData() async {
-    allVanillaVersions =
-        await DownloadService.instance.fetchAllVanillaVersions();
+    allVanillaVersions = await DownloadService.instance
+        .fetchAllVanillaVersions();
     if (mounted) setState(() => isLoading = false);
   }
 
@@ -108,8 +108,10 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
     });
 
     try {
-      final versions = await DownloadService.instance
-          .fetchLoaderVersions(_selectedVersion!.id, type);
+      final versions = await DownloadService.instance.fetchLoaderVersions(
+        _selectedVersion!.id,
+        type,
+      );
       if (mounted) {
         setState(() {
           _loaderVersionsMap[type] = versions;
@@ -149,8 +151,8 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
               child: isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : allVanillaVersions.isEmpty && !ds.isVersionsUpdating
-                      ? _buildErrorState(theme)
-                      : _buildVersionList(theme),
+                  ? _buildErrorState(theme)
+                  : _buildVersionList(theme),
             ),
           ],
         ),
@@ -161,8 +163,9 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
 
   Widget _buildDetailsView(ThemeData theme) {
     if (_selectedVersion == null) return const SizedBox.shrink();
-    final dateStr =
-        DateFormat('yyyy-MM-dd').format(_selectedVersion!.releaseTime);
+    final dateStr = DateFormat(
+      'yyyy-MM-dd',
+    ).format(_selectedVersion!.releaseTime);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: ListView(
@@ -175,8 +178,9 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                 icon: const Icon(Icons.arrow_back, size: 28),
                 onPressed: () async {
                   await _pageController.previousPage(
-                      duration: const Duration(milliseconds: 400),
-                      curve: Curves.easeInOutCubic);
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeInOutCubic,
+                  );
                   if (mounted) {
                     setState(() {
                       _selectedVersion = null;
@@ -192,9 +196,13 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                 },
               ),
               const SizedBox(width: 8),
-              Text("Install Options".tl,
-                  style: const TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.bold)),
+              Text(
+                "Install Options".tl,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 24),
@@ -207,9 +215,8 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                 message: "Click to change icon".tl,
                 child: InkWell(
                   onTap: () async {
-                    FilePickerResult? result = await FilePicker.platform.pickFiles(
-                      type: FileType.image,
-                    );
+                    FilePickerResult? result = await FilePicker.platform
+                        .pickFiles(type: FileType.image);
                     if (result != null && result.files.single.path != null) {
                       setState(() {
                         _customIconPath = result.files.single.path;
@@ -227,15 +234,18 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                     child: _customIconPath != null
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(16),
-                            child: Image.file(File(_customIconPath!),
-                                fit: BoxFit.cover),
+                            child: Image.file(
+                              File(_customIconPath!),
+                              fit: BoxFit.cover,
+                            ),
                           )
                         : Icon(
                             _isAccelerated
                                 ? Icons.bolt_outlined
                                 : Icons.auto_awesome_outlined,
                             size: 32,
-                            color: theme.colorScheme.primary),
+                            color: theme.colorScheme.primary,
+                          ),
                   ),
                 ),
               ),
@@ -248,7 +258,9 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                     TextField(
                       controller: _customNameController,
                       style: const TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.bold),
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
                       decoration: InputDecoration(
                         hintText: "Instance Name".tl,
                         border: InputBorder.none,
@@ -259,7 +271,8 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                     const SizedBox(height: 8),
                     InkWell(
                       onTap: () async {
-                        String? path = await FilePicker.platform.getDirectoryPath();
+                        String? path = await FilePicker.platform
+                            .getDirectoryPath();
                         if (path != null) {
                           setState(() {
                             _selectedTargetDir = path;
@@ -268,12 +281,20 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                       },
                       child: Row(
                         children: [
-                          Icon(Icons.folder_outlined, size: 14, color: theme.colorScheme.outline),
+                          Icon(
+                            Icons.folder_outlined,
+                            size: 14,
+                            color: theme.colorScheme.outline,
+                          ),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              _selectedTargetDir ?? "Select Target Directory".tl,
-                              style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+                              _selectedTargetDir ??
+                                  "Select Target Directory".tl,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: theme.colorScheme.outline,
+                              ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -286,38 +307,51 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 1),
+                            horizontal: 6,
+                            vertical: 1,
+                          ),
                           decoration: BoxDecoration(
                             color: theme.colorScheme.secondaryContainer,
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: Text(_selectedVersion!.id,
-                              style: TextStyle(
-                                  color: theme.colorScheme.onSecondaryContainer,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold)),
+                          child: Text(
+                            _selectedVersion!.id,
+                            style: TextStyle(
+                              color: theme.colorScheme.onSecondaryContainer,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                         if (_isAccelerated) ...[
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 1),
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.amber.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Text("ACCELERATED".tl,
-                                style: const TextStyle(
-                                    color: Colors.amber,
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold)),
+                            child: Text(
+                              "ACCELERATED".tl,
+                              style: const TextStyle(
+                                color: Colors.amber,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                         ],
                         const SizedBox(width: 12),
-                        Text(dateStr,
-                            style: TextStyle(
-                                color: theme.colorScheme.outline,
-                                fontSize: 11)),
+                        Text(
+                          dateStr,
+                          style: TextStyle(
+                            color: theme.colorScheme.outline,
+                            fontSize: 11,
+                          ),
+                        ),
                       ],
                     ),
                   ],
@@ -338,24 +372,49 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Mod Loader Selectors".tl,
-                    style: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.bold)),
+                Text(
+                  "Mod Loader Selectors".tl,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 16),
-                _buildLoaderSection(LoaderType.vanilla, "Vanilla".tl,
-                    Icons.eco_outlined, theme),
+                _buildLoaderSection(
+                  LoaderType.vanilla,
+                  "Vanilla".tl,
+                  Icons.eco_outlined,
+                  theme,
+                ),
                 const SizedBox(height: 10),
                 _buildLoaderSection(
-                    LoaderType.fabric, "Fabric", CupertinoIcons.map_fill, theme, true),
+                  LoaderType.fabric,
+                  "Fabric",
+                  CupertinoIcons.map_fill,
+                  theme,
+                  true,
+                ),
                 const SizedBox(height: 10),
                 _buildLoaderSection(
-                    LoaderType.forge, "Forge", Icons.fireplace_outlined, theme),
-                const SizedBox(height: 10),
-                _buildLoaderSection(LoaderType.neoforge, "NeoForge",
-                    Icons.handyman_outlined, theme),
+                  LoaderType.forge,
+                  "Forge",
+                  Icons.fireplace_outlined,
+                  theme,
+                ),
                 const SizedBox(height: 10),
                 _buildLoaderSection(
-                    LoaderType.quilt, "Quilt", Icons.grid_view_outlined, theme),
+                  LoaderType.neoforge,
+                  "NeoForge",
+                  Icons.handyman_outlined,
+                  theme,
+                ),
+                const SizedBox(height: 10),
+                _buildLoaderSection(
+                  LoaderType.quilt,
+                  "Quilt",
+                  Icons.grid_view_outlined,
+                  theme,
+                ),
               ],
             ),
           ),
@@ -366,7 +425,12 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
   }
 
   Widget _buildLoaderSection(
-      LoaderType type, String label, IconData icon, ThemeData theme, [bool fabric = false]) {
+    LoaderType type,
+    String label,
+    IconData icon,
+    ThemeData theme, [
+    bool fabric = false,
+  ]) {
     final bool isSelected = _selectedLoader == type;
     final versions = _loaderVersionsMap[type];
     final isLoading = _isLoadingLoadersMap[type] ?? false;
@@ -384,9 +448,10 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
             : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-            color: isSelected
-                ? theme.colorScheme.primary.withValues(alpha: 0.3)
-                : theme.dividerColor.withValues(alpha: 0.05)),
+          color: isSelected
+              ? theme.colorScheme.primary.withValues(alpha: 0.3)
+              : theme.dividerColor.withValues(alpha: 0.05),
+        ),
       ),
       child: Column(
         children: [
@@ -411,67 +476,88 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
               },
               borderRadius: BorderRadius.circular(12),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 child: Row(
                   children: [
                     RotatedBox(
                       quarterTurns: fabric ? 1 : 0,
-                      child: Icon(icon,
-                          color: isSelected ? theme.colorScheme.primary : null,
-                          size: 22),
+                      child: Icon(
+                        icon,
+                        color: isSelected ? theme.colorScheme.primary : null,
+                        size: 22,
+                      ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(label,
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                  color: isSelected
-                                      ? theme.colorScheme.primary
-                                      : null)),
+                          Text(
+                            label,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                              color: isSelected
+                                  ? theme.colorScheme.primary
+                                  : null,
+                            ),
+                          ),
                           if (isSelected &&
                               (type == LoaderType.vanilla ||
                                   _selectedLoaderVersion != null))
                             Text(
-                                type == LoaderType.vanilla
-                                    ? "Official Clean Version".tl
-                                    : _selectedLoaderVersion!,
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: theme.colorScheme.primary
-                                        .withValues(alpha: 0.7)))
+                              type == LoaderType.vanilla
+                                  ? "Official Clean Version".tl
+                                  : _selectedLoaderVersion!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: theme.colorScheme.primary.withValues(
+                                  alpha: 0.7,
+                                ),
+                              ),
+                            )
                           else
                             Text(
-                                type == LoaderType.vanilla
-                                    ? "Install Minecraft without any mods".tl
-                                    : versions == null
-                                        ? "Loading versions...".tl
-                                        : "${versions.length} ${"versions available".tl}",
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: theme.colorScheme.outline)),
+                              type == LoaderType.vanilla
+                                  ? "Install Minecraft without any mods".tl
+                                  : versions == null
+                                  ? "Loading versions...".tl
+                                  : versions.isEmpty
+                                  ? "No compatible loader versions found for this MC version"
+                                        .tl
+                                  : "${versions.length} ${"versions available".tl}",
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: theme.colorScheme.outline,
+                              ),
+                            ),
                         ],
                       ),
                     ),
                     if (isLoading)
                       const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2))
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     else if (type != LoaderType.vanilla)
                       AnimatedRotation(
                         turns: isExpanded ? 0.5 : 0,
                         duration: const Duration(milliseconds: 200),
-                        child: Icon(Icons.expand_more,
-                            color: theme.colorScheme.outline),
+                        child: Icon(
+                          Icons.expand_more,
+                          color: theme.colorScheme.outline,
+                        ),
                       )
                     else if (isSelected)
-                      Icon(Icons.check_circle,
-                          size: 18, color: theme.colorScheme.primary),
+                      Icon(
+                        Icons.check_circle,
+                        size: 18,
+                        color: theme.colorScheme.primary,
+                      ),
                   ],
                 ),
               ),
@@ -484,17 +570,9 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
               alignment: Alignment.topCenter,
               child: isExpanded && versions != null
                   ? Container(
-                      constraints: const BoxConstraints(maxHeight: 320),
+                      constraints: const BoxConstraints(maxHeight: 400),
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: Scrollbar(
-                        child: ListView(
-                          shrinkWrap: true,
-                          padding: EdgeInsets.zero,
-                          children: [
-                            _buildLoaderVersionList(type, versions, theme),
-                          ],
-                        ),
-                      ),
+                      child: _buildLoaderVersionList(type, versions, theme),
                     )
                   : const SizedBox(width: double.infinity, height: 0),
             ),
@@ -505,95 +583,185 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
   }
 
   Widget _buildLoaderVersionList(
-      LoaderType type, List<String> versions, ThemeData theme) {
+    LoaderType type,
+    List<Map<String, dynamic>> versions,
+    ThemeData theme,
+  ) {
     if (versions.isEmpty) return const SizedBox.shrink();
 
     // Fabric/Quilt/NeoForge: first one is usually latest stable
-    final latest = versions.first;
-    final others = versions.skip(1).toList();
+    // We separate them by stable/snapshot and put latest stable at front
+    final latestStable = versions.firstWhere(
+      (v) => v['stable'] == true,
+      orElse: () => versions.first,
+    );
+    final others = versions.where((v) => v != latestStable).toList();
 
-    return Column(
-      children: [
-        _buildLoaderVersionTile(type, latest, theme, isLatest: true),
-        if (others.isNotEmpty) ...[
-          Divider(
-              height: 1,
-              indent: 54,
-              endIndent: 16,
-              color: theme.dividerColor.withValues(alpha: 0.05)),
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: others.length,
-            itemBuilder: (context, idx) =>
-                _buildLoaderVersionTile(type, others[idx], theme),
-          ),
-        ],
-      ],
+    return ListView.builder(
+      shrinkWrap: false, // Virtualized
+      itemCount: others.length + 1,
+      itemBuilder: (context, idx) {
+        if (idx == 0) {
+          return _buildLoaderVersionTile(
+            type,
+            latestStable,
+            theme,
+            isLatest: true,
+          );
+        }
+        return _buildLoaderVersionTile(type, others[idx - 1], theme);
+      },
     );
   }
 
-  Widget _buildLoaderVersionTile(LoaderType type, String v, ThemeData theme,
-      {bool isLatest = false}) {
+  Widget _buildLoaderVersionTile(
+    LoaderType type,
+    Map<String, dynamic> vData,
+    ThemeData theme, {
+    bool isLatest = false,
+  }) {
+    final String v = vData['version'];
     final bool isSelected = _selectedLoader == type;
     final bool isVerSelected = isSelected && _selectedLoaderVersion == v;
+    final String typeLabel = vData['type'] ?? "Stable".tl;
+    final Color typeColor = vData['stable'] == false
+        ? Colors.orange
+        : Colors.green;
+    final String? date = vData['time'] != null
+        ? DateFormat('yyyy-MM-dd').format(DateTime.parse(vData['time']))
+        : null;
 
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _selectedLoader = type;
-          _selectedLoaderVersion = v;
-          _expandedLoaders.remove(type);
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 54, vertical: 10),
-        color: isVerSelected
-            ? theme.colorScheme.primary.withValues(alpha: 0.1)
-            : null,
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.terminal_outlined,
-                          size: 14,
-                          color: isVerSelected
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outline),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(v,
-                            style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: isVerSelected || isLatest
-                                    ? FontWeight.bold
-                                    : null,
-                                color: isVerSelected
-                                    ? theme.colorScheme.primary
-                                    : null)),
-                      ),
-                    ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _selectedLoader = type;
+            _selectedLoaderVersion = v;
+            _expandedLoaders.remove(type);
+          });
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isVerSelected
+                ? theme.colorScheme.primary.withValues(alpha: 0.1)
+                : theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.3,
                   ),
-                  if (isLatest)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 22),
-                      child: Text("Latest Stable".tl,
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: isVerSelected
-                                  ? theme.colorScheme.primary
-                                  : Colors.green)),
-                    ),
-                ],
+            borderRadius: BorderRadius.circular(12),
+            border: isVerSelected
+                ? Border.all(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                  )
+                : Border.all(color: theme.dividerColor.withValues(alpha: 0.05)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color:
+                      (isVerSelected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.secondary)
+                          .withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.terminal_outlined,
+                  color: isVerSelected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.secondary,
+                  size: 16,
+                ),
               ),
-            ),
-            if (isVerSelected)
-              Icon(Icons.check, size: 16, color: theme.colorScheme.primary),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          v,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: isVerSelected
+                                ? theme.colorScheme.primary
+                                : null,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (isLatest) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              "RECOMMENDED".tl,
+                              style: const TextStyle(
+                                color: Colors.green,
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Text(
+                          typeLabel,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: typeColor.withValues(alpha: 0.8),
+                          ),
+                        ),
+                        if (date != null) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            "·",
+                            style: TextStyle(
+                              color: theme.colorScheme.outline,
+                              fontSize: 10,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            date,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (isVerSelected)
+                Icon(
+                  Icons.check_circle,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -605,7 +773,8 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
     final String customName = _customNameController.text.trim().isEmpty
         ? baseVersionId
         : _customNameController.text.trim();
-    final String targetPath = _selectedTargetDir ?? LaunchService.instance.getPreferredDownloadDir();
+    final String targetPath =
+        _selectedTargetDir ?? LaunchService.instance.getPreferredDownloadDir();
     final targetDir = Directory(targetPath);
 
     String finalVersionId = baseVersionId;
@@ -614,7 +783,8 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
         showWarning("Please select a loader version first".tl);
         return;
       }
-      finalVersionId = "$baseVersionId-${_selectedLoader!.name}-$_selectedLoaderVersion";
+      finalVersionId =
+          "$baseVersionId-${_selectedLoader!.name}-$_selectedLoaderVersion";
     }
 
     // Helper to copy icon
@@ -632,7 +802,8 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
       }
     }
 
-    if (_isAccelerated && (baseVersionId == "1.21.8" || baseVersionId == "1.21.7")) {
+    if (_isAccelerated &&
+        (baseVersionId == "1.21.8" || baseVersionId == "1.21.7")) {
       final url =
           "https://raw.gitcode.com/Bloret/$baseVersionId/archive/refs/heads/main.zip";
       await DownloadService.instance.downloadFile(
@@ -658,34 +829,44 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
           return success;
         },
       );
-    } else if (_selectedLoader == null || _selectedLoader == LoaderType.vanilla) {
+    } else if (_selectedLoader == null ||
+        _selectedLoader == LoaderType.vanilla) {
       await copyIcon(finalVersionId);
-      await DownloadService.instance
-          .installVanilla(baseVersionId, _selectedVersion!.url, targetDir);
+      await DownloadService.instance.installVanilla(
+        baseVersionId,
+        _selectedVersion!.url,
+        targetDir,
+      );
     } else {
       await copyIcon(finalVersionId);
       await DownloadService.instance.installLoader(
-          baseVersionId, _selectedLoaderVersion!, _selectedLoader!, targetDir);
+        baseVersionId,
+        _selectedLoaderVersion!,
+        _selectedLoader!,
+        targetDir,
+      );
     }
     showSuccess("Installation task for %s submitted.".tl.format(customName));
     _pageController
-        .animateToPage(0,
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeInOutCubic)
+        .animateToPage(
+          0,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOutCubic,
+        )
         .then((_) {
-      if (mounted) {
-        setState(() {
-          _selectedVersion = null;
-          _selectedLoader = null;
-          _selectedLoaderVersion = null;
-          _loaderVersionsMap.clear();
-          _isLoadingLoadersMap.clear();
-          _expandedLoaders.clear();
-          _isAccelerated = false;
-          _customIconPath = null;
+          if (mounted) {
+            setState(() {
+              _selectedVersion = null;
+              _selectedLoader = null;
+              _selectedLoaderVersion = null;
+              _loaderVersionsMap.clear();
+              _isLoadingLoadersMap.clear();
+              _expandedLoaders.clear();
+              _isAccelerated = false;
+              _customIconPath = null;
+            });
+          }
         });
-      }
-    });
   }
 
   Widget _buildUpdateProgress(ThemeData theme, DownloadService ds) {
@@ -710,9 +891,10 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
               Text(
                 "${(ds.versionsUpdateProgress * 100).toInt()}%",
                 style: TextStyle(
-                    fontSize: 11,
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.bold),
+                  fontSize: 11,
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -740,7 +922,11 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.cloud_off_outlined, size: 64, color: theme.colorScheme.error.withOpacityEx(0.5)),
+          Icon(
+            Icons.cloud_off_outlined,
+            size: 64,
+            color: theme.colorScheme.error.withOpacityEx(0.5),
+          ),
           const SizedBox(height: 16),
           Text(
             "Failed to fetch versions".tl,
@@ -753,7 +939,9 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
           ),
           const SizedBox(height: 24),
           BloretButton(
-            onPressed: () => DownloadService.instance.fetchAllVanillaVersions(forceRefresh: true),
+            onPressed: () => DownloadService.instance.fetchAllVanillaVersions(
+              forceRefresh: true,
+            ),
             text: "Retry".tl,
             icon: Icons.refresh,
           ),
@@ -806,16 +994,21 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                           },
                         ),
                         border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                       ),
                     )
                   : Text(
                       "Minecraft ${"Installation".tl}",
                       key: const ValueKey("title_text"),
                       style: const TextStyle(
-                          fontSize: 24, fontWeight: FontWeight.bold),
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
             ),
           ),
@@ -872,15 +1065,19 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
             _buildVersionTile(results[index], theme),
       );
     } else {
-      final latestRelease =
-          allVanillaVersions.firstWhere((v) => v.type == "release");
-      final latestSnapshot =
-          allVanillaVersions.firstWhere((v) => v.type == "snapshot");
+      final latestRelease = allVanillaVersions.firstWhere(
+        (v) => v.type == "release",
+      );
+      final latestSnapshot = allVanillaVersions.firstWhere(
+        (v) => v.type == "snapshot",
+      );
 
-      final aprilFools =
-          allVanillaVersions.where((v) => _isAprilFools(v.id)).toList();
-      final remaining =
-          allVanillaVersions.where((v) => !_isAprilFools(v.id)).toList();
+      final aprilFools = allVanillaVersions
+          .where((v) => _isAprilFools(v.id))
+          .toList();
+      final remaining = allVanillaVersions
+          .where((v) => !_isAprilFools(v.id))
+          .toList();
 
       final releases = remaining.where((v) => v.type == "release").toList();
       final snapshots = remaining.where((v) => v.type == "snapshot").toList();
@@ -892,53 +1089,56 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
         children: [
           Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.1)),
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.1),
               ),
-              child: Stack(
-                children: [
-                  Align(
-                    alignment: .centerRight,
-                    child: CustomPaint(
-                      painter: BloretIcon(color: Colors.grey.withOpacityEx(0.2)),
-                      size: const Size(120, 120),
-                    ),
+            ),
+            child: Stack(
+              children: [
+                Align(
+                  alignment: .centerRight,
+                  child: CustomPaint(
+                    painter: BloretIcon(color: Colors.grey.withOpacityEx(0.2)),
+                    size: const Size(120, 120),
                   ),
-                  Column(
-                    children: [
-                      if (allVanillaVersions.any((v) => v.id == "1.21.8"))
-                        _buildVersionTile(
-                            allVanillaVersions
-                                .firstWhere((v) => v.id == "1.21.8"),
-                            theme,
-                            isLatest: true,
-                            label: "Bloret Speed-up Version".tl,
-                            icon: Icons.double_arrow,
-                            forceAccelerated: true),
-                      if (allVanillaVersions.any((v) => v.id == "1.21.8") &&
-                          allVanillaVersions.any((v) => v.id == "1.21.7"))
-                        Divider(
-                            height: 1,
-                            indent: 12,
-                            endIndent: 12,
-                            color: theme.dividerColor.withValues(alpha: 0.05)),
-                      if (allVanillaVersions.any((v) => v.id == "1.21.7"))
-                        _buildVersionTile(
-                            allVanillaVersions
-                                .firstWhere((v) => v.id == "1.21.7"),
-                            theme,
-                            isLatest: true,
-                            label: "Bloret Speed-up Version".tl,
-                            icon: Icons.double_arrow,
-                            forceAccelerated: true),
-                    ],
-                  ),
-                ],
-              )),
+                ),
+                Column(
+                  children: [
+                    if (allVanillaVersions.any((v) => v.id == "1.21.8"))
+                      _buildVersionTile(
+                        allVanillaVersions.firstWhere((v) => v.id == "1.21.8"),
+                        theme,
+                        isLatest: true,
+                        label: "Bloret Speed-up Version".tl,
+                        icon: Icons.double_arrow,
+                        forceAccelerated: true,
+                      ),
+                    if (allVanillaVersions.any((v) => v.id == "1.21.8") &&
+                        allVanillaVersions.any((v) => v.id == "1.21.7"))
+                      Divider(
+                        height: 1,
+                        indent: 12,
+                        endIndent: 12,
+                        color: theme.dividerColor.withValues(alpha: 0.05),
+                      ),
+                    if (allVanillaVersions.any((v) => v.id == "1.21.7"))
+                      _buildVersionTile(
+                        allVanillaVersions.firstWhere((v) => v.id == "1.21.7"),
+                        theme,
+                        isLatest: true,
+                        label: "Bloret Speed-up Version".tl,
+                        icon: Icons.double_arrow,
+                        forceAccelerated: true,
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
 
           const SizedBox(height: 20),
 
@@ -948,21 +1148,30 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
               color: theme.colorScheme.primary.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.1)),
+                color: theme.colorScheme.primary.withValues(alpha: 0.1),
+              ),
             ),
             child: Column(
               children: [
-                _buildVersionTile(latestRelease, theme,
-                    isLatest: true, label: "Latest Release".tl),
+                _buildVersionTile(
+                  latestRelease,
+                  theme,
+                  isLatest: true,
+                  label: "Latest Release".tl,
+                ),
                 Divider(
-                    height: 1,
-                    indent: 12,
-                    endIndent: 12,
-                    color: theme.dividerColor.withValues(alpha: 0.05)),
-                _buildVersionTile(latestSnapshot, theme,
-                    isLatest: true,
-                    label: "Latest Snapshot".tl,
-                    icon: Icons.bug_report_outlined),
+                  height: 1,
+                  indent: 12,
+                  endIndent: 12,
+                  color: theme.dividerColor.withValues(alpha: 0.05),
+                ),
+                _buildVersionTile(
+                  latestSnapshot,
+                  theme,
+                  isLatest: true,
+                  label: "Latest Snapshot".tl,
+                  icon: Icons.bug_report_outlined,
+                ),
               ],
             ),
           ),
@@ -1069,7 +1278,10 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
               },
               borderRadius: BorderRadius.circular(12),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 child: Row(
                   children: [
                     Icon(icon, color: theme.colorScheme.primary, size: 22),
@@ -1078,13 +1290,20 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(title,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 15)),
-                          Text(subtitle,
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: theme.colorScheme.outline)),
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                          Text(
+                            subtitle,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1113,11 +1332,14 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                           ? _buildGroupedVersionList(versions, theme)
                           : Column(
                               children: versions
-                                  .map((v) => Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 12),
-                                        child: _buildVersionTile(v, theme),
-                                      ))
+                                  .map(
+                                    (v) => Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                      ),
+                                      child: _buildVersionTile(v, theme),
+                                    ),
+                                  )
                                   .toList(),
                             ),
                     )
@@ -1130,7 +1352,9 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
   }
 
   Widget _buildGroupedVersionList(
-      List<MinecraftVersion> versions, ThemeData theme) {
+    List<MinecraftVersion> versions,
+    ThemeData theme,
+  ) {
     // Group snapshots by their year/prefix (e.g., "24w", "23w")
     final Map<String, List<MinecraftVersion>> groups = {};
     for (var v in versions) {
@@ -1168,17 +1392,27 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                 },
                 borderRadius: BorderRadius.circular(8),
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   child: Row(
                     children: [
-                      Text(gk,
-                          style: const TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w600)),
+                      Text(
+                        gk,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(width: 8),
-                      Text("(${groupVersions.length})",
-                          style: TextStyle(
-                              fontSize: 11, color: theme.colorScheme.outline)),
+                      Text(
+                        "(${groupVersions.length})",
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
                       const Spacer(),
                       Icon(
                         isSubExpanded ? Icons.expand_less : Icons.expand_more,
@@ -1201,7 +1435,10 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                           itemCount: groupVersions.length,
                           itemBuilder: (context, index) => Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: _buildVersionTile(groupVersions[index], theme),
+                            child: _buildVersionTile(
+                              groupVersions[index],
+                              theme,
+                            ),
                           ),
                         )
                       : const SizedBox(width: double.infinity, height: 0),
@@ -1235,11 +1472,14 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
     return false;
   }
 
-  Widget _buildVersionTile(MinecraftVersion version, ThemeData theme,
-      {bool isLatest = false,
-      String? label,
-      IconData? icon,
-      bool forceAccelerated = false}) {
+  Widget _buildVersionTile(
+    MinecraftVersion version,
+    ThemeData theme, {
+    bool isLatest = false,
+    String? label,
+    IconData? icon,
+    bool forceAccelerated = false,
+  }) {
     final dateStr = DateFormat('yyyy-MM-dd').format(version.releaseTime);
     final bool isAprilFools = _isAprilFools(version.id);
 
@@ -1255,8 +1495,9 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
             _isAccelerated = forceAccelerated;
           });
           _pageController.nextPage(
-              duration: const Duration(milliseconds: 400),
-              curve: Curves.easeInOutCubic);
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeInOutCubic,
+          );
         },
         borderRadius: BorderRadius.circular(10),
         child: Container(
@@ -1264,7 +1505,9 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
           decoration: BoxDecoration(
             color: isLatest
                 ? Colors.transparent
-                : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                : theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.3,
+                  ),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Row(
@@ -1283,8 +1526,9 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                       ? Icons.celebration_outlined
                       : (icon ?? Icons.view_in_ar_outlined),
                   size: 18,
-                  color:
-                      isAprilFools ? Colors.purple : theme.colorScheme.primary,
+                  color: isAprilFools
+                      ? Colors.purple
+                      : theme.colorScheme.primary,
                 ),
               ),
               const SizedBox(width: 14),
@@ -1292,31 +1536,45 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(version.id == '20w14infinite' ? '20w14∞' : version.id,
-                        style: const TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.bold)),
+                    Text(
+                      version.id == '20w14infinite' ? '20w14∞' : version.id,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     Row(
                       children: [
-                        Text(label ?? dateStr,
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: isLatest
-                                    ? theme.colorScheme.primary.withValues(alpha: 0.7)
-                                    : Colors.grey)),
+                        Text(
+                          label ?? dateStr,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isLatest
+                                ? theme.colorScheme.primary.withValues(
+                                    alpha: 0.7,
+                                  )
+                                : Colors.grey,
+                          ),
+                        ),
                         if (isAprilFools) ...[
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 1),
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.purple.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: Text("April Fools'".tl,
-                                style: const TextStyle(
-                                    color: Colors.purple,
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold)),
+                            child: Text(
+                              "April Fools'".tl,
+                              style: const TextStyle(
+                                color: Colors.purple,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                         ],
                       ],
@@ -1324,9 +1582,11 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right,
-                  size: 18,
-                  color: theme.colorScheme.outline.withValues(alpha: 0.5)),
+              Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: theme.colorScheme.outline.withValues(alpha: 0.5),
+              ),
             ],
           ),
         ),
@@ -1334,4 +1594,3 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
     );
   }
 }
-

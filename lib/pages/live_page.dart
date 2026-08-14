@@ -1018,6 +1018,8 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
               Icon(Icons.sensors_off, size: 48, color: secondaryColor.withValues(alpha: 0.5)),
               const SizedBox(height: 16),
               Text("No active Live Spaces".tl, style: TextStyle(color: secondaryColor)),
+              const SizedBox(height: 4),
+              Text("Live Spaces is WIP Function, might cause some issues and crashes.".tl, style: TextStyle(color: Colors.grey)),
               const SizedBox(height: 24),
               BloretButton(
                 onPressed: _showCreateSpaceDialog,
