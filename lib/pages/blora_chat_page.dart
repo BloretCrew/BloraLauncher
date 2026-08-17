@@ -2629,7 +2629,7 @@ class _BloraChatPageState extends State<BloraChatPage>
                                                       ),
                                               ),
                                               const SizedBox(width: 12),
-                                            ] else ...[
+                                            ] else if (!isPortrait) ...[
                                               const SizedBox(width: 44),
                                             ],
                                             ListenableBuilder(
@@ -3379,9 +3379,10 @@ class _BloraChatPageState extends State<BloraChatPage>
                                                           size: 16,
                                                         ),
                                                 )
-                                              else
+                                              else if (!isPortrait)
                                                 const SizedBox(width: 44),
-                                              const SizedBox(width: 20),
+                                              if (!isPortrait)
+                                                const SizedBox(width: 20),
                                               Expanded(
                                                 child: Container(
                                                   padding:

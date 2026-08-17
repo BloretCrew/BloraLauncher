@@ -47,6 +47,8 @@ app.*.map.json
 # BL Python
 /qml
 
-/--obfuscate
+--obfuscate/
+.artifacts/
+symbol/
 # Widget Preview related
 .widget_preview/

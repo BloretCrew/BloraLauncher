@@ -45,11 +45,14 @@ class _DownloadPageState extends State<DownloadPage> {
     }
   }
 
-  void _navigateToSelector() {
-    // Retract MainShell sidebar if extended
+  void _navigateToSelector() async {
     final shell = context.findAncestorStateOfType<MainShellState>();
     if (shell != null) {
+      final isExtended = shell.isExtended;
       shell.setNavExtended(false);
+      if (isExtended) {
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
     }
 
     _pageController.nextPage(

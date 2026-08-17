@@ -327,6 +327,42 @@ extern "C" __declspec(dllexport) bool IsProcessAlive(uint32_t pid) {
 extern "C" __declspec(dllexport) void DestroyApp() { c_terminate_process(); }
 extern "C" __declspec(dllexport) void HideApp() { if (g_flutter_window) g_flutter_window->Hide(); }
 
+static struct {
+    WINDOWPLACEMENT placement = { sizeof(WINDOWPLACEMENT) };
+    DWORD style = 0;
+} g_prev_window_state;
+static bool g_is_fullscreen = false;
+
+extern "C" __declspec(dllexport)
+void SetFullscreen(bool fullscreen) {
+    if (!g_flutter_window) return;
+    HWND hwnd = g_flutter_window->GetHandle();
+    if (fullscreen == g_is_fullscreen) return;
+
+    if (fullscreen) {
+        g_prev_window_state.style = GetWindowLong(hwnd, GWL_STYLE);
+        GetWindowPlacement(hwnd, &g_prev_window_state.placement);
+
+        MONITORINFO mi = { sizeof(mi) };
+        if (GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY), &mi)) {
+            SetWindowLong(hwnd, GWL_STYLE, g_prev_window_state.style & ~WS_OVERLAPPEDWINDOW);
+            SetWindowPos(hwnd, HWND_TOP,
+                mi.rcMonitor.left, mi.rcMonitor.top,
+                mi.rcMonitor.right - mi.rcMonitor.left,
+                mi.rcMonitor.bottom - mi.rcMonitor.top,
+                SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        }
+        g_is_fullscreen = true;
+    } else {
+        SetWindowLong(hwnd, GWL_STYLE, g_prev_window_state.style);
+        SetWindowPlacement(hwnd, &g_prev_window_state.placement);
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+            SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        g_is_fullscreen = false;
+    }
+}
+
 extern "C" __declspec(dllexport)
 void SetDarkMode(HWND hwnd, bool dark)
 {

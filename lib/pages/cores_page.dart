@@ -1,11 +1,13 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
-import '../core/i18n.dart';
+
 import '../core/grammer_candy.dart';
+import '../core/i18n.dart';
+import '../services/config_service.dart';
 import '../services/external_app_service.dart';
 import '../services/launch_service.dart';
-import '../services/config_service.dart';
 import '../widgets/button.dart';
 import 'external_app_selector_view.dart';
 
@@ -29,15 +31,21 @@ class _CoresPageState extends State<CoresPage> {
   @override
   void initState() {
     super.initState();
-    refreshLaunchItems();
+    Future.delayed(const Duration(milliseconds: 100), () {
+      refreshLaunchItems();
+    });
   }
 
   void refreshLaunchItems() async {
     setState(() => _isLoading = true);
-    var items = await LaunchService.instance.getAllAvailableVersions(query: _searchQuery);
-    
+    var items = await LaunchService.instance.getAllAvailableVersions(
+      query: _searchQuery,
+    );
+
     if (_selectedDirectoryFilter != null) {
-      items = items.where((i) => i['directory'] == _selectedDirectoryFilter).toList();
+      items = items
+          .where((i) => i['directory'] == _selectedDirectoryFilter)
+          .toList();
     }
 
     if (mounted) {
@@ -63,20 +71,29 @@ class _CoresPageState extends State<CoresPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text("Missing Files".tl),
-        content: Text("Core $id is missing some libraries or assets. Download them now?".tl),
+        content: Text(
+          "Core $id is missing some libraries or assets. Download them now?".tl,
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Download".tl)),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text("Cancel".tl),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text("Download".tl),
+          ),
         ],
       ),
     );
 
     if (confirm == true) {
       await LaunchService.instance.downloadMissingFiles(
-        dir, id, 
+        dir,
+        id,
         onStatus: (status, progress) {
           debugPrint("Completion Status: $status ($progress)");
-        }
+        },
       );
       if (mounted) {
         showSuccess("Download task submitted for $id.".tl);
@@ -88,12 +105,12 @@ class _CoresPageState extends State<CoresPage> {
   Widget build(BuildContext context) {
     if (_isEditingExternal) {
       return ExternalAppEditorView(
-        app: _editingApp, 
-        onBack: () => setState(() => _isEditingExternal = false), 
+        app: _editingApp,
+        onBack: () => setState(() => _isEditingExternal = false),
         onSaved: () {
           setState(() => _isEditingExternal = false);
           refreshLaunchItems();
-        }
+        },
       );
     }
 
@@ -147,20 +164,27 @@ class _CoresPageState extends State<CoresPage> {
                 hintText: "Search cores...".tl,
                 prefixIcon: const Icon(Icons.search),
                 isDense: true,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 filled: true,
-                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.3,
+                ),
               ),
             ),
           ),
           _buildDirectoryFilter(theme),
           Expanded(
-            child: _isLoading 
-              ? const Center(child: CircularProgressIndicator())
-              : launchItems.isEmpty
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : launchItems.isEmpty
                 ? _buildEmptyState()
                 : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
                     itemCount: launchItems.length,
                     itemBuilder: (context, index) {
                       final item = launchItems[index];
@@ -182,7 +206,11 @@ class _CoresPageState extends State<CoresPage> {
           const SizedBox(height: 16),
           Text(
             "No cores found".tl,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
@@ -209,36 +237,54 @@ class _CoresPageState extends State<CoresPage> {
         side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
       ),
       child: InkWell(
-        onTap: type == "minecraft" ? () => _checkAndComplete(directory, id) : () {
-          final apps = ExternalAppService.instance.getCustomApps();
-          final app = apps.firstWhere((e) => e.id == appId);
-          setState(() {
-            _editingApp = app;
-            _isEditingExternal = true;
-          });
-        },
+        onTap: type == "minecraft"
+            ? () => _checkAndComplete(directory, id)
+            : () {
+                final apps = ExternalAppService.instance.getCustomApps();
+                final app = apps.firstWhere((e) => e.id == appId);
+                setState(() {
+                  _editingApp = app;
+                  _isEditingExternal = true;
+                });
+              },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
               Container(
-                width: 48, height: 48,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                  color: theme.colorScheme.primaryContainer.withValues(
+                    alpha: 0.3,
+                  ),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: () {
                   if (type == "minecraft") {
-                    final iconPath = p.join(directory, "versions", id, "icon.png");
+                    final iconPath = p.join(
+                      directory,
+                      "versions",
+                      id,
+                      "icon.png",
+                    );
                     final iconFile = File(iconPath);
                     if (iconFile.existsSync()) {
-                      return ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(iconFile, fit: BoxFit.cover));
+                      return ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(iconFile, fit: BoxFit.cover),
+                      );
                     }
                     return Icon(Icons.layers, color: theme.colorScheme.primary);
                   } else {
-                    if (icon != null && icon.isNotEmpty && File(icon).existsSync()) {
-                      return ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(File(icon), fit: BoxFit.cover));
+                    if (icon != null &&
+                        icon.isNotEmpty &&
+                        File(icon).existsSync()) {
+                      return ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(File(icon), fit: BoxFit.cover),
+                      );
                     }
                     return Icon(Icons.apps, color: theme.colorScheme.primary);
                   }
@@ -249,8 +295,18 @@ class _CoresPageState extends State<CoresPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(id, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    Text(directory, style: const TextStyle(fontSize: 11, color: Colors.grey), overflow: TextOverflow.ellipsis),
+                    Text(
+                      id,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      directory,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
               ),
@@ -310,7 +366,9 @@ class _CoresPageState extends State<CoresPage> {
                 tooltip: dir,
                 selected: isSelected,
                 onSelected: (v) {
-                  setState(() => _selectedDirectoryFilter = isSelected ? null : dir);
+                  setState(
+                    () => _selectedDirectoryFilter = isSelected ? null : dir,
+                  );
                   refreshLaunchItems();
                 },
               ),

@@ -104,6 +104,8 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _updateAppIcon();
   }
 
+  bool get isExtended => _isExtended;
+
   void setNavExtended(bool value) {
     if (mounted) {
       setState(() {
@@ -763,10 +765,13 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
       bottomNavigationBar: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeInOut,
-        height: isPortrait ? 84 : 0,
+        height: isPortrait ? (84 + MediaQuery.of(context).padding.bottom) : 0,
         child: ClipRect(
           child: isPortrait
               ? Container(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).padding.bottom,
+                  ),
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surface,
                     border: Border(
@@ -777,8 +782,8 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                  child: SafeArea(
-                    top: false,
+                  child: SizedBox(
+                    height: 84,
                     child: ListView.builder(
                       scrollDirection: Axis.horizontal,
                       padding: const EdgeInsets.symmetric(horizontal: 12),

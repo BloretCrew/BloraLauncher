@@ -27,6 +27,7 @@ import '../shell/main_shell.dart';
 import '../widgets/button.dart';
 import '../widgets/process_picker_dialog.dart';
 import '../widgets/sliding_text.dart';
+import 'mods_page.dart';
 
 enum HomeState { normal, launching, running }
 
@@ -55,6 +56,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   bool _isTransitioningToRunning = false;
 
   bool _isInfoExpanded = globalIsInfoExpanded;
+
+  int _agentAnimStage = globalIsAgentExpanded
+      ? 3
+      : 0; // 0: idle, 1: hide trigger, 2: expand row, 3: slide in components
+  final FocusNode _agentFocusNode = FocusNode();
 
   Timer? _logUpdateTimer;
 
@@ -128,8 +134,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         lang = lang.split('_').first;
       }
 
-      // Use placeholders to protect brands from being merged or mistranslated
-      // Add protection for JP/RU variants as well
+      // Use placeholders to protect brands from being merged or mistranslated and fucking google
+      // Add protection for JP/RU variants as well as well
       final source = text
           .replaceAll("百络谷", "___BLORET_P___")
           .replaceAll("络可", "___BLORIKO_P___")
@@ -1343,6 +1349,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
+          // 背景淡淡的装饰图标
+          IgnorePointer(
+            child: Center(
+              child: CustomPaint(
+                painter: BloretIcon(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.05),
+                ),
+                size: const Size(320, 320),
+              ),
+            ),
+          ),
           PageView(
             controller: _pageController,
             physics: const NeverScrollableScrollPhysics(),
@@ -1452,147 +1469,163 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   tag: "header_title",
                   child: Material(
                     color: Colors.transparent,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        isPortrait
-                            ? Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                    child: isPortrait
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Stack(
+                                clipBehavior: Clip.none,
                                 children: [
-                                  Text(
-                                    "$name Launcher",
-                                    style: theme.textTheme.headlineLarge
-                                        ?.copyWith(fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  SlidingTextCycle(
-                                    key: ValueKey(
-                                      "tips_${_showTranslatedTips}_${_translatedSentences?.length}_${sentences.hashCode}",
-                                    ),
-                                    sentences:
-                                        (_showTranslatedTips
-                                                ? (_translatedSentences ??
-                                                      sentences)
-                                                : sentences)
-                                            .map(
-                                              (e) => e
-                                                  .replaceAll(
-                                                    "Windows 11",
-                                                    "Android",
-                                                  )
-                                                  .replaceAll(
-                                                    "RinUI",
-                                                    "Flutter",
-                                                  ),
-                                            )
-                                            .toList()
-                                          ..add("絡可好き好き")
-                                          ..removeWhere(
-                                            (e) => [
-                                              "编辑器",
-                                              "国际化",
-                                              "插件",
-                                            ].any((a) => e.contains(a)),
-                                          ),
-                                    style:
-                                        theme.textTheme.bodyMedium?.copyWith(
-                                          color: theme.colorScheme.outline,
-                                          fontWeight: FontWeight.w500,
-                                        ) ??
-                                        const TextStyle(),
-                                  ),
-                                ],
-                              )
-                            : Row(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    "$name Launcher",
-                                    style: theme.textTheme.headlineLarge
-                                        ?.copyWith(fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: SlidingTextCycle(
-                                      key: ValueKey(
-                                        "tips_${_showTranslatedTips}_${_translatedSentences?.length}_${sentences.hashCode}",
-                                      ),
-                                      sentences:
-                                          (_showTranslatedTips
-                                                  ? (_translatedSentences ??
-                                                        sentences)
-                                                  : sentences)
-                                              .map(
-                                                (e) => e
-                                                    .replaceAll(
-                                                      "Windows 11",
-                                                      "Android",
-                                                    )
-                                                    .replaceAll(
-                                                      "RinUI",
-                                                      "Flutter",
-                                                    ),
-                                              )
-                                              .toList()
-                                            ..add("絡可好き好き")
-                                            ..removeWhere(
-                                              (e) => [
-                                                "编辑器",
-                                                "国际化",
-                                                "插件",
-                                              ].any((a) => e.contains(a)),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        "$name Launcher",
+                                        style: theme.textTheme.headlineLarge
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.bold,
                                             ),
-                                      style:
-                                          theme.textTheme.bodyMedium?.copyWith(
-                                            color: theme.colorScheme.outline,
-                                            fontWeight: FontWeight.w500,
-                                          ) ??
-                                          const TextStyle(),
+                                      ),
+                                      const Spacer(),
+                                      if (!_isChinese && _apiAvailable)
+                                        _buildTranslateButton(
+                                          isTranslating: _isTranslating,
+                                          onPressed: _toggleTranslation,
+                                          isTranslated: _showTranslatedTips,
+                                        ),
+                                      const SizedBox(width: 48),
+                                    ],
+                                  ),
+                                  Positioned(
+                                    top: 0,
+                                    right: 0,
+                                    child: AnimatedSlide(
+                                      duration: const Duration(
+                                        milliseconds: 300,
+                                      ),
+                                      offset: _agentAnimStage == 0
+                                          ? Offset.zero
+                                          : const Offset(2.0, 0),
+                                      curve: Curves.easeInCubic,
+                                      child: GestureDetector(
+                                        onTap: _agentAnimStage == 0
+                                            ? () async {
+                                                setState(
+                                                  () => _agentAnimStage = 1,
+                                                );
+                                                await Future.delayed(
+                                                  const Duration(
+                                                    milliseconds: 150,
+                                                  ),
+                                                );
+                                                if (mounted) {
+                                                  setState(() {
+                                                    _agentAnimStage = 2;
+                                                    globalIsAgentExpanded =
+                                                        true;
+                                                  });
+                                                  Future.delayed(
+                                                    const Duration(
+                                                      milliseconds: 600,
+                                                    ),
+                                                    () => _agentFocusNode
+                                                        .requestFocus(),
+                                                  );
+                                                }
+                                              }
+                                            : null,
+                                        child: MouseRegion(
+                                          cursor: SystemMouseCursors.click,
+                                          child: AnimatedOpacity(
+                                            duration: const Duration(
+                                              milliseconds: 250,
+                                            ),
+                                            opacity: _agentAnimStage == 0
+                                                ? 1.0
+                                                : 0.0,
+                                            child: _buildAvatar(size: 40),
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                  if (!_isChinese && _apiAvailable)
-                                    const SizedBox(width: 28),
                                 ],
                               ),
-                        if (!_isChinese && _apiAvailable)
-                          Positioned(
-                            right: 0,
-                            top: -4,
-                            child: Padding(
-                              padding: const EdgeInsets.only(
-                                top: 10,
-                                right: 10,
+                              const SizedBox(height: 4),
+                              _buildSlidingTips(theme),
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOutCubic,
+                                height: _agentAnimStage >= 2 ? 64 : 0,
+                                child: SingleChildScrollView(
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  child: Column(
+                                    children: [
+                                      const SizedBox(height: 12),
+                                      _buildPortraitAgentBar(theme),
+                                    ],
+                                  ),
+                                ),
                               ),
-                              child: _buildTranslateButton(
-                                isTranslating: _isTranslating,
-                                onPressed: _toggleTranslation,
-                                isTranslated: _showTranslatedTips,
+                              AnimatedCrossFade(
+                                firstChild: const SizedBox(
+                                  width: double.infinity,
+                                ),
+                                secondChild: Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: _buildDisclaimer(theme),
+                                ),
+                                crossFadeState: _agentAnimStage >= 2
+                                    ? CrossFadeState.showSecond
+                                    : CrossFadeState.showFirst,
+                                duration: const Duration(milliseconds: 400),
+                                sizeCurve: Curves.easeInOutCubic,
                               ),
-                            ),
+                            ],
+                          )
+                        : Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                "$name Launcher",
+                                style: theme.textTheme.headlineLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(child: _buildSlidingTips(theme)),
+                              if (!_isChinese && _apiAvailable) ...[
+                                const SizedBox(width: 28),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: _buildTranslateButton(
+                                    isTranslating: _isTranslating,
+                                    onPressed: _toggleTranslation,
+                                    isTranslated: _showTranslatedTips,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
-                      ],
-                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
-              SlideFadeIn(
-                controller: _listController,
-                delay: 0.4,
-                child: Hero(
-                  tag: "bloriko_agent",
-                  child: _buildAgentInput(theme),
+              if (!isPortrait) ...[
+                const SizedBox(height: 24),
+                SlideFadeIn(
+                  controller: _listController,
+                  delay: 0.4,
+                  child: Hero(
+                    tag: "bloriko_agent",
+                    child: _buildAgentInput(theme),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              SlideFadeIn(
-                controller: _listController,
-                delay: 0.5,
-                child: Text(
-                  "$agentName ${"relies on AI. It may make mistakes, please verify important information.".tl}",
-                  style: theme.textTheme.bodySmall?.copyWith(fontSize: 14),
+                const SizedBox(height: 12),
+                SlideFadeIn(
+                  controller: _listController,
+                  delay: 0.5,
+                  child: _buildDisclaimer(theme),
                 ),
-              ),
+              ],
               const SizedBox(height: 32),
               SlideFadeIn(
                 controller: _listController,
@@ -1706,7 +1739,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         color: Colors.blueGrey,
                         width: 44,
                         height: 44,
-                        child: const Icon(Icons.person, color: Colors.white70),
+                        child: const Icon(
+                          Icons.smart_toy_outlined,
+                          color: Colors.white70,
+                        ),
                       ),
                     ),
                   ),
@@ -2866,94 +2902,154 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildAgentInput(ThemeData theme) {
+  Widget _buildAgentInput(ThemeData theme, {bool isPortrait = false}) {
+    if (isPortrait) return const SizedBox.shrink();
+
+    return ListenableBuilder(
+      listenable: Bloriko.instance,
+      builder: (context, child) {
+        return Row(
+          children: [
+            _buildAvatar(size: 40),
+            const SizedBox(width: 12),
+            Expanded(child: _buildAgentInputTextField(theme)),
+            const SizedBox(width: 12),
+            _buildAgentInputSendButton(),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildAvatar({double size = 40}) {
+    return Container(
+      width: size,
+      height: size,
+      clipBehavior: Clip.antiAlias,
+      decoration: const BoxDecoration(
+        color: Colors.grey,
+        shape: BoxShape.circle,
+      ),
+      child: Bloriko.type == "bloriko"
+          ? Image.asset("assets/bloriko.png")
+          : const Icon(Icons.person),
+    );
+  }
+
+  Widget _buildSlidingTips(ThemeData theme) {
+    return SlidingTextCycle(
+      key: ValueKey(
+        "tips_${_showTranslatedTips}_${_translatedSentences?.length}_${sentences.hashCode}",
+      ),
+      sentences:
+          (_showTranslatedTips
+                  ? (_translatedSentences ?? sentences)
+                  : sentences)
+              .map(
+                (e) => e
+                    .replaceAll("Windows 11", "Android")
+                    .replaceAll("RinUI", "Flutter"),
+              )
+              .toList()
+            ..add("絡可好き好き")
+            ..removeWhere(
+              (e) => ["编辑器", "国际化", "插件"].any((a) => e.contains(a)),
+            ),
+      style:
+          theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.outline,
+            fontWeight: FontWeight.w500,
+          ) ??
+          const TextStyle(),
+    );
+  }
+
+  Widget _buildDisclaimer(ThemeData theme) {
+    return Text(
+      "$agentName ${"relies on AI. It may make mistakes, please verify important information.".tl}",
+      style: theme.textTheme.bodySmall?.copyWith(fontSize: 14),
+    );
+  }
+
+  Widget _buildPortraitAgentBar(ThemeData theme) {
+    return Row(
+      children: [
+        // 分块滑入 1: 头像
+        AnimatedSlide(
+          duration: const Duration(milliseconds: 400),
+          offset: _agentAnimStage >= 2 ? Offset.zero : const Offset(1.2, 0),
+          curve: Curves.easeOutCubic,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 300),
+            opacity: _agentAnimStage >= 2 ? 1.0 : 0.0,
+            child: _buildAvatar(size: 40),
+          ),
+        ),
+        const SizedBox(width: 12),
+        // 分块滑入 2: 输入框
+        Expanded(
+          child: AnimatedSlide(
+            duration: const Duration(milliseconds: 550),
+            offset: _agentAnimStage >= 2 ? Offset.zero : const Offset(1.6, 0),
+            curve: Curves.easeOutCubic,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 400),
+              opacity: _agentAnimStage >= 2 ? 1.0 : 0.0,
+              child: _buildAgentInputTextField(theme),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        // 分块滑入 3: 发送按钮
+        AnimatedSlide(
+          duration: const Duration(milliseconds: 700),
+          offset: _agentAnimStage >= 2 ? Offset.zero : const Offset(2.0, 0),
+          curve: Curves.easeOutCubic,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 500),
+            opacity: _agentAnimStage >= 2 ? 1.0 : 0.0,
+            child: _buildAgentInputSendButton(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAgentInputTextField(ThemeData theme) {
     return ListenableBuilder(
       listenable: Bloriko.instance,
       builder: (context, child) {
         final isBusy = Bloriko.instance.busy;
-        return Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              clipBehavior: .antiAlias,
-              decoration: BoxDecoration(
-                color: Colors.grey,
-                shape: BoxShape.circle,
-              ),
-              child: Bloriko.type == "bloriko"
-                  ? Image.asset("assets/bloriko.png")
-                  : const Icon(Icons.person),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final isShort = constraints.maxWidth < 300;
-                  final identityId = ConfigService.get("user_identity");
-                  final identity = identityId == "sister"
-                      ? "Sister".tl
-                      : identityId == "little_sister"
-                      ? "Little Sister".tl
-                      : "Brother".tl;
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isShort = constraints.maxWidth < 300;
+            final identityId = ConfigService.get("user_identity");
+            final identity = identityId == "sister"
+                ? "Sister".tl
+                : identityId == "little_sister"
+                ? "Little Sister".tl
+                : "Brother".tl;
 
-                  String hintText;
-                  if (isBusy) {
-                    hintText = isShort
-                        ? "Thinking...".tl
-                        : "$agentName ${"is thinking...".tl}";
-                  } else {
-                    if (isShort) {
-                      hintText = "${"To".tl} $agentName ${"ask".tl}...";
-                    } else {
-                      hintText =
-                          "${"About".tl} Minecraft ${"any questions, you can ask".tl} $agentName${Bloriko.type == "bloriko" ? ", $identity ~" : ""}";
-                    }
-                  }
+            String hintText;
+            if (isBusy) {
+              hintText = isShort
+                  ? "Thinking...".tl
+                  : "$agentName ${"is thinking...".tl}";
+            } else {
+              hintText = isShort
+                  ? "${"To".tl} $agentName ${"ask".tl}..."
+                  : "${"About".tl} Minecraft ${"any questions, you can ask".tl} $agentName${Bloriko.type == "bloriko" ? ", $identity ~" : ""}";
+            }
 
-                  return TextField(
-                    controller: homeInputController,
-                    onSubmitted: isBusy
-                        ? null
-                        : (value) {
-                            if (Platform.isAndroid) return;
-                            if (value.trim().isNotEmpty) {
-                              Bloriko.instance.startNewSession(value.trim());
-                              context
-                                  .findAncestorStateOfType<MainShellState>()
-                                  ?.setState(() {
-                                    context
-                                            .findAncestorStateOfType<
-                                              MainShellState
-                                            >()
-                                            ?.selectedIndex =
-                                        1;
-                                  });
-                            }
-                          },
-                    decoration: InputDecoration(
-                      hintText: hintText,
-                      isDense: true,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 14,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 12),
-            IconButton.filled(
-              onPressed: isBusy
+            return TextField(
+              controller: homeInputController,
+              focusNode: _agentFocusNode,
+              onSubmitted: isBusy
                   ? null
-                  : () {
-                      final value = homeInputController.text.trim();
-                      if (value.isNotEmpty) {
-                        Bloriko.instance.startNewSession(value);
+                  : (value) {
+                      if (Platform.isAndroid) return;
+                      if (value.trim().isNotEmpty) {
+                        Bloriko.instance.startNewSession(value.trim());
                         context
                             .findAncestorStateOfType<MainShellState>()
                             ?.setState(() {
@@ -2964,18 +3060,56 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             });
                       }
                     },
-              icon: isBusy
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white70,
-                      ),
-                    )
-                  : const Icon(Icons.send),
-            ),
-          ],
+              decoration: InputDecoration(
+                hintText: hintText,
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 14,
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildAgentInputSendButton() {
+    return ListenableBuilder(
+      listenable: Bloriko.instance,
+      builder: (context, child) {
+        final isBusy = Bloriko.instance.busy;
+        return IconButton.filled(
+          onPressed: isBusy
+              ? null
+              : () {
+                  final value = homeInputController.text.trim();
+                  if (value.isNotEmpty) {
+                    Bloriko.instance.startNewSession(value);
+                    context.findAncestorStateOfType<MainShellState>()?.setState(
+                      () {
+                        context
+                                .findAncestorStateOfType<MainShellState>()
+                                ?.selectedIndex =
+                            1;
+                      },
+                    );
+                  }
+                },
+          icon: isBusy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white70,
+                  ),
+                )
+              : const Icon(Icons.send),
         );
       },
     );
