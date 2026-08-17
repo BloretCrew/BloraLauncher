@@ -1219,10 +1219,11 @@ class _BloraChatPageState extends State<BloraChatPage>
         final finalBytes = compBytes ?? imageBytes;
         int currentTotal = await _calculateTotalAttachmentSize();
         if (currentTotal + finalBytes.length > _maxTotalAttachmentSize) {
-          if (mounted)
+          if (mounted) {
             showWarning(
               "Total attachment size exceeds 5MB, cannot paste this image".tl,
             );
+          }
           return;
         }
 
@@ -1247,10 +1248,11 @@ class _BloraChatPageState extends State<BloraChatPage>
           final utf8Bytes = utf8.encode(plainText);
           int currentTotal = await _calculateTotalAttachmentSize();
           if (currentTotal + utf8Bytes.length > _maxTotalAttachmentSize) {
-            if (mounted)
+            if (mounted) {
               showWarning(
                 "Pasted text too long and attachment limit reached".tl,
               );
+            }
             return;
           }
 
@@ -1395,11 +1397,12 @@ class _BloraChatPageState extends State<BloraChatPage>
                                     try {
                                       final text = await file.readAsString();
                                       if (text.length > 7500) {
-                                        if (mounted)
+                                        if (mounted) {
                                           showWarning(
                                             "Pasted text too long, cannot restore"
                                                 .tl,
                                           );
+                                        }
                                         return;
                                       }
                                       setState(() {
@@ -1512,8 +1515,9 @@ class _BloraChatPageState extends State<BloraChatPage>
     final key = _currentProviderKey == 'google_ai_studio'
         ? 'google_ai_key'
         : 'custom_ai_key';
-    if (ConfigService.get(key) == null || ConfigService.get(key).isEmpty)
+    if (ConfigService.get(key) == null || ConfigService.get(key).isEmpty) {
       return;
+    }
 
     setState(() => _isFetchingModels = true);
     try {
@@ -1522,8 +1526,9 @@ class _BloraChatPageState extends State<BloraChatPage>
 
       for (var model in response.data) {
         if (_currentProviderKey == 'google_ai_studio' &&
-            !model.id.contains('gemini'))
+            !model.id.contains('gemini')) {
           continue;
+        }
 
         String rawName = model.id.replaceAll('models/', '');
         String formattedName = rawName
@@ -3082,8 +3087,9 @@ class _BloraChatPageState extends State<BloraChatPage>
                                                               "";
                                                           if (!url.startsWith(
                                                             'data:image',
-                                                          ))
+                                                          )) {
                                                             return const SizedBox.shrink();
+                                                          }
                                                           final heroTag =
                                                               'msg_${index}_img_$imgIdx';
 
@@ -3316,8 +3322,9 @@ class _BloraChatPageState extends State<BloraChatPage>
                                             !intermediateBlocking) {
                                           if ((msg['emotion'] ?? 'neutral') ==
                                               (_agent.messages[prevAssistantIdx]['emotion'] ??
-                                                  'neutral'))
+                                                  'neutral')) {
                                             showAvatar = false;
+                                          }
                                         }
                                       }
 
@@ -3436,8 +3443,9 @@ class _BloraChatPageState extends State<BloraChatPage>
                                                               .allMatches(
                                                                 content,
                                                               );
-                                                          if (matches.isEmpty)
+                                                          if (matches.isEmpty) {
                                                             return const SizedBox.shrink();
+                                                          }
 
                                                           return Padding(
                                                             padding:
@@ -4800,8 +4808,9 @@ class _BloraChatPageState extends State<BloraChatPage>
                         ),
                       ],
                       onChanged: (value) {
-                        if (value != null)
+                        if (value != null) {
                           setState(() => Bloriko.setMode(value));
+                        }
                       },
                     ),
                     const SizedBox(height: 8),
