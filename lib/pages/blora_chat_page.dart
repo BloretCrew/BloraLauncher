@@ -14,15 +14,15 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:image/image.dart' hide Image, Color;
+import 'package:pasteboard/pasteboard.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:pasteboard/pasteboard.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../core/grammer_candy.dart';
 import '../main.dart';
 import '../services/config_service.dart';
-import '../core/grammer_candy.dart';
 
 class BloraChatPage extends StatefulWidget {
   const BloraChatPage({super.key});
@@ -31,7 +31,8 @@ class BloraChatPage extends StatefulWidget {
   State<BloraChatPage> createState() => _BloraChatPageState();
 }
 
-class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+class _BloraChatPageState extends State<BloraChatPage>
+    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   bool _historyPanelOpen = false;
   final TextEditingController _inputController = TextEditingController();
   final TextEditingController _inputAnswerController = TextEditingController();
@@ -45,7 +46,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
   final List<Map<String, dynamic>> _historyList = [];
   bool _isSelectMode = false;
   final Set<String> _selectedFiles = {};
-  
+
   bool _isMultiSelectMode = false;
   final Set<int> _selectedMessageIndices = {};
   bool _showScrollToBottom = false;
@@ -87,7 +88,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     _initSpeech();
 
     _agent.addListener(_onAgentStateChanged);
-    
+
     _scrollToBottomController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -114,9 +115,13 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         _inputController.text = prompt;
         _sendMessage();
       } else {
-        _loadHistoryList().then((_) {
-          bool isNewSessionState = ConfigService.get('blora_is_new_session_state') ?? false;
-          if (!isNewSessionState && _agent.messages.isEmpty && _historyList.isNotEmpty) {
+        _loadHistoryList().then((_) async {
+          await Future.delayed(const Duration(milliseconds: 400));
+          bool isNewSessionState =
+              ConfigService.get('blora_is_new_session_state') ?? false;
+          if (!isNewSessionState &&
+              _agent.messages.isEmpty &&
+              _historyList.isNotEmpty) {
             _loadSession(_historyList.first['filename']);
           }
         });
@@ -158,28 +163,49 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
 
   IconData _getToolIcon(String? toolName) {
     switch (toolName) {
-      case 'read_file': return Icons.file_open_rounded;
-      case 'write_file': return Icons.save_rounded;
-      case 'get_directory_tree': return Icons.account_tree_rounded;
+      case 'read_file':
+        return Icons.file_open_rounded;
+      case 'write_file':
+        return Icons.save_rounded;
+      case 'get_directory_tree':
+        return Icons.account_tree_rounded;
       case 'set_emotion':
-      case 'set_emutation': return Icons.face_rounded;
-      case 'memory': return Icons.psychology_rounded;
-      case 'list_memory': return Icons.visibility_rounded;
-      case 'list_files': return Icons.list_alt_rounded;
-      case 'execute_command': return Icons.terminal_rounded;
-      case 'interact_with_ui': return Icons.touch_app_rounded;
-      case 'perform_ui_actions': return Icons.bolt_rounded;
-      case 'get_semantics_tree': return Icons.streetview;
-      case 'recall_history': return Icons.history_edu_rounded;
-      case 'web_search': return Icons.language_rounded;
-      case 'ask_question': return Icons.question_answer_rounded;
-      case 'ask_question_details': return Icons.message;
-      case 'fetch_page': return Icons.web_rounded;
-      case 'delegate_task': return Icons.call_split_rounded;
-      case 'shizuku_init': return Icons.flash_on_rounded;
-      case 'shizuku_check_permission': return Icons.verified_user_rounded;
-      case 'shizuku_run_shell': return Icons.terminal_rounded;
-      default: return Icons.auto_fix_high_rounded;
+      case 'set_emutation':
+        return Icons.face_rounded;
+      case 'memory':
+        return Icons.psychology_rounded;
+      case 'list_memory':
+        return Icons.visibility_rounded;
+      case 'list_files':
+        return Icons.list_alt_rounded;
+      case 'execute_command':
+        return Icons.terminal_rounded;
+      case 'interact_with_ui':
+        return Icons.touch_app_rounded;
+      case 'perform_ui_actions':
+        return Icons.bolt_rounded;
+      case 'get_semantics_tree':
+        return Icons.streetview;
+      case 'recall_history':
+        return Icons.history_edu_rounded;
+      case 'web_search':
+        return Icons.language_rounded;
+      case 'ask_question':
+        return Icons.question_answer_rounded;
+      case 'ask_question_details':
+        return Icons.message;
+      case 'fetch_page':
+        return Icons.web_rounded;
+      case 'delegate_task':
+        return Icons.call_split_rounded;
+      case 'shizuku_init':
+        return Icons.flash_on_rounded;
+      case 'shizuku_check_permission':
+        return Icons.verified_user_rounded;
+      case 'shizuku_run_shell':
+        return Icons.terminal_rounded;
+      default:
+        return Icons.auto_fix_high_rounded;
     }
   }
 
@@ -192,9 +218,11 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
   }
 
   void _branchConversation(int index) async {
-    final messagesToKeep = List<Map<String, dynamic>>.from(_agent.messages.sublist(0, index + 1));
+    final messagesToKeep = List<Map<String, dynamic>>.from(
+      _agent.messages.sublist(0, index + 1),
+    );
     final title = _agent.conversationTitle;
-    
+
     _clearHistory();
     setState(() {
       _agent.messages.addAll(messagesToKeep);
@@ -208,7 +236,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
 
   void _retryMessage(int index) {
     if (_agent.busy) return;
-    
+
     // Find the last user message before or at this index
     int lastUserIndex = -1;
     for (int i = index; i >= 0; i--) {
@@ -217,17 +245,19 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         break;
       }
     }
-    
+
     if (lastUserIndex == -1) return;
-    
+
     final userMsg = _agent.messages[lastUserIndex];
     setState(() {
       _agent.messages.removeRange(lastUserIndex + 1, _agent.messages.length);
       // Also remove user message to re-send it properly
       _agent.messages.removeAt(lastUserIndex);
     });
-    
-    _inputController.text = userMsg['displayText'] ?? (userMsg['content'] is String ? userMsg['content'] : "");
+
+    _inputController.text =
+        userMsg['displayText'] ??
+        (userMsg['content'] is String ? userMsg['content'] : "");
     _sendMessage();
   }
 
@@ -267,9 +297,14 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         onCaptured: (bytes) async {
           Navigator.pop(context);
           final tempDir = await getTemporaryDirectory();
-          final file = File(p.join(tempDir.path, 'chat_capture_${DateTime.now().millisecondsSinceEpoch}.png'));
+          final file = File(
+            p.join(
+              tempDir.path,
+              'chat_capture_${DateTime.now().millisecondsSinceEpoch}.png',
+            ),
+          );
           await file.writeAsBytes(bytes);
-          
+
           if (mounted) {
             final int? action = await showDialog<int>(
               context: this.context,
@@ -277,7 +312,10 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                 title: Text("Screenshot Captured".tl),
                 content: Image.memory(bytes, height: 300, fit: BoxFit.contain),
                 actions: [
-                  TextButton(onPressed: () => Navigator.pop(context, 0), child: Text("Cancel".tl)),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, 0),
+                    child: Text("Cancel".tl),
+                  ),
                   OutlinedButton.icon(
                     onPressed: () => Navigator.pop(context, 1),
                     icon: const Icon(Icons.copy_rounded, size: 18),
@@ -298,7 +336,8 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             } else if (action == 2) {
               String? outputFile = await FilePicker.platform.saveFile(
                 dialogTitle: "Save Screenshot".tl,
-                fileName: 'blora_chat_${DateTime.now().millisecondsSinceEpoch}.png',
+                fileName:
+                    'blora_chat_${DateTime.now().millisecondsSinceEpoch}.png',
                 type: FileType.image,
               );
               if (outputFile != null) {
@@ -313,7 +352,8 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
   }
 
   void _showMessageMenu(BuildContext context, Offset tapPosition, int index) {
-    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final RenderBox overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
     final msg = _agent.messages[index];
     final content = msg['content']?.toString() ?? "";
     final regExp = RegExp(r'!\[.*?\]\((.*?)\)');
@@ -361,9 +401,16 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             },
             child: Row(
               children: [
-                const Icon(Icons.download_for_offline_rounded, size: 18, color: Colors.blue),
+                const Icon(
+                  Icons.download_for_offline_rounded,
+                  size: 18,
+                  color: Colors.blue,
+                ),
                 const SizedBox(width: 8),
-                Text("Download All Images".tl, style: const TextStyle(color: Colors.blue)),
+                Text(
+                  "Download All Images".tl,
+                  style: const TextStyle(color: Colors.blue),
+                ),
               ],
             ),
           ),
@@ -371,9 +418,16 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           onTap: () => _deleteMessage(index),
           child: Row(
             children: [
-              const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+              const Icon(
+                Icons.delete_outline,
+                size: 18,
+                color: Colors.redAccent,
+              ),
               const SizedBox(width: 8),
-              Text("Delete Message".tl, style: const TextStyle(color: Colors.redAccent)),
+              Text(
+                "Delete Message".tl,
+                style: const TextStyle(color: Colors.redAccent),
+              ),
             ],
           ),
         ),
@@ -447,10 +501,14 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       _agent.messages.add({
         'role': 'user',
         'content': userContent,
-        'displayText': effectiveText.isNotEmpty ? effectiveText : "[${"Attachment".tl}]"
+        'displayText': effectiveText.isNotEmpty
+            ? effectiveText
+            : "[${"Attachment".tl}]",
       });
       if (_agent.messages.length == 1 || _agent.conversationTitle.isEmpty) {
-        _agent.conversationTitle = text.isNotEmpty ? text.split('\n').first.trim() : "Image/File Conversation".tl;
+        _agent.conversationTitle = text.isNotEmpty
+            ? text.split('\n').first.trim()
+            : "Image/File Conversation".tl;
       }
       _attachments.clear();
     });
@@ -481,11 +539,14 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         onError: (err) {
           if (batchId != _agent.requestBatch || !mounted) return;
           _scrollToBottom();
-        }
+        },
       );
     } catch (e) {
       if (batchId == _agent.requestBatch && mounted) {
-        logger.error("[BloraChat] Exception sending message: $e", LogSource.network);
+        logger.error(
+          "[BloraChat] Exception sending message: $e",
+          LogSource.network,
+        );
         setState(() {
           _agent.messages.add({'role': 'error', 'content': 'Error: $e'});
         });
@@ -539,10 +600,15 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
 
       if (_agent.currentSessionFile == null) {
         final timestamp = DateTime.now().millisecondsSinceEpoch;
-        String nameStr = _agent.conversationTitle.isEmpty ? "chat" : _agent.conversationTitle;
+        String nameStr = _agent.conversationTitle.isEmpty
+            ? "chat"
+            : _agent.conversationTitle;
         if (nameStr.length > 30) nameStr = "${nameStr.substring(0, 30)}...";
         final safeName = nameStr.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-        _agent.currentSessionFile = p.join(dir.path, "${safeName}_$timestamp.json");
+        _agent.currentSessionFile = p.join(
+          dir.path,
+          "${safeName}_$timestamp.json",
+        );
       }
 
       final file = File(_agent.currentSessionFile!);
@@ -559,7 +625,10 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         _loadHistoryList();
       }
     } catch (e) {
-      logger.error("[BloraChat] Failed to save session: $e", LogSource.fileSystem);
+      logger.error(
+        "[BloraChat] Failed to save session: $e",
+        LogSource.fileSystem,
+      );
     }
   }
 
@@ -593,7 +662,10 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         _historyList.addAll(loadedList);
       });
     } catch (e) {
-      logger.error("[BloraChat] Failed to load history list: $e", LogSource.fileSystem);
+      logger.error(
+        "[BloraChat] Failed to load history list: $e",
+        LogSource.fileSystem,
+      );
     }
   }
 
@@ -612,17 +684,29 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             context: context,
             builder: (context) => AlertDialog(
               title: Text("Character Type Mismatch".tl),
-              content: Text("This conversation last used character '$savedType', while current is '${Bloriko.type}'. Loading directly may cause context confusion.".tl),
+              content: Text(
+                "This conversation last used character '$savedType', while current is '${Bloriko.type}'. Loading directly may cause context confusion."
+                    .tl,
+              ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Ignore and Load".tl)),
-                TextButton(onPressed: () {
-                  Bloriko.setType(savedType);
-                  Navigator.pop(context, true);
-                }, child: Text("${"Switch to".tl} $savedType")),
-                FilledButton(onPressed: () {
-                  Navigator.pop(context, null);
-                  _clearHistory();
-                }, child: Text("Start New Conversation".tl)),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: Text("Ignore and Load".tl),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Bloriko.setType(savedType);
+                    Navigator.pop(context, true);
+                  },
+                  child: Text("${"Switch to".tl} $savedType"),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    Navigator.pop(context, null);
+                    _clearHistory();
+                  },
+                  child: Text("Start New Conversation".tl),
+                ),
               ],
             ),
           );
@@ -632,7 +716,9 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         if (!mounted) return;
         setState(() {
           _agent.messages.clear();
-          _agent.messages.addAll(List<Map<String, dynamic>>.from(data['messages']));
+          _agent.messages.addAll(
+            List<Map<String, dynamic>>.from(data['messages']),
+          );
           _agent.conversationTitle = data['title'] ?? "";
           _agent.currentSessionFile = filePath;
           _historyPanelOpen = false;
@@ -641,7 +727,10 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         if (_agent.messages.isNotEmpty) _scrollToBottom();
       }
     } catch (e) {
-      logger.error("[BloraChat] Failed to load session: $filePath, Error: $e", LogSource.fileSystem);
+      logger.error(
+        "[BloraChat] Failed to load session: $filePath, Error: $e",
+        LogSource.fileSystem,
+      );
     }
   }
 
@@ -658,7 +747,10 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         _loadHistoryList();
       }
     } catch (e) {
-      logger.error("[BloraChat] Failed to delete history: $filePath, Error: $e", LogSource.fileSystem);
+      logger.error(
+        "[BloraChat] Failed to delete history: $filePath, Error: $e",
+        LogSource.fileSystem,
+      );
     }
   }
 
@@ -669,12 +761,20 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       context: context,
       builder: (context) => AlertDialog(
         title: Text("Delete Confirmation".tl),
-        content: Text("${"Are you sure you want to delete selected".tl} ${_selectedFiles.length} ${"records?".tl}"),
+        content: Text(
+          "${"Are you sure you want to delete selected".tl} ${_selectedFiles.length} ${"records?".tl}",
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text("Cancel".tl),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text("Delete".tl, style: const TextStyle(color: Colors.redAccent))
+            child: Text(
+              "Delete".tl,
+              style: const TextStyle(color: Colors.redAccent),
+            ),
           ),
         ],
       ),
@@ -694,7 +794,10 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             }
           }
         } catch (e) {
-          logger.error("[BloraChat] Failed batch delete: $path, Error: $e", LogSource.fileSystem);
+          logger.error(
+            "[BloraChat] Failed batch delete: $path, Error: $e",
+            LogSource.fileSystem,
+          );
         }
       }
 
@@ -741,12 +844,20 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         }
       }
     } catch (e) {
-      logger.error("[BloraChat] Failed to export history: $filePath, Error: $e", LogSource.fileSystem);
+      logger.error(
+        "[BloraChat] Failed to export history: $filePath, Error: $e",
+        LogSource.fileSystem,
+      );
     }
   }
 
-  void _showHistoryMenu(BuildContext context, Offset tapPosition, Map<String, dynamic> item) {
-    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+  void _showHistoryMenu(
+    BuildContext context,
+    Offset tapPosition,
+    Map<String, dynamic> item,
+  ) {
+    final RenderBox overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
     showMenu(
       context: context,
       position: RelativeRect.fromRect(
@@ -768,9 +879,16 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           onTap: () => _deleteHistoryItem(item['filename'] ?? ""),
           child: Row(
             children: [
-              const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+              const Icon(
+                Icons.delete_outline,
+                size: 18,
+                color: Colors.redAccent,
+              ),
               const SizedBox(width: 8),
-              Text("Delete Record".tl, style: const TextStyle(color: Colors.redAccent)),
+              Text(
+                "Delete Record".tl,
+                style: const TextStyle(color: Colors.redAccent),
+              ),
             ],
           ),
         ),
@@ -781,11 +899,15 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
   Future<void> _downloadImage(String url) async {
     try {
       final dio = Dio();
-      final response = await dio.get(url, options: Options(responseType: ResponseType.bytes));
+      final response = await dio.get(
+        url,
+        options: Options(responseType: ResponseType.bytes),
+      );
 
       String? outputFile = await FilePicker.platform.saveFile(
         dialogTitle: "Save Image".tl,
-        fileName: 'downloaded_image_${DateTime.now().millisecondsSinceEpoch}.png',
+        fileName:
+            'downloaded_image_${DateTime.now().millisecondsSinceEpoch}.png',
         type: FileType.image,
       );
 
@@ -799,7 +921,11 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     }
   }
 
-  void _showImageDialog(BuildContext context, dynamic imageSource, String heroTag) {
+  void _showImageDialog(
+    BuildContext context,
+    dynamic imageSource,
+    String heroTag,
+  ) {
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
@@ -817,8 +943,12 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                       minScale: 0.5,
                       maxScale: 4.0,
                       child: imageSource is File
-                        ? Image.file(imageSource)
-                        : Image.memory(base64Decode(imageSource.toString().split(',').last)),
+                          ? Image.file(imageSource)
+                          : Image.memory(
+                              base64Decode(
+                                imageSource.toString().split(',').last,
+                              ),
+                            ),
                     ),
                   ),
                 ),
@@ -831,8 +961,15 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                     child: IconButton(
                       icon: Container(
                         padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(color: Colors.black26, shape: BoxShape.circle),
-                        child: const Icon(Icons.close_rounded, color: Colors.white, size: 24),
+                        decoration: const BoxDecoration(
+                          color: Colors.black26,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white,
+                          size: 24,
+                        ),
                       ),
                       onPressed: () => Navigator.pop(context),
                     ),
@@ -851,9 +988,33 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       allowMultiple: true,
       type: FileType.custom,
       allowedExtensions: [
-        'pdf', 'docx', 'pptx', 'txt', 'csv', 'xlsx', 'tsv',
-        'dart', 'py', 'js', 'ts', 'java', 'kt', 'cpp', 'c', 'h', 'html', 'css', 'json', 'yaml', 'xml', 'md',
-        'jpg', 'jpeg', 'png', 'gif', 'webp'
+        'pdf',
+        'docx',
+        'pptx',
+        'txt',
+        'csv',
+        'xlsx',
+        'tsv',
+        'dart',
+        'py',
+        'js',
+        'ts',
+        'java',
+        'kt',
+        'cpp',
+        'c',
+        'h',
+        'html',
+        'css',
+        'json',
+        'yaml',
+        'xml',
+        'md',
+        'jpg',
+        'jpeg',
+        'png',
+        'gif',
+        'webp',
       ],
     );
     if (result != null) {
@@ -864,13 +1025,18 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           final bytes = await file.length();
           if (currentTotal + bytes > _maxTotalAttachmentSize) {
             if (mounted) {
-              showWarning("Total attachment size exceeds 5MB, cannot add more files".tl);
+              showWarning(
+                "Total attachment size exceeds 5MB, cannot add more files".tl,
+              );
             }
             break;
           }
           currentTotal += bytes;
           _attachments.add(file);
-          _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
+          _listKey.currentState?.insertItem(
+            _attachments.length - 1,
+            duration: const Duration(milliseconds: 300),
+          );
         }
       }
       setState(() {});
@@ -916,7 +1082,8 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     if (!_speechEnabled) {
       await _initSpeech();
       if (!_speechEnabled) {
-        if (mounted) showWarning("Voice permissions not granted or unavailable".tl);
+        if (mounted)
+          showWarning("Voice permissions not granted or unavailable".tl);
         return;
       }
     }
@@ -981,9 +1148,33 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       final List<String> files = await Pasteboard.files();
       if (files.isNotEmpty) {
         final allowedExts = {
-          '.pdf', '.docx', '.pptx', '.txt', '.csv', '.xlsx', '.tsv',
-          '.dart', '.py', '.js', '.ts', '.java', '.kt', '.cpp', '.c', '.h', '.html', '.css', '.json', '.yaml', '.xml', '.md',
-          '.jpg', '.jpeg', '.png', '.gif', '.webp'
+          '.pdf',
+          '.docx',
+          '.pptx',
+          '.txt',
+          '.csv',
+          '.xlsx',
+          '.tsv',
+          '.dart',
+          '.py',
+          '.js',
+          '.ts',
+          '.java',
+          '.kt',
+          '.cpp',
+          '.c',
+          '.h',
+          '.html',
+          '.css',
+          '.json',
+          '.yaml',
+          '.xml',
+          '.md',
+          '.jpg',
+          '.jpeg',
+          '.png',
+          '.gif',
+          '.webp',
         };
 
         int currentTotal = await _calculateTotalAttachmentSize();
@@ -993,16 +1184,23 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           final bytes = await file.length();
 
           if (currentTotal + bytes > _maxTotalAttachmentSize) {
-             if (mounted) {
-               showWarning("Total attachment size exceeds 5MB, cannot paste more files".tl);
-             }
-             break;
+            if (mounted) {
+              showWarning(
+                "Total attachment size exceeds 5MB, cannot paste more files".tl,
+              );
+            }
+            break;
           }
 
-          if (file.existsSync() && allowedExts.contains(ext) && !_attachments.any((a) => a.path == path)) {
+          if (file.existsSync() &&
+              allowedExts.contains(ext) &&
+              !_attachments.any((a) => a.path == path)) {
             currentTotal += bytes;
             _attachments.add(file);
-            _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
+            _listKey.currentState?.insertItem(
+              _attachments.length - 1,
+              duration: const Duration(milliseconds: 300),
+            );
           }
         }
         setState(() {});
@@ -1021,16 +1219,23 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         final finalBytes = compBytes ?? imageBytes;
         int currentTotal = await _calculateTotalAttachmentSize();
         if (currentTotal + finalBytes.length > _maxTotalAttachmentSize) {
-          if (mounted) showWarning("Total attachment size exceeds 5MB, cannot paste this image".tl);
+          if (mounted)
+            showWarning(
+              "Total attachment size exceeds 5MB, cannot paste this image".tl,
+            );
           return;
         }
 
         final tempDir = await getTemporaryDirectory();
-        final fileName = 'pasted_img_${DateTime.now().millisecondsSinceEpoch}.png';
+        final fileName =
+            'pasted_img_${DateTime.now().millisecondsSinceEpoch}.png';
         final file = File(p.join(tempDir.path, fileName));
         await file.writeAsBytes(finalBytes);
         _attachments.add(file);
-        _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
+        _listKey.currentState?.insertItem(
+          _attachments.length - 1,
+          duration: const Duration(milliseconds: 300),
+        );
         setState(() {});
         return;
       }
@@ -1042,30 +1247,41 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           final utf8Bytes = utf8.encode(plainText);
           int currentTotal = await _calculateTotalAttachmentSize();
           if (currentTotal + utf8Bytes.length > _maxTotalAttachmentSize) {
-            if (mounted) showWarning("Pasted text too long and attachment limit reached".tl);
+            if (mounted)
+              showWarning(
+                "Pasted text too long and attachment limit reached".tl,
+              );
             return;
           }
 
           final tempDir = await getTemporaryDirectory();
-          final fileName = 'pasted_text_${DateTime.now().millisecondsSinceEpoch}.txt';
+          final fileName =
+              'pasted_text_${DateTime.now().millisecondsSinceEpoch}.txt';
           final file = File(p.join(tempDir.path, fileName));
           await file.writeAsString(plainText);
 
           setState(() {
             _attachments.add(file);
-            _listKey.currentState?.insertItem(_attachments.length - 1, duration: const Duration(milliseconds: 300));
+            _listKey.currentState?.insertItem(
+              _attachments.length - 1,
+              duration: const Duration(milliseconds: 300),
+            );
             _inputController.text = '';
             _isDocumentMode = false;
           });
         } else {
           final text = _inputController.text;
           final selection = _inputController.selection;
-          
+
           String newText;
           int newOffset;
-          
+
           if (selection.isValid) {
-            newText = text.replaceRange(selection.start, selection.end, plainText);
+            newText = text.replaceRange(
+              selection.start,
+              selection.end,
+              plainText,
+            );
             newOffset = selection.start + plainText.length;
           } else {
             newText = text + plainText;
@@ -1076,7 +1292,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             text: newText,
             selection: TextSelection.collapsed(offset: newOffset),
           );
-          
+
           if (newText.length > 500) {
             setState(() => _isDocumentMode = true);
           }
@@ -1087,9 +1303,20 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     }
   }
 
-  Widget _buildAttachmentItem(File file, Animation<double> animation, int index) {
-    final isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].any((ext) => file.path.toLowerCase().endsWith(ext));
-    final heroTag = 'attachment_${file.path}_${DateTime.now().millisecondsSinceEpoch}_$index';
+  Widget _buildAttachmentItem(
+    File file,
+    Animation<double> animation,
+    int index,
+  ) {
+    final isImage = [
+      '.jpg',
+      '.jpeg',
+      '.png',
+      '.gif',
+      '.webp',
+    ].any((ext) => file.path.toLowerCase().endsWith(ext));
+    final heroTag =
+        'attachment_${file.path}_${DateTime.now().millisecondsSinceEpoch}_$index';
 
     final bounceAnimation = CurvedAnimation(
       parent: animation,
@@ -1109,69 +1336,108 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             margin: const EdgeInsets.only(right: 8),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.5)),
+              border: Border.all(
+                color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
+              ),
               color: Theme.of(context).colorScheme.surface,
             ),
             child: Stack(
               children: [
                 Center(
                   child: isImage
-                    ? GestureDetector(
-                        onTap: () => _showImageDialog(context, file, heroTag),
-                        child: Hero(
-                          tag: heroTag,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(7),
-                            child: Image.file(
-                              file,
-                              width: 70, height: 70,
-                              fit: BoxFit.cover,
-                              gaplessPlayback: true,
-                              key: ValueKey(file.path),
-                            )
-                          ),
-                        ),
-                      )
-                    : Column(mainAxisSize: MainAxisSize.min, children: [
-                        const Icon(Icons.insert_drive_file_outlined, size: 24),
-                        const SizedBox(height: 4),
-                        Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: Text(p.basename(file.path), style: const TextStyle(fontSize: 8), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        if (file.path.contains('pasted_text_') && file.path.endsWith('.txt'))
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: IconButton(
-                              icon: const Icon(Icons.keyboard_return_rounded, size: 14, color: Colors.blue),
-                              onPressed: () async {
-                                try {
-                                  final text = await file.readAsString();
-                                  if (text.length > 7500) {
-                                    if (mounted) showWarning("Pasted text too long, cannot restore".tl);
-                                    return;
-                                  }
-                                  setState(() {
-                                    _inputController.text = text;
-                                    _removeAttachment(index);
-                                  });
-                                  _focusNode.requestFocus();
-                                } catch (_) {}
-                              },
-                              tooltip: "Restore to Input Box".tl,
-                              constraints: const BoxConstraints(minHeight: 20, minWidth: 20),
-                              padding: EdgeInsets.zero,
-                              visualDensity: VisualDensity.compact,
+                      ? GestureDetector(
+                          onTap: () => _showImageDialog(context, file, heroTag),
+                          child: Hero(
+                            tag: heroTag,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(7),
+                              child: Image.file(
+                                file,
+                                width: 70,
+                                height: 70,
+                                fit: BoxFit.cover,
+                                gaplessPlayback: true,
+                                key: ValueKey(file.path),
+                              ),
                             ),
                           ),
-                      ]),
+                        )
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.insert_drive_file_outlined,
+                              size: 24,
+                            ),
+                            const SizedBox(height: 4),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
+                              child: Text(
+                                p.basename(file.path),
+                                style: const TextStyle(fontSize: 8),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (file.path.contains('pasted_text_') &&
+                                file.path.endsWith('.txt'))
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.keyboard_return_rounded,
+                                    size: 14,
+                                    color: Colors.blue,
+                                  ),
+                                  onPressed: () async {
+                                    try {
+                                      final text = await file.readAsString();
+                                      if (text.length > 7500) {
+                                        if (mounted)
+                                          showWarning(
+                                            "Pasted text too long, cannot restore"
+                                                .tl,
+                                          );
+                                        return;
+                                      }
+                                      setState(() {
+                                        _inputController.text = text;
+                                        _removeAttachment(index);
+                                      });
+                                      _focusNode.requestFocus();
+                                    } catch (_) {}
+                                  },
+                                  tooltip: "Restore to Input Box".tl,
+                                  constraints: const BoxConstraints(
+                                    minHeight: 20,
+                                    minWidth: 20,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ),
+                          ],
+                        ),
                 ),
                 if (index != -1)
                   Positioned(
-                    top: 2, right: 2,
+                    top: 2,
+                    right: 2,
                     child: GestureDetector(
                       onTap: () => _removeAttachment(index),
                       child: Container(
                         padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                        child: const Icon(Icons.close, size: 12, color: Colors.white),
+                        decoration: const BoxDecoration(
+                          color: Colors.black54,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          size: 12,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
@@ -1190,7 +1456,7 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       height: _attachments.isEmpty ? 0 : 90,
       margin: EdgeInsets.only(
         top: _attachments.isEmpty ? 0 : 8,
-        bottom: _attachments.isEmpty ? 0 : 4
+        bottom: _attachments.isEmpty ? 0 : 4,
       ),
       child: AnimatedList(
         key: _listKey,
@@ -1205,24 +1471,37 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     );
   }
 
-  Widget _buildAttachmentBarItem(File file, Animation<double> animation, int index) {
-     return _buildAttachmentItem(file, animation, index);
+  Widget _buildAttachmentBarItem(
+    File file,
+    Animation<double> animation,
+    int index,
+  ) {
+    return _buildAttachmentItem(file, animation, index);
   }
 
   IconData getEmotionIcon(String emotion) {
     switch (emotion) {
-      case 'neutral': return Icons.sentiment_satisfied;
-      case 'happy': return Icons.sentiment_very_satisfied;
-      case 'shy': return Icons.face_retouching_natural;
-      case 'angry': return Icons.sentiment_very_dissatisfied;
-      case 'sad': return Icons.sentiment_dissatisfied;
-      case 'excited': return Icons.celebration;
-      case 'curious': return Icons.help_outline;
-      default: return Icons.sentiment_satisfied;
+      case 'neutral':
+        return Icons.sentiment_satisfied;
+      case 'happy':
+        return Icons.sentiment_very_satisfied;
+      case 'shy':
+        return Icons.face_retouching_natural;
+      case 'angry':
+        return Icons.sentiment_very_dissatisfied;
+      case 'sad':
+        return Icons.sentiment_dissatisfied;
+      case 'excited':
+        return Icons.celebration;
+      case 'curious':
+        return Icons.help_outline;
+      default:
+        return Icons.sentiment_satisfied;
     }
   }
 
-  String _currentProviderKey = ConfigService.get('ai_provider') ?? 'bloret_passport';
+  String _currentProviderKey =
+      ConfigService.get('ai_provider') ?? 'bloret_passport';
   String? _currentModelId = ConfigService.get('ai_model');
   List<Map<String, dynamic>> _currentModels = [];
   bool _isFetchingModels = false;
@@ -1230,8 +1509,11 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
   Future<void> _fetchRemoteModels() async {
     if (_isFetchingModels) return;
 
-    final key = _currentProviderKey == 'google_ai_studio' ? 'google_ai_key' : 'custom_ai_key';
-    if (ConfigService.get(key) == null || ConfigService.get(key).isEmpty) return;
+    final key = _currentProviderKey == 'google_ai_studio'
+        ? 'google_ai_key'
+        : 'custom_ai_key';
+    if (ConfigService.get(key) == null || ConfigService.get(key).isEmpty)
+      return;
 
     setState(() => _isFetchingModels = true);
     try {
@@ -1239,13 +1521,18 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       final List<Map<String, dynamic>> remoteModels = [];
 
       for (var model in response.data) {
-        if (_currentProviderKey == 'google_ai_studio' && !model.id.contains('gemini')) continue;
+        if (_currentProviderKey == 'google_ai_studio' &&
+            !model.id.contains('gemini'))
+          continue;
 
         String rawName = model.id.replaceAll('models/', '');
-        String formattedName = rawName.split('-').map((word) {
-          if (word.isEmpty) return word;
-          return word[0].toUpperCase() + word.substring(1);
-        }).join(' ');
+        String formattedName = rawName
+            .split('-')
+            .map((word) {
+              if (word.isEmpty) return word;
+              return word[0].toUpperCase() + word.substring(1);
+            })
+            .join(' ');
 
         remoteModels.add({
           "id": model.id,
@@ -1261,7 +1548,8 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
           final lastModelKey = 'ai_model_last_$_currentProviderKey';
           final savedLastModel = ConfigService.get(lastModelKey);
 
-          if (savedLastModel != null && _currentModels.any((m) => m["id"] == savedLastModel)) {
+          if (savedLastModel != null &&
+              _currentModels.any((m) => m["id"] == savedLastModel)) {
             _currentModelId = savedLastModel;
           } else if (!_currentModels.any((m) => m["id"] == _currentModelId)) {
             _currentModelId = _currentModels[0]["id"];
@@ -1280,15 +1568,37 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
   void _loadModels() {
     final Map<String, dynamic> builtinProviders = {
       "bloret_passport": {
-        "models": [{"id": "default", "name": "Claude Fable 5", "tool_call": true}],
+        "models": [
+          {"id": "default", "name": "Claude Fable 5", "tool_call": true},
+        ],
       },
       "opencode_zen": {
         "models": [
-          {"id": "deepseek-v4-flash-free", "name": "DeepSeek V4 Flash (Free)", "tool_call": true},
-          {"id": "mimo-v2.5-free", "name": "Mimo V2.5 (Free)", "tool_call": true},
-          {"id": "qwen3.6-plus-free", "name": "Qwen 3.6 Plus (Free)", "tool_call": true},
-          {"id": "minimax-m2.5-free", "name": "MiniMax M2.5 (Free)", "tool_call": true},
-          {"id": "nemotron-3-super-free", "name": "Nemotron 3 Super (Free)", "tool_call": true},
+          {
+            "id": "deepseek-v4-flash-free",
+            "name": "DeepSeek V4 Flash (Free)",
+            "tool_call": true,
+          },
+          {
+            "id": "mimo-v2.5-free",
+            "name": "Mimo V2.5 (Free)",
+            "tool_call": true,
+          },
+          {
+            "id": "qwen3.6-plus-free",
+            "name": "Qwen 3.6 Plus (Free)",
+            "tool_call": true,
+          },
+          {
+            "id": "minimax-m2.5-free",
+            "name": "MiniMax M2.5 (Free)",
+            "tool_call": true,
+          },
+          {
+            "id": "nemotron-3-super-free",
+            "name": "Nemotron 3 Super (Free)",
+            "tool_call": true,
+          },
         ],
       },
       "google_ai_studio": {
@@ -1298,24 +1608,33 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       },
       "custom_api": {
         "models": [
-          {"id": ConfigService.get("custom_ai_model") ?? "custom-model", "name": "Custom Model".tl, "tool_call": true},
+          {
+            "id": ConfigService.get("custom_ai_model") ?? "custom-model",
+            "name": "Custom Model".tl,
+            "tool_call": true,
+          },
         ],
       },
     };
 
     final providerData = builtinProviders[_currentProviderKey];
-    _currentModels = providerData != null ? List<Map<String, dynamic>>.from(providerData["models"]) : [];
+    _currentModels = providerData != null
+        ? List<Map<String, dynamic>>.from(providerData["models"])
+        : [];
 
-    if (_currentProviderKey == 'google_ai_studio' || _currentProviderKey == 'custom_api') {
+    if (_currentProviderKey == 'google_ai_studio' ||
+        _currentProviderKey == 'custom_api') {
       _fetchRemoteModels();
     }
 
     final lastModelKey = 'ai_model_last_$_currentProviderKey';
     final savedLastModel = ConfigService.get(lastModelKey);
 
-    if (savedLastModel != null && _currentModels.any((m) => m["id"] == savedLastModel)) {
+    if (savedLastModel != null &&
+        _currentModels.any((m) => m["id"] == savedLastModel)) {
       _currentModelId = savedLastModel;
-    } else if (!_currentModels.any((m) => m["id"] == _currentModelId) && _currentModels.isNotEmpty) {
+    } else if (!_currentModels.any((m) => m["id"] == _currentModelId) &&
+        _currentModels.isNotEmpty) {
       _currentModelId = _currentModels[0]["id"];
     }
 
@@ -1323,9 +1642,17 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
   }
 
   Future<void> _showCustomApiDialog() async {
-    final urlController = TextEditingController(text: ConfigService.get("custom_ai_base_url") ?? "https://api.openai.com/v1");
-    final keyController = TextEditingController(text: ConfigService.get("custom_ai_key") ?? "");
-    final modelController = TextEditingController(text: ConfigService.get("custom_ai_model") ?? "gpt-4o");
+    final urlController = TextEditingController(
+      text:
+          ConfigService.get("custom_ai_base_url") ??
+          "https://api.openai.com/v1",
+    );
+    final keyController = TextEditingController(
+      text: ConfigService.get("custom_ai_key") ?? "",
+    );
+    final modelController = TextEditingController(
+      text: ConfigService.get("custom_ai_model") ?? "gpt-4o",
+    );
 
     final isGoogle = _currentProviderKey == 'google_ai_studio';
     if (isGoogle) {
@@ -1335,37 +1662,59 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(isGoogle ? "Configure Google AI Studio".tl : "Configure Custom API".tl),
+        title: Text(
+          isGoogle
+              ? "Configure Google AI Studio".tl
+              : "Configure Custom API".tl,
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (!isGoogle)
               TextField(
                 controller: urlController,
-                decoration: InputDecoration(labelText: "Base URL".tl, hintText: "https://api.example.com/v1"),
+                decoration: InputDecoration(
+                  labelText: "Base URL".tl,
+                  hintText: "https://api.example.com/v1",
+                ),
               ),
             TextField(
               controller: keyController,
-              decoration: InputDecoration(labelText: "API Key".tl, hintText: "AQ.xxxxxx"),
+              decoration: InputDecoration(
+                labelText: "API Key".tl,
+                hintText: "AQ.xxxxxx",
+              ),
               obscureText: true,
             ),
             if (!isGoogle)
               TextField(
                 controller: modelController,
-                decoration: InputDecoration(labelText: "Default Model ID".tl, hintText: "gpt-4o"),
+                decoration: InputDecoration(
+                  labelText: "Default Model ID".tl,
+                  hintText: "gpt-4o",
+                ),
               ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("Cancel".tl),
+          ),
           TextButton(
             onPressed: () async {
               if (isGoogle) {
                 await ConfigService.set("google_ai_key", keyController.text);
               } else {
-                await ConfigService.set("custom_ai_base_url", urlController.text);
+                await ConfigService.set(
+                  "custom_ai_base_url",
+                  urlController.text,
+                );
                 await ConfigService.set("custom_ai_key", keyController.text);
-                await ConfigService.set("custom_ai_model", modelController.text);
+                await ConfigService.set(
+                  "custom_ai_model",
+                  modelController.text,
+                );
                 _currentModelId = modelController.text;
                 await ConfigService.set("ai_model", _currentModelId);
               }
@@ -1398,18 +1747,27 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         label: "Switch Provider".tl,
         value: "switch_provider",
         icon: Icons.hub_outlined,
-        children: providers.entries.map((e) => Win11DropdownItem(
-          label: e.value,
-          value: "provider:${e.key}",
-          icon: e.key == _currentProviderKey ? Icons.radio_button_checked : Icons.radio_button_off,
-        )).toList(),
+        children: providers.entries
+            .map(
+              (e) => Win11DropdownItem(
+                label: e.value,
+                value: "provider:${e.key}",
+                icon: e.key == _currentProviderKey
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off,
+              ),
+            )
+            .toList(),
       ),
-      ..._currentModels.map((m) => Win11DropdownItem(
-        label: m['name'] ?? "",
-        value: m['id'],
-        icon: m['id'] == _currentModelId ? Icons.check : null,
-      )),
-      if (_currentProviderKey == 'custom_api' || _currentProviderKey == 'google_ai_studio')
+      ..._currentModels.map(
+        (m) => Win11DropdownItem(
+          label: m['name'] ?? "",
+          value: m['id'],
+          icon: m['id'] == _currentModelId ? Icons.check : null,
+        ),
+      ),
+      if (_currentProviderKey == 'custom_api' ||
+          _currentProviderKey == 'google_ai_studio')
         Win11DropdownItem(
           label: "Configure API".tl,
           value: "config_api",
@@ -1433,8 +1791,11 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             _loadModels();
           });
           if (p == 'custom_api' || p == 'google_ai_studio') {
-            final key = p == 'google_ai_studio' ? 'google_ai_key' : 'custom_ai_key';
-            if (ConfigService.get(key) == null || ConfigService.get(key).isEmpty) {
+            final key = p == 'google_ai_studio'
+                ? 'google_ai_key'
+                : 'custom_ai_key';
+            if (ConfigService.get(key) == null ||
+                ConfigService.get(key).isEmpty) {
               _showCustomApiDialog();
             }
           }
@@ -1451,7 +1812,13 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     );
   }
 
-  Widget _buildInputCapsule(ThemeData theme, Color altColor, Color borderColor, Color textColor, Color secondaryTextColor) {
+  Widget _buildInputCapsule(
+    ThemeData theme,
+    Color altColor,
+    Color borderColor,
+    Color textColor,
+    Color secondaryTextColor,
+  ) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOutCubic,
@@ -1459,12 +1826,24 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(26),
         border: Border.all(
-            color: _isFocused ? theme.colorScheme.primary.withValues(alpha: 0.5) : borderColor,
-            width: _isFocused ? 1.5 : 1.0
+          color: _isFocused
+              ? theme.colorScheme.primary.withValues(alpha: 0.5)
+              : borderColor,
+          width: _isFocused ? 1.5 : 1.0,
         ),
         boxShadow: [
-          if (_isFocused) BoxShadow(color: theme.colorScheme.primary.withValues(alpha: 0.05), blurRadius: 10, spreadRadius: 1),
-          if (_isDocumentMode) BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 20, spreadRadius: 5),
+          if (_isFocused)
+            BoxShadow(
+              color: theme.colorScheme.primary.withValues(alpha: 0.05),
+              blurRadius: 10,
+              spreadRadius: 1,
+            ),
+          if (_isDocumentMode)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 20,
+              spreadRadius: 5,
+            ),
         ],
       ),
       child: Column(
@@ -1476,7 +1855,9 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                maxHeight: _isDocumentMode ? MediaQuery.of(context).size.height * 0.5 : 200,
+                maxHeight: _isDocumentMode
+                    ? MediaQuery.of(context).size.height * 0.5
+                    : 200,
               ),
               child: Scrollbar(
                 thumbVisibility: true,
@@ -1488,17 +1869,30 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                       if (Platform.isAndroid) return KeyEventResult.ignored;
 
                       final isV = event.logicalKey == LogicalKeyboardKey.keyV;
-                      final isControl = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlLeft) ||
-                          HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.controlRight);
+                      final isControl =
+                          HardwareKeyboard.instance.logicalKeysPressed.contains(
+                            LogicalKeyboardKey.controlLeft,
+                          ) ||
+                          HardwareKeyboard.instance.logicalKeysPressed.contains(
+                            LogicalKeyboardKey.controlRight,
+                          );
 
                       if (isV && isControl && event is KeyDownEvent) {
                         _handlePaste();
                         return KeyEventResult.handled;
                       }
 
-                      if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-                        final isShift = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftRight);
-                        if (!isShift) { _sendMessage(); return KeyEventResult.handled; }
+                      if (event is KeyDownEvent &&
+                          event.logicalKey == LogicalKeyboardKey.enter) {
+                        final isShift =
+                            HardwareKeyboard.instance.logicalKeysPressed
+                                .contains(LogicalKeyboardKey.shiftLeft) ||
+                            HardwareKeyboard.instance.logicalKeysPressed
+                                .contains(LogicalKeyboardKey.shiftRight);
+                        if (!isShift) {
+                          _sendMessage();
+                          return KeyEventResult.handled;
+                        }
                       }
                       return KeyEventResult.ignored;
                     },
@@ -1517,10 +1911,11 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                       keyboardType: TextInputType.multiline,
                       enabled: !_agent.busy,
                       decoration: InputDecoration(
-                          hintText: "${"To".tl} ${Bloriko.type == "bloriko" ? "Bloriko".tl : "Blora Agent".tl} ${"say something".tl}...",
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 8)
+                        hintText:
+                            "${"To".tl} ${Bloriko.type == "bloriko" ? "Bloriko".tl : "Blora Agent".tl} ${"say something".tl}...",
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
                       ),
                       style: TextStyle(fontSize: 15, color: textColor),
                     ),
@@ -1550,21 +1945,28 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                     onPressed: () async {
                       final result = await showDialog<String>(
                         context: context,
-                        builder: (context) => _LongTextEditorDialog(initialText: _inputController.text),
+                        builder: (context) => _LongTextEditorDialog(
+                          initialText: _inputController.text,
+                        ),
                       );
                       if (result != null) _inputController.text = result;
                     },
                     tooltip: "Full-screen Edit".tl,
                   ),
-                if (!Platform.isLinux) IconButton(
-                  icon: Icon(
-                    _isRecording ? Icons.mic_rounded : Icons.mic_none_rounded,
-                    color: _agent.busy ? secondaryTextColor.withValues(alpha: 0.3) : (_isRecording ? theme.colorScheme.error : secondaryTextColor),
-                    size: 22
+                if (!Platform.isLinux)
+                  IconButton(
+                    icon: Icon(
+                      _isRecording ? Icons.mic_rounded : Icons.mic_none_rounded,
+                      color: _agent.busy
+                          ? secondaryTextColor.withValues(alpha: 0.3)
+                          : (_isRecording
+                                ? theme.colorScheme.error
+                                : secondaryTextColor),
+                      size: 22,
+                    ),
+                    onPressed: _agent.busy ? null : _toggleRecording,
+                    tooltip: "Voice Input".tl,
                   ),
-                  onPressed: _agent.busy ? null : _toggleRecording,
-                  tooltip: "Voice Input".tl,
-                ),
                 const SizedBox(width: 8),
                 AnimatedSize(
                   duration: const Duration(milliseconds: 300),
@@ -1581,25 +1983,32 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                     },
                     child: _agent.busy
                         ? IconButton.filled(
-                      key: const ValueKey("stop"),
-                      icon: const Icon(Icons.stop_rounded, size: 20),
-                      onPressed: _agent.cancelAgent,
-                      style: IconButton.styleFrom(
-                        backgroundColor: theme.colorScheme.error,
-                        padding: const EdgeInsets.all(8),
-                        minimumSize: const Size(36, 36),
-                      ),
-                    )
-                        : (_inputController.text.trim().isNotEmpty || _attachments.isNotEmpty)
+                            key: const ValueKey("stop"),
+                            icon: const Icon(Icons.stop_rounded, size: 20),
+                            onPressed: _agent.cancelAgent,
+                            style: IconButton.styleFrom(
+                              backgroundColor: theme.colorScheme.error,
+                              padding: const EdgeInsets.all(8),
+                              minimumSize: const Size(36, 36),
+                            ),
+                          )
+                        : (_inputController.text.trim().isNotEmpty ||
+                              _attachments.isNotEmpty)
                         ? IconButton.filled(
-                      key: const ValueKey("send"),
-                      icon: const Icon(Icons.arrow_upward_rounded, size: 20),
-                      onPressed: (_currentModelId == null) ? null : _sendMessage,
-                      style: IconButton.styleFrom(
-                        padding: const EdgeInsets.all(8),
-                        minimumSize: const Size(36, 36),
-                      ),
-                    ) : const SizedBox.shrink(key: ValueKey("none")),
+                            key: const ValueKey("send"),
+                            icon: const Icon(
+                              Icons.arrow_upward_rounded,
+                              size: 20,
+                            ),
+                            onPressed: (_currentModelId == null)
+                                ? null
+                                : _sendMessage,
+                            style: IconButton.styleFrom(
+                              padding: const EdgeInsets.all(8),
+                              minimumSize: const Size(36, 36),
+                            ),
+                          )
+                        : const SizedBox.shrink(key: ValueKey("none")),
                   ),
                 ),
                 const SizedBox(width: 4),
@@ -1610,11 +2019,13 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
       ),
     );
   }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final theme = Theme.of(context);
-    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final isPortrait =
+        MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
     final borderColor = theme.dividerColor;
     final altColor = theme.colorScheme.surfaceContainerHighest;
     final textColor = theme.colorScheme.onSurface;
@@ -1631,28 +2042,56 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                   Container(
                     height: 56,
                     padding: const EdgeInsets.only(left: 16, right: 4),
-                    decoration: BoxDecoration(border: Border(bottom: BorderSide(color: borderColor))),
+                    decoration: BoxDecoration(
+                      border: Border(bottom: BorderSide(color: borderColor)),
+                    ),
                     child: Row(
                       children: [
                         ClipRRect(
                           borderRadius: BorderRadius.circular(14),
                           child: Container(
-                            width: 28, height: 28, color: Colors.grey.shade300,
-                            child: Bloriko.type == "bloriko" ? Image.asset("assets/bloriko.png") : const Icon(Icons.smart_toy, size: 18),
+                            width: 28,
+                            height: 28,
+                            color: Colors.grey.shade300,
+                            child: Bloriko.type == "bloriko"
+                                ? Image.asset("assets/bloriko.png")
+                                : const Icon(Icons.smart_toy, size: 18),
                           ),
                         ),
                         const SizedBox(width: 10),
                         AnimatedSwitcher(
                           duration: const Duration(milliseconds: 200),
-                          transitionBuilder: (child, animation) => SizeTransition(
-                            sizeFactor: animation,
-                            axis: Axis.horizontal,
-                            alignment: Alignment.centerLeft,
-                            child: FadeTransition(opacity: animation, child: child),
-                          ),
-                          child: Bloriko.type == "bloriko" || Bloriko.type == "bloriko_r18"
-                            ? Text("Bloriko".tl, key: const ValueKey("bloriko"), style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: textColor))
-                            : Text("Blora Agent".tl, key: const ValueKey("blora"), style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: textColor)),
+                          transitionBuilder: (child, animation) =>
+                              SizeTransition(
+                                sizeFactor: animation,
+                                axis: Axis.horizontal,
+                                alignment: Alignment.centerLeft,
+                                child: FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                ),
+                              ),
+                          child:
+                              Bloriko.type == "bloriko" ||
+                                  Bloriko.type == "bloriko_r18"
+                              ? Text(
+                                  "Bloriko".tl,
+                                  key: const ValueKey("bloriko"),
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: textColor,
+                                  ),
+                                )
+                              : Text(
+                                  "Blora Agent".tl,
+                                  key: const ValueKey("blora"),
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: textColor,
+                                  ),
+                                ),
                         ),
                         const SizedBox(width: 8),
                         ListenableBuilder(
@@ -1661,23 +2100,48 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                             final provider = ConfigService.get('ai_provider');
                             final isGoogle = provider == 'google_ai_studio';
 
-                            if (_agent.connectionStatus == BlorikoConnectionStatus.idle || _agent.connectionStatus == BlorikoConnectionStatus.finished) {
+                            if (_agent.connectionStatus ==
+                                    BlorikoConnectionStatus.idle ||
+                                _agent.connectionStatus ==
+                                    BlorikoConnectionStatus.finished) {
                               if (isGoogle) {
                                 return Tooltip(
-                                  message: "Google AI Studio mode does not support tools/automation yet".tl,
+                                  message:
+                                      "Google AI Studio mode does not support tools/automation yet"
+                                          .tl,
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: Colors.orange.withValues(alpha: 0.1),
+                                      color: Colors.orange.withValues(
+                                        alpha: 0.1,
+                                      ),
                                       borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: Colors.orange.withValues(alpha: 0.2)),
+                                      border: Border.all(
+                                        color: Colors.orange.withValues(
+                                          alpha: 0.2,
+                                        ),
+                                      ),
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        const Icon(Icons.warning_amber_rounded, size: 12, color: Colors.orange),
+                                        const Icon(
+                                          Icons.warning_amber_rounded,
+                                          size: 12,
+                                          color: Colors.orange,
+                                        ),
                                         const SizedBox(width: 4),
-                                        Text("Text Only".tl, style: const TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold)),
+                                        Text(
+                                          "Text Only".tl,
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.orange,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -1689,28 +2153,58 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                             String statusText = "";
                             Color statusColor = accentColor;
                             switch (_agent.connectionStatus) {
-                              case BlorikoConnectionStatus.connecting: statusText = "Connecting...".tl; break;
-                              case BlorikoConnectionStatus.handshake: statusText = "Responding...".tl; break;
-                              case BlorikoConnectionStatus.streaming: statusText = "Receiving...".tl; break;
-                              case BlorikoConnectionStatus.error: statusText = "Connection failed".tl; statusColor = Colors.red; break;
-                              default: break;
+                              case BlorikoConnectionStatus.connecting:
+                                statusText = "Connecting...".tl;
+                                break;
+                              case BlorikoConnectionStatus.handshake:
+                                statusText = "Responding...".tl;
+                                break;
+                              case BlorikoConnectionStatus.streaming:
+                                statusText = "Receiving...".tl;
+                                break;
+                              case BlorikoConnectionStatus.error:
+                                statusText = "Connection failed".tl;
+                                statusColor = Colors.red;
+                                break;
+                              default:
+                                break;
                             }
                             return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
                                 color: statusColor.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: statusColor.withValues(alpha: 0.2)),
+                                border: Border.all(
+                                  color: statusColor.withValues(alpha: 0.2),
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  if (_agent.connectionStatus != BlorikoConnectionStatus.error)
+                                  if (_agent.connectionStatus !=
+                                      BlorikoConnectionStatus.error)
                                     Padding(
                                       padding: const EdgeInsets.only(right: 6),
-                                      child: SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 2, color: statusColor)),
+                                      child: SizedBox(
+                                        width: 10,
+                                        height: 10,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: statusColor,
+                                        ),
+                                      ),
                                     ),
-                                  Text(statusText, style: TextStyle(fontSize: 10, color: statusColor, fontWeight: FontWeight.bold)),
+                                  Text(
+                                    statusText,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: statusColor,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                 ],
                               ),
                             );
@@ -1719,8 +2213,17 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                         const SizedBox(width: 8),
                         Expanded(
                           child: _agent.conversationTitle.isNotEmpty
-                            ? Text("— ${_agent.conversationTitle}", style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: secondaryTextColor), maxLines: 1, overflow: TextOverflow.ellipsis)
-                            : const SizedBox.shrink(),
+                              ? Text(
+                                  "— ${_agent.conversationTitle}",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontStyle: FontStyle.italic,
+                                    color: secondaryTextColor,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                )
+                              : const SizedBox.shrink(),
                         ),
                         const SizedBox(width: 8),
                         if (!isPortrait) ...[
@@ -1729,15 +2232,26 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                             child: Win11Dropdown(
                               initialValue: Bloriko.mode,
                               items: [
-                                Win11DropdownItem(label: "Auto Mode".tl, value: "auto"),
-                                Win11DropdownItem(label: "Assist Click".tl, value: "help"),
-                                Win11DropdownItem(label: "Planning Mode".tl, value: "plan"),
+                                Win11DropdownItem(
+                                  label: "Auto Mode".tl,
+                                  value: "auto",
+                                ),
+                                Win11DropdownItem(
+                                  label: "Assist Click".tl,
+                                  value: "help",
+                                ),
+                                Win11DropdownItem(
+                                  label: "Planning Mode".tl,
+                                  value: "plan",
+                                ),
                               ],
-                              onChanged: (value) { if (value != null) {
-                                setState(() {
-                                  Bloriko.setMode(value);
-                                });
-                              }},
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setState(() {
+                                    Bloriko.setMode(value);
+                                  });
+                                }
+                              },
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -1746,9 +2260,19 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                             child: Win11Dropdown(
                               initialValue: Bloriko.type,
                               items: [
-                                Win11DropdownItem(label: "Default".tl, value: "default"),
-                                Win11DropdownItem(label: "Bloriko".tl, value: "bloriko"),
-                                if (ConfigService.get("develop_mode") ?? false) Win11DropdownItem(label: "Bloriko (R18)".tl, value: "bloriko_r18"),
+                                Win11DropdownItem(
+                                  label: "Default".tl,
+                                  value: "default",
+                                ),
+                                Win11DropdownItem(
+                                  label: "Bloriko".tl,
+                                  value: "bloriko",
+                                ),
+                                if (ConfigService.get("develop_mode") ?? false)
+                                  Win11DropdownItem(
+                                    label: "Bloriko (R18)".tl,
+                                    value: "bloriko_r18",
+                                  ),
                               ],
                               onChanged: (value) async {
                                 if (value != null && value != Bloriko.type) {
@@ -1757,15 +2281,22 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                       context: context,
                                       builder: (context) => AlertDialog(
                                         title: Text("Switch Character Type".tl),
-                                        content: Text("Switching characters during a conversation may cause AI context confusion. Start a new conversation for the best experience?".tl),
+                                        content: Text(
+                                          "Switching characters during a conversation may cause AI context confusion. Start a new conversation for the best experience?"
+                                              .tl,
+                                        ),
                                         actions: [
                                           TextButton(
-                                            onPressed: () => Navigator.pop(context, false),
-                                            child: Text("Ignore and Keep".tl)
+                                            onPressed: () =>
+                                                Navigator.pop(context, false),
+                                            child: Text("Ignore and Keep".tl),
                                           ),
                                           TextButton(
-                                            onPressed: () => Navigator.pop(context, true),
-                                            child: Text("Start New Conversation".tl)
+                                            onPressed: () =>
+                                                Navigator.pop(context, true),
+                                            child: Text(
+                                              "Start New Conversation".tl,
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -1781,10 +2312,17 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                           ),
                           const SizedBox(width: 8),
                         ],
-                        BloretButton(onPressed: _agent.busy ? null : _clearHistory, text: "New Chat".tl),
+                        BloretButton(
+                          onPressed: _agent.busy ? null : _clearHistory,
+                          text: "New Chat".tl,
+                        ),
                         const SizedBox(width: 8),
                         IconButton(
-                          icon: AnimatedRotation(turns: _historyPanelOpen ? 0.25 : 0, duration: const Duration(milliseconds: 200), child: const Icon(Icons.menu, size: 20)),
+                          icon: AnimatedRotation(
+                            turns: _historyPanelOpen ? 0.25 : 0,
+                            duration: const Duration(milliseconds: 200),
+                            child: const Icon(Icons.menu, size: 20),
+                          ),
                           onPressed: () {
                             setState(() {
                               _historyPanelOpen = !_historyPanelOpen;
@@ -1805,7 +2343,10 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                         return FadeTransition(
                           opacity: animation,
                           child: ScaleTransition(
-                            scale: Tween<double>(begin: 0.96, end: 1.0).animate(animation),
+                            scale: Tween<double>(
+                              begin: 0.96,
+                              end: 1.0,
+                            ).animate(animation),
                             child: child,
                           ),
                         );
@@ -1817,47 +2358,198 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                 return FadeTransition(
                                   opacity: animation,
                                   child: ScaleTransition(
-                                    scale: Tween<double>(begin: 0.96, end: 1.0).animate(animation),
+                                    scale: Tween<double>(
+                                      begin: 0.96,
+                                      end: 1.0,
+                                    ).animate(animation),
                                     child: child,
                                   ),
                                 );
                               },
-                              child: Bloriko.type == "bloriko" || Bloriko.type == "bloriko_r18"
+                              child:
+                                  Bloriko.type == "bloriko" ||
+                                      Bloriko.type == "bloriko_r18"
                                   ? Center(
                                       key: const ValueKey("empty_bloriko"),
-                                      child: SizedBox(width: 360, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                                        ClipRRect(borderRadius: BorderRadius.circular(36), child: Container(width: 72, height: 72, color: Colors.grey.shade300, child: Image.asset("assets/bloriko.png"))),
-                                        const SizedBox(height: 12),
-                                        Text("Bloriko".tl, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
-                                        const SizedBox(height: 12),
-                                        Text("${ConfigService.get("user_identity") == "sister" ? "Sister".tl : ConfigService.get("user_identity") == "little_sister" ? "Little Sister".tl : "Brother".tl} ${"Hello".tl}${Bloriko.type == "bloriko_r18" ? "♥" : "!"} ${"Bloriko has been waiting for you for a long time~ (waves happily)\n\nTry telling Bloriko:\n• Help me create a file\n• Search for TODOs in the project".tl}", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
-                                        AnimatedSwitcher(
-                                          duration: const Duration(milliseconds: 300),
-                                          transitionBuilder: (child, anim) => SizeTransition(sizeFactor: anim, alignment: Alignment.center, child: FadeTransition(opacity: anim, child: child)),
-                                          child: Bloriko.mode == "help"
-                                            ? Text("• Try clicking the page".tl, key: const ValueKey("bloriko_help"), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor))
-                                            : const SizedBox.shrink(key: ValueKey("bloriko_no_help")),
+                                      child: SizedBox(
+                                        width: 360,
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(36),
+                                              child: Container(
+                                                width: 72,
+                                                height: 72,
+                                                color: Colors.grey.shade300,
+                                                child: Image.asset(
+                                                  "assets/bloriko.png",
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              "Bloriko".tl,
+                                              style: TextStyle(
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.bold,
+                                                color: textColor,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              "${ConfigService.get("user_identity") == "sister"
+                                                  ? "Sister".tl
+                                                  : ConfigService.get("user_identity") == "little_sister"
+                                                  ? "Little Sister".tl
+                                                  : "Brother".tl} ${"Hello".tl}${Bloriko.type == "bloriko_r18" ? "♥" : "!"} ${"Bloriko has been waiting for you for a long time~ (waves happily)\n\nTry telling Bloriko:\n• Help me create a file\n• Search for TODOs in the project".tl}",
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                height: 1.4,
+                                                color: secondaryTextColor,
+                                              ),
+                                            ),
+                                            AnimatedSwitcher(
+                                              duration: const Duration(
+                                                milliseconds: 300,
+                                              ),
+                                              transitionBuilder:
+                                                  (child, anim) =>
+                                                      SizeTransition(
+                                                        sizeFactor: anim,
+                                                        alignment:
+                                                            Alignment.center,
+                                                        child: FadeTransition(
+                                                          opacity: anim,
+                                                          child: child,
+                                                        ),
+                                                      ),
+                                              child: Bloriko.mode == "help"
+                                                  ? Text(
+                                                      "• Try clicking the page"
+                                                          .tl,
+                                                      key: const ValueKey(
+                                                        "bloriko_help",
+                                                      ),
+                                                      textAlign:
+                                                          TextAlign.center,
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        height: 1.4,
+                                                        color:
+                                                            secondaryTextColor,
+                                                      ),
+                                                    )
+                                                  : const SizedBox.shrink(
+                                                      key: ValueKey(
+                                                        "bloriko_no_help",
+                                                      ),
+                                                    ),
+                                            ),
+                                            Text(
+                                              "• Execute a command\n• Remember my preference is..."
+                                                  .tl,
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                height: 1.4,
+                                                color: secondaryTextColor,
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        Text("• Execute a command\n• Remember my preference is...".tl, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
-                                      ])),
+                                      ),
                                     )
                                   : Center(
                                       key: const ValueKey("empty_blora"),
-                                      child: SizedBox(width: 360, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                                        ClipRRect(borderRadius: BorderRadius.circular(36), child: Container(width: 72, height: 72, color: Colors.grey.shade300, child: const Icon(Icons.smart_toy, size: 36))),
-                                        const SizedBox(height: 12),
-                                        Text("Blora Agent".tl, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
-                                        const SizedBox(height: 12),
-                                        Text("Hello, I am Blora Agent. I can help you with Bloret Launcher.\n\nSend Blora Agent:\n• Help me create files\n• Search for TODOs in the project".tl, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
-                                        AnimatedSwitcher(
-                                          duration: const Duration(milliseconds: 300),
-                                          transitionBuilder: (child, anim) => SizeTransition(sizeFactor: anim, alignment: Alignment.center, child: FadeTransition(opacity: anim, child: child)),
-                                          child: Bloriko.mode == "help"
-                                            ? Text("• Help me click the page".tl, key: const ValueKey("help_mode"), textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor))
-                                            : const SizedBox.shrink(key: ValueKey("no_help")),
+                                      child: SizedBox(
+                                        width: 360,
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(36),
+                                              child: Container(
+                                                width: 72,
+                                                height: 72,
+                                                color: Colors.grey.shade300,
+                                                child: const Icon(
+                                                  Icons.smart_toy,
+                                                  size: 36,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              "Blora Agent".tl,
+                                              style: TextStyle(
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.bold,
+                                                color: textColor,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              "Hello, I am Blora Agent. I can help you with Bloret Launcher.\n\nSend Blora Agent:\n• Help me create files\n• Search for TODOs in the project"
+                                                  .tl,
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                height: 1.4,
+                                                color: secondaryTextColor,
+                                              ),
+                                            ),
+                                            AnimatedSwitcher(
+                                              duration: const Duration(
+                                                milliseconds: 300,
+                                              ),
+                                              transitionBuilder:
+                                                  (child, anim) =>
+                                                      SizeTransition(
+                                                        sizeFactor: anim,
+                                                        alignment:
+                                                            Alignment.center,
+                                                        child: FadeTransition(
+                                                          opacity: anim,
+                                                          child: child,
+                                                        ),
+                                                      ),
+                                              child: Bloriko.mode == "help"
+                                                  ? Text(
+                                                      "• Help me click the page"
+                                                          .tl,
+                                                      key: const ValueKey(
+                                                        "help_mode",
+                                                      ),
+                                                      textAlign:
+                                                          TextAlign.center,
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        height: 1.4,
+                                                        color:
+                                                            secondaryTextColor,
+                                                      ),
+                                                    )
+                                                  : const SizedBox.shrink(
+                                                      key: ValueKey("no_help"),
+                                                    ),
+                                            ),
+                                            Text(
+                                              "• Execute a command\n• Remember my preference..."
+                                                  .tl,
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                height: 1.4,
+                                                color: secondaryTextColor,
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        Text("• Execute a command\n• Remember my preference...".tl, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.4, color: secondaryTextColor)),
-                                      ])),
+                                      ),
                                     ),
                             )
                           : LayoutBuilder(
@@ -1866,786 +2558,1944 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                                 return ListView.builder(
                                   key: const ValueKey("chat_list"),
                                   padding: const EdgeInsets.only(bottom: 240),
-                                  controller: _agent.messages.isEmpty ? null : _msgScrollController,
-                                  itemCount: _agent.messages.length + (_agent.busy ? 1 : 0),
+                                  controller: _agent.messages.isEmpty
+                                      ? null
+                                      : _msgScrollController,
+                                  itemCount:
+                                      _agent.messages.length +
+                                      (_agent.busy ? 1 : 0),
                                   itemBuilder: (context, index) {
-                          if (index == _agent.messages.length) {
-                            bool showAvatar = true;
-                            if (index > 0 && _agent.messages[index - 1]['role'] == 'assistant') {
-                              showAvatar = false;
-                            }
-                            if (isPortrait) showAvatar = false;
-
-                            bool isWaiting = _agent.messages.isNotEmpty &&
-                                             ((_agent.messages.last['role'] == 'system' &&
-                                               (_agent.messages.last['tool'] == 'ask_question' || _agent.messages.last['tool'] == 'ask_question_details') &&
-                                               _agent.messages.last['status'] == 'running') ||
-                                              (_agent.messages.last['role'] == 'security' &&
-                                               _agent.messages.last['status'] == 'waiting'));
-
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                              child: Row(
-                                children: [
-                                  if (showAvatar) ...[
-                                    Container(
-                                      width: 32,
-                                      height: 32,
-                                      clipBehavior: Clip.antiAlias,
-                                      decoration: BoxDecoration(shape: BoxShape.circle, color: altColor),
-                                      child: Bloriko.type == "bloriko" || Bloriko.type == "bloriko_r18" ? Image.asset("assets/bloriko.png", filterQuality: FilterQuality.high,) : const Icon(Icons.smart_toy, color: Colors.grey, size: 16),
-                                    ),
-                                    const SizedBox(width: 12),
-                                  ] else ...[
-                                    const SizedBox(width: 44),
-                                  ],
-                                  ListenableBuilder(
-                                    listenable: _agent,
-                                    builder: (context, child) {
-                                      String text;
-                                      if (isWaiting) {
-                                        text = "Waiting...".tl;
-                                      } else {
-                                        text = switch (_agent.connectionStatus) {
-                                          BlorikoConnectionStatus.connecting => "Connecting...".tl,
-                                          BlorikoConnectionStatus.handshake => "Verifying...".tl,
-                                          BlorikoConnectionStatus.streaming => "Receiving...".tl,
-                                          _ => "Thinking...".tl,
-                                        };
+                                    if (index == _agent.messages.length) {
+                                      bool showAvatar = true;
+                                      if (index > 0 &&
+                                          _agent.messages[index - 1]['role'] ==
+                                              'assistant') {
+                                        showAvatar = false;
                                       }
-                                      return Text(text, style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: secondaryTextColor.withValues(alpha: 0.7)));
-                                    },
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
-                                ],
-                              ),
-                            );
-                          }
-                          final msg = _agent.messages[index];
-                          final role = msg['role'];
-                          final isSelected = _selectedMessageIndices.contains(index);
+                                      if (isPortrait) showAvatar = false;
 
-                          Widget messageWidget = const SizedBox.shrink();
+                                      bool isWaiting =
+                                          _agent.messages.isNotEmpty &&
+                                          ((_agent.messages.last['role'] ==
+                                                      'system' &&
+                                                  (_agent
+                                                              .messages
+                                                              .last['tool'] ==
+                                                          'ask_question' ||
+                                                      _agent
+                                                              .messages
+                                                              .last['tool'] ==
+                                                          'ask_question_details') &&
+                                                  _agent
+                                                          .messages
+                                                          .last['status'] ==
+                                                      'running') ||
+                                              (_agent.messages.last['role'] ==
+                                                      'security' &&
+                                                  _agent
+                                                          .messages
+                                                          .last['status'] ==
+                                                      'waiting'));
 
-                          if (role == 'security') {
-                            final String cmd = msg['command'] ?? "";
-                            final bool isWaiting = msg['status'] == 'waiting';
-
-                            void hideSecurityCard() {
-                              setState(() {
-                                msg['hidden'] = true;
-                              });
-                            }
-
-                            messageWidget = AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 300),
-                              transitionBuilder: (child, animation) {
-                                return SizeTransition(
-                                  sizeFactor: animation,
-                                  alignment: Alignment.topCenter,
-                                  child: FadeTransition(
-                                    opacity: animation,
-                                    child: child,
-                                  ),
-                                );
-                              },
-                              child: msg['hidden'] != true
-                                  ? TweenAnimationBuilder<double>(
-                                key: const ValueKey("security"),
-                                duration: const Duration(milliseconds: 400),
-                                curve: Curves.easeOutCubic, tween: Tween(begin: 0.0, end: 1.0),
-                                builder: (context, value, child) => Opacity(opacity: value, child: Transform.translate(offset: Offset(0, 10 * (1 - value)), child: child)),
-                                child: Container(
-                                  margin: const EdgeInsets.only(left: 48, right: 16, bottom: 12, top: 12),
-                                  decoration: BoxDecoration(
-                                    color: isWaiting ? Colors.orange.withValues(alpha: 0.1) : altColor.withValues(alpha: 0.5),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: isWaiting ? Colors.orange.withValues(alpha: 0.3) : borderColor),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        decoration: BoxDecoration(
-                                          color: isWaiting ? Colors.orange.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.1),
-                                          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                                      return Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 8,
+                                          horizontal: 16,
                                         ),
                                         child: Row(
                                           children: [
-                                            Icon(Icons.security_rounded, size: 16, color: isWaiting ? Colors.orange : secondaryTextColor),
+                                            if (showAvatar) ...[
+                                              Container(
+                                                width: 32,
+                                                height: 32,
+                                                clipBehavior: Clip.antiAlias,
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color: altColor,
+                                                ),
+                                                child:
+                                                    Bloriko.type == "bloriko" ||
+                                                        Bloriko.type ==
+                                                            "bloriko_r18"
+                                                    ? Image.asset(
+                                                        "assets/bloriko.png",
+                                                        filterQuality:
+                                                            FilterQuality.high,
+                                                      )
+                                                    : const Icon(
+                                                        Icons.smart_toy,
+                                                        color: Colors.grey,
+                                                        size: 16,
+                                                      ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                            ] else ...[
+                                              const SizedBox(width: 44),
+                                            ],
+                                            ListenableBuilder(
+                                              listenable: _agent,
+                                              builder: (context, child) {
+                                                String text;
+                                                if (isWaiting) {
+                                                  text = "Waiting...".tl;
+                                                } else {
+                                                  text = switch (_agent
+                                                      .connectionStatus) {
+                                                    BlorikoConnectionStatus
+                                                        .connecting =>
+                                                      "Connecting...".tl,
+                                                    BlorikoConnectionStatus
+                                                        .handshake =>
+                                                      "Verifying...".tl,
+                                                    BlorikoConnectionStatus
+                                                        .streaming =>
+                                                      "Receiving...".tl,
+                                                    _ => "Thinking...".tl,
+                                                  };
+                                                }
+                                                return Text(
+                                                  text,
+                                                  style: TextStyle(
+                                                    fontSize: 13,
+                                                    fontStyle: FontStyle.italic,
+                                                    color: secondaryTextColor
+                                                        .withValues(alpha: 0.7),
+                                                  ),
+                                                );
+                                              },
+                                            ),
                                             const SizedBox(width: 8),
-                                            Text("Security Block: External Command Execution Request".tl, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isWaiting ? Colors.orange.shade900 : secondaryTextColor)),
-                                            const Spacer(),
-                                            if (!isWaiting) Icon(Icons.check_circle_rounded, size: 14, color: Colors.green.shade400),
+                                            const SizedBox(
+                                              width: 12,
+                                              height: 12,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            ),
                                           ],
                                         ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.all(12),
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text("LLM is attempting to execute the following system command:".tl, style: const TextStyle(fontSize: 12)),
-                                            const SizedBox(height: 8),
-                                            Container(
-                                              width: double.infinity,
-                                              padding: const EdgeInsets.all(10),
-                                              decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(6)),
-                                              child: SelectableText(cmd, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+                                      );
+                                    }
+                                    final msg = _agent.messages[index];
+                                    final role = msg['role'];
+                                    final isSelected = _selectedMessageIndices
+                                        .contains(index);
+
+                                    Widget messageWidget =
+                                        const SizedBox.shrink();
+
+                                    if (role == 'security') {
+                                      final String cmd = msg['command'] ?? "";
+                                      final bool isWaiting =
+                                          msg['status'] == 'waiting';
+
+                                      void hideSecurityCard() {
+                                        setState(() {
+                                          msg['hidden'] = true;
+                                        });
+                                      }
+
+                                      messageWidget = AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
+                                        transitionBuilder: (child, animation) {
+                                          return SizeTransition(
+                                            sizeFactor: animation,
+                                            alignment: Alignment.topCenter,
+                                            child: FadeTransition(
+                                              opacity: animation,
+                                              child: child,
                                             ),
-                                            const SizedBox(height: 16),
-                                            if (isWaiting)
-                                              Wrap(
-                                                spacing: 8,
-                                                runSpacing: 8,
-                                                alignment: WrapAlignment.end,
-                                                crossAxisAlignment: WrapCrossAlignment.center,
-                                                children: [
-                                                  TextButton(
-                                                    onPressed: () {
-                                                      hideSecurityCard();
-                                                      _agent.handleSecurityAction('deny');
-                                                    },
-                                                    child: Text(
-                                                      "Deny".tl,
-                                                      style: const TextStyle(color: Colors.redAccent),
+                                          );
+                                        },
+                                        child: msg['hidden'] != true
+                                            ? TweenAnimationBuilder<double>(
+                                                key: const ValueKey("security"),
+                                                duration: const Duration(
+                                                  milliseconds: 400,
+                                                ),
+                                                curve: Curves.easeOutCubic,
+                                                tween: Tween(
+                                                  begin: 0.0,
+                                                  end: 1.0,
+                                                ),
+                                                builder:
+                                                    (
+                                                      context,
+                                                      value,
+                                                      child,
+                                                    ) => Opacity(
+                                                      opacity: value,
+                                                      child:
+                                                          Transform.translate(
+                                                            offset: Offset(
+                                                              0,
+                                                              10 * (1 - value),
+                                                            ),
+                                                            child: child,
+                                                          ),
+                                                    ),
+                                                child: Container(
+                                                  margin: const EdgeInsets.only(
+                                                    left: 48,
+                                                    right: 16,
+                                                    bottom: 12,
+                                                    top: 12,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: isWaiting
+                                                        ? Colors.orange
+                                                              .withValues(
+                                                                alpha: 0.1,
+                                                              )
+                                                        : altColor.withValues(
+                                                            alpha: 0.5,
+                                                          ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
+                                                    border: Border.all(
+                                                      color: isWaiting
+                                                          ? Colors.orange
+                                                                .withValues(
+                                                                  alpha: 0.3,
+                                                                )
+                                                          : borderColor,
                                                     ),
                                                   ),
-                                                  OutlinedButton(
-                                                    onPressed: () {
-                                                      hideSecurityCard();
-                                                      _agent.handleSecurityAction('allow');
-                                                    },
-                                                    child: Text("Allow Once".tl),
-                                                  ),
-                                                  FilledButton.icon(
-                                                    onPressed: () {
-                                                      hideSecurityCard();
-                                                      _agent.handleSecurityAction(
-                                                        'always',
-                                                        command: cmd,
-                                                      );
-                                                    },
-                                                    icon: const Icon(Icons.verified_user_rounded, size: 16),
-                                                    label: Text("Always Allow".tl),
-                                                  ),
-                                                ],
-                                              )
-                                            else
-                                              Text(
-                                                msg['result'] == 'allow'
-                                                  ? "Execution manually authorized.".tl
-                                                  : msg['result'] == 'deny'
-                                                    ? "Execution of the command refused.".tl
-                                                    : "Permanently added to whitelist.".tl,
-                                                style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: secondaryTextColor),
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              )
-                                  : const SizedBox.shrink(key: ValueKey("empty")),
-                            );
-                          } else if (role == 'user') {
-                            final content = msg['content'];
-                            final List<String> imageUrls = [];
-                            final List<Map<String, dynamic>> files = [];
-
-                            if (content is List) {
-                              for (var part in content) {
-                                if (part is Map) {
-                                  if (part['type'] == 'input_image' || part['type'] == 'image_url') {
-                                    imageUrls.add(part['image_url']?.toString() ?? "");
-                                  } else if (part['type'] == 'input_file') {
-                                    files.add(Map<String, dynamic>.from(part));
-                                  }
-                                }
-                              }
-                            }
-
-                            messageWidget = Align(
-                              alignment: Alignment.centerRight,
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-                                constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
-                                decoration: BoxDecoration(
-                                  color: accentColor,
-                                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16), bottomLeft: Radius.circular(16), bottomRight: Radius.circular(4)),
-                                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))],
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    if (imageUrls.isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(bottom: 8),
-                                        child: Wrap(
-                                          spacing: 4, runSpacing: 4,
-                                          children: (content as List).asMap().entries.where((e) => e.value is Map && (e.value['type'] == 'input_image' || e.value['type'] == 'image_url')).map((e) {
-                                            final imgIdx = e.key;
-                                            final part = e.value as Map;
-                                            final url = part['image_url']?.toString() ?? "";
-                                            if (!url.startsWith('data:image')) return const SizedBox.shrink();
-                                            final heroTag = 'msg_${index}_img_$imgIdx';
-
-                                            return GestureDetector(
-                                              onTap: () => _showImageDialog(context, url, heroTag),
-                                              child: Hero(
-                                                tag: heroTag,
-                                                child: ClipRRect(
-                                                  borderRadius: BorderRadius.circular(8),
-                                                  child: part['_decodedBytes'] != null
-                                                    ? Image.memory(
-                                                        Uint8List.fromList((part['_decodedBytes'] as List).cast()),
-                                                        width: 100, height: 100, fit: BoxFit.cover,
-                                                        gaplessPlayback: true,
-                                                        key: ValueKey(url),
-                                                      )
-                                                    : Image.memory(
-                                                        base64Decode(url.split(',').last),
-                                                        width: 100, height: 100, fit: BoxFit.cover,
-                                                        gaplessPlayback: true,
-                                                        key: ValueKey(url),
-                                                      ),
-                                                ),
-                                              ),
-                                            );
-                                          }).toList(),
-                                        ),
-                                      ),
-                                    if (files.isNotEmpty)
-                                      Column(
-                                        children: files.map((file) {
-                                          final isLongText = file['filename'] == "long_text.txt";
-                                          return Container(
-                                            margin: const EdgeInsets.only(bottom: 8),
-                                            padding: const EdgeInsets.all(10),
-                                            decoration: BoxDecoration(
-                                              color: Colors.white.withValues(alpha: 0.15),
-                                              borderRadius: BorderRadius.circular(10),
-                                              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                const Icon(Icons.insert_drive_file_rounded, color: Colors.white, size: 24),
-                                                const SizedBox(width: 10),
-                                                Flexible(
                                                   child: Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
                                                     children: [
-                                                      Text(
-                                                        file['filename'] ?? "Unknown",
-                                                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                                                        maxLines: 1, overflow: TextOverflow.ellipsis,
-                                                      ),
-                                                      if (isLongText)
-                                                        TextButton(
-                                                          style: TextButton.styleFrom(
-                                                            visualDensity: VisualDensity.compact,
-                                                            padding: EdgeInsets.zero,
-                                                            minimumSize: const Size(0, 0),
-                                                          ),
-                                                          onPressed: () {
-                                                            try {
-                                                              final decoded = utf8.decode(base64Decode(file['file_data']));
-                                                              setState(() {
-                                                                _inputController.text = decoded;
-                                                                _agent.messages.removeAt(index);
-                                                              });
-                                                              _focusNode.requestFocus();
-                                                            } catch (_) {}
-                                                          },
-                                                          child: Text("Restore to Input Box".tl, style: const TextStyle(color: Colors.white70, fontSize: 11, decoration: TextDecoration.underline)),
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 12,
+                                                              vertical: 8,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color: isWaiting
+                                                              ? Colors.orange
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.2,
+                                                                    )
+                                                              : Colors.grey
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.1,
+                                                                    ),
+                                                          borderRadius:
+                                                              const BorderRadius.vertical(
+                                                                top:
+                                                                    Radius.circular(
+                                                                      12,
+                                                                    ),
+                                                              ),
                                                         ),
+                                                        child: Row(
+                                                          children: [
+                                                            Icon(
+                                                              Icons
+                                                                  .security_rounded,
+                                                              size: 16,
+                                                              color: isWaiting
+                                                                  ? Colors
+                                                                        .orange
+                                                                  : secondaryTextColor,
+                                                            ),
+                                                            const SizedBox(
+                                                              width: 8,
+                                                            ),
+                                                            Text(
+                                                              "Security Block: External Command Execution Request"
+                                                                  .tl,
+                                                              style: TextStyle(
+                                                                fontSize: 12,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                                color: isWaiting
+                                                                    ? Colors
+                                                                          .orange
+                                                                          .shade900
+                                                                    : secondaryTextColor,
+                                                              ),
+                                                            ),
+                                                            const Spacer(),
+                                                            if (!isWaiting)
+                                                              Icon(
+                                                                Icons
+                                                                    .check_circle_rounded,
+                                                                size: 14,
+                                                                color: Colors
+                                                                    .green
+                                                                    .shade400,
+                                                              ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                      Padding(
+                                                        padding:
+                                                            const EdgeInsets.all(
+                                                              12,
+                                                            ),
+                                                        child: Column(
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
+                                                          children: [
+                                                            Text(
+                                                              "LLM is attempting to execute the following system command:"
+                                                                  .tl,
+                                                              style:
+                                                                  const TextStyle(
+                                                                    fontSize:
+                                                                        12,
+                                                                  ),
+                                                            ),
+                                                            const SizedBox(
+                                                              height: 8,
+                                                            ),
+                                                            Container(
+                                                              width: double
+                                                                  .infinity,
+                                                              padding:
+                                                                  const EdgeInsets.all(
+                                                                    10,
+                                                                  ),
+                                                              decoration: BoxDecoration(
+                                                                color: Colors
+                                                                    .black
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.05,
+                                                                    ),
+                                                                borderRadius:
+                                                                    BorderRadius.circular(
+                                                                      6,
+                                                                    ),
+                                                              ),
+                                                              child: SelectableText(
+                                                                cmd,
+                                                                style: const TextStyle(
+                                                                  fontFamily:
+                                                                      'monospace',
+                                                                  fontSize: 12,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                            const SizedBox(
+                                                              height: 16,
+                                                            ),
+                                                            if (isWaiting)
+                                                              Wrap(
+                                                                spacing: 8,
+                                                                runSpacing: 8,
+                                                                alignment:
+                                                                    WrapAlignment
+                                                                        .end,
+                                                                crossAxisAlignment:
+                                                                    WrapCrossAlignment
+                                                                        .center,
+                                                                children: [
+                                                                  TextButton(
+                                                                    onPressed: () {
+                                                                      hideSecurityCard();
+                                                                      _agent.handleSecurityAction(
+                                                                        'deny',
+                                                                      );
+                                                                    },
+                                                                    child: Text(
+                                                                      "Deny".tl,
+                                                                      style: const TextStyle(
+                                                                        color: Colors
+                                                                            .redAccent,
+                                                                      ),
+                                                                    ),
+                                                                  ),
+                                                                  OutlinedButton(
+                                                                    onPressed: () {
+                                                                      hideSecurityCard();
+                                                                      _agent.handleSecurityAction(
+                                                                        'allow',
+                                                                      );
+                                                                    },
+                                                                    child: Text(
+                                                                      "Allow Once"
+                                                                          .tl,
+                                                                    ),
+                                                                  ),
+                                                                  FilledButton.icon(
+                                                                    onPressed: () {
+                                                                      hideSecurityCard();
+                                                                      _agent.handleSecurityAction(
+                                                                        'always',
+                                                                        command:
+                                                                            cmd,
+                                                                      );
+                                                                    },
+                                                                    icon: const Icon(
+                                                                      Icons
+                                                                          .verified_user_rounded,
+                                                                      size: 16,
+                                                                    ),
+                                                                    label: Text(
+                                                                      "Always Allow"
+                                                                          .tl,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              )
+                                                            else
+                                                              Text(
+                                                                msg['result'] ==
+                                                                        'allow'
+                                                                    ? "Execution manually authorized."
+                                                                          .tl
+                                                                    : msg['result'] ==
+                                                                          'deny'
+                                                                    ? "Execution of the command refused."
+                                                                          .tl
+                                                                    : "Permanently added to whitelist."
+                                                                          .tl,
+                                                                style: TextStyle(
+                                                                  fontSize: 11,
+                                                                  fontStyle:
+                                                                      FontStyle
+                                                                          .italic,
+                                                                  color:
+                                                                      secondaryTextColor,
+                                                                ),
+                                                              ),
+                                                          ],
+                                                        ),
+                                                      ),
                                                     ],
                                                   ),
                                                 ),
+                                              )
+                                            : const SizedBox.shrink(
+                                                key: ValueKey("empty"),
+                                              ),
+                                      );
+                                    } else if (role == 'user') {
+                                      final content = msg['content'];
+                                      final List<String> imageUrls = [];
+                                      final List<Map<String, dynamic>> files =
+                                          [];
+
+                                      if (content is List) {
+                                        for (var part in content) {
+                                          if (part is Map) {
+                                            if (part['type'] == 'input_image' ||
+                                                part['type'] == 'image_url') {
+                                              imageUrls.add(
+                                                part['image_url']?.toString() ??
+                                                    "",
+                                              );
+                                            } else if (part['type'] ==
+                                                'input_file') {
+                                              files.add(
+                                                Map<String, dynamic>.from(part),
+                                              );
+                                            }
+                                          }
+                                        }
+                                      }
+
+                                      messageWidget = Align(
+                                        alignment: Alignment.centerRight,
+                                        child: Container(
+                                          margin: const EdgeInsets.symmetric(
+                                            vertical: 8,
+                                            horizontal: 16,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 10,
+                                            horizontal: 14,
+                                          ),
+                                          constraints: BoxConstraints(
+                                            maxWidth:
+                                                MediaQuery.of(
+                                                  context,
+                                                ).size.width *
+                                                0.8,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: accentColor,
+                                            borderRadius:
+                                                const BorderRadius.only(
+                                                  topLeft: Radius.circular(16),
+                                                  topRight: Radius.circular(16),
+                                                  bottomLeft: Radius.circular(
+                                                    16,
+                                                  ),
+                                                  bottomRight: Radius.circular(
+                                                    4,
+                                                  ),
+                                                ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.05,
+                                                ),
+                                                blurRadius: 4,
+                                                offset: const Offset(0, 2),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.end,
+                                            children: [
+                                              if (imageUrls.isNotEmpty)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        bottom: 8,
+                                                      ),
+                                                  child: Wrap(
+                                                    spacing: 4,
+                                                    runSpacing: 4,
+                                                    children: (content as List)
+                                                        .asMap()
+                                                        .entries
+                                                        .where(
+                                                          (e) =>
+                                                              e.value is Map &&
+                                                              (e.value['type'] ==
+                                                                      'input_image' ||
+                                                                  e.value['type'] ==
+                                                                      'image_url'),
+                                                        )
+                                                        .map((e) {
+                                                          final imgIdx = e.key;
+                                                          final part =
+                                                              e.value as Map;
+                                                          final url =
+                                                              part['image_url']
+                                                                  ?.toString() ??
+                                                              "";
+                                                          if (!url.startsWith(
+                                                            'data:image',
+                                                          ))
+                                                            return const SizedBox.shrink();
+                                                          final heroTag =
+                                                              'msg_${index}_img_$imgIdx';
+
+                                                          return GestureDetector(
+                                                            onTap: () =>
+                                                                _showImageDialog(
+                                                                  context,
+                                                                  url,
+                                                                  heroTag,
+                                                                ),
+                                                            child: Hero(
+                                                              tag: heroTag,
+                                                              child: ClipRRect(
+                                                                borderRadius:
+                                                                    BorderRadius.circular(
+                                                                      8,
+                                                                    ),
+                                                                child:
+                                                                    part['_decodedBytes'] !=
+                                                                        null
+                                                                    ? Image.memory(
+                                                                        Uint8List.fromList(
+                                                                          (part['_decodedBytes']
+                                                                                  as List)
+                                                                              .cast(),
+                                                                        ),
+                                                                        width:
+                                                                            100,
+                                                                        height:
+                                                                            100,
+                                                                        fit: BoxFit
+                                                                            .cover,
+                                                                        gaplessPlayback:
+                                                                            true,
+                                                                        key: ValueKey(
+                                                                          url,
+                                                                        ),
+                                                                      )
+                                                                    : Image.memory(
+                                                                        base64Decode(
+                                                                          url
+                                                                              .split(
+                                                                                ',',
+                                                                              )
+                                                                              .last,
+                                                                        ),
+                                                                        width:
+                                                                            100,
+                                                                        height:
+                                                                            100,
+                                                                        fit: BoxFit
+                                                                            .cover,
+                                                                        gaplessPlayback:
+                                                                            true,
+                                                                        key: ValueKey(
+                                                                          url,
+                                                                        ),
+                                                                      ),
+                                                              ),
+                                                            ),
+                                                          );
+                                                        })
+                                                        .toList(),
+                                                  ),
+                                                ),
+                                              if (files.isNotEmpty)
+                                                Column(
+                                                  children: files.map((file) {
+                                                    final isLongText =
+                                                        file['filename'] ==
+                                                        "long_text.txt";
+                                                    return Container(
+                                                      margin:
+                                                          const EdgeInsets.only(
+                                                            bottom: 8,
+                                                          ),
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                            10,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.white
+                                                            .withValues(
+                                                              alpha: 0.15,
+                                                            ),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              10,
+                                                            ),
+                                                        border: Border.all(
+                                                          color: Colors.white
+                                                              .withValues(
+                                                                alpha: 0.2,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                      child: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          const Icon(
+                                                            Icons
+                                                                .insert_drive_file_rounded,
+                                                            color: Colors.white,
+                                                            size: 24,
+                                                          ),
+                                                          const SizedBox(
+                                                            width: 10,
+                                                          ),
+                                                          Flexible(
+                                                            child: Column(
+                                                              crossAxisAlignment:
+                                                                  CrossAxisAlignment
+                                                                      .start,
+                                                              children: [
+                                                                Text(
+                                                                  file['filename'] ??
+                                                                      "Unknown",
+                                                                  style: const TextStyle(
+                                                                    color: Colors
+                                                                        .white,
+                                                                    fontSize:
+                                                                        13,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .bold,
+                                                                  ),
+                                                                  maxLines: 1,
+                                                                  overflow:
+                                                                      TextOverflow
+                                                                          .ellipsis,
+                                                                ),
+                                                                if (isLongText)
+                                                                  TextButton(
+                                                                    style: TextButton.styleFrom(
+                                                                      visualDensity:
+                                                                          VisualDensity
+                                                                              .compact,
+                                                                      padding:
+                                                                          EdgeInsets
+                                                                              .zero,
+                                                                      minimumSize:
+                                                                          const Size(
+                                                                            0,
+                                                                            0,
+                                                                          ),
+                                                                    ),
+                                                                    onPressed: () {
+                                                                      try {
+                                                                        final decoded = utf8.decode(
+                                                                          base64Decode(
+                                                                            file['file_data'],
+                                                                          ),
+                                                                        );
+                                                                        setState(() {
+                                                                          _inputController.text =
+                                                                              decoded;
+                                                                          _agent.messages.removeAt(
+                                                                            index,
+                                                                          );
+                                                                        });
+                                                                        _focusNode
+                                                                            .requestFocus();
+                                                                      } catch (
+                                                                        _
+                                                                      ) {}
+                                                                    },
+                                                                    child: Text(
+                                                                      "Restore to Input Box"
+                                                                          .tl,
+                                                                      style: const TextStyle(
+                                                                        color: Colors
+                                                                            .white70,
+                                                                        fontSize:
+                                                                            11,
+                                                                        decoration:
+                                                                            TextDecoration.underline,
+                                                                      ),
+                                                                    ),
+                                                                  ),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    );
+                                                  }).toList(),
+                                                ),
+                                              SelectableText(
+                                                msg['displayText'] ??
+                                                    (msg['content'] is String
+                                                        ? msg['content']
+                                                        : "[Attachment]".tl),
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  color: theme
+                                                      .colorScheme
+                                                      .onPrimary,
+                                                  height: 1.35,
+                                                ),
+                                                selectionColor: theme
+                                                    .colorScheme
+                                                    .onPrimary
+                                                    .withValues(alpha: 0.2),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    } else if (role == 'assistant') {
+                                      bool showAvatar = true;
+                                      if (isPortrait) {
+                                        showAvatar = false;
+                                      } else if (index > 0) {
+                                        int prevAssistantIdx = -1;
+                                        bool intermediateBlocking = false;
+                                        for (int i = index - 1; i >= 0; i--) {
+                                          if (_agent.messages[i]['role'] ==
+                                              'assistant') {
+                                            prevAssistantIdx = i;
+                                            break;
+                                          } else if (_agent
+                                                  .messages[i]['role'] !=
+                                              'system') {
+                                            intermediateBlocking = true;
+                                            break;
+                                          }
+                                        }
+                                        if (prevAssistantIdx != -1 &&
+                                            !intermediateBlocking) {
+                                          if ((msg['emotion'] ?? 'neutral') ==
+                                              (_agent.messages[prevAssistantIdx]['emotion'] ??
+                                                  'neutral'))
+                                            showAvatar = false;
+                                        }
+                                      }
+
+                                      final assistantType =
+                                          msg['agentType'] ?? Bloriko.type;
+
+                                      messageWidget = TweenAnimationBuilder<double>(
+                                        duration: const Duration(
+                                          milliseconds: 400,
+                                        ),
+                                        curve: Curves.easeOutCubic,
+                                        tween: Tween(begin: 0.0, end: 1.0),
+                                        builder: (context, value, child) =>
+                                            Opacity(
+                                              opacity: value,
+                                              child: Transform.translate(
+                                                offset: Offset(
+                                                  0,
+                                                  10 * (1 - value),
+                                                ),
+                                                child: child,
+                                              ),
+                                            ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 4,
+                                            horizontal: 16,
+                                          ),
+                                          child: Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              if (showAvatar)
+                                                Container(
+                                                  width: 32,
+                                                  height: 32,
+                                                  margin: const EdgeInsets.only(
+                                                    top: 8,
+                                                  ),
+                                                  clipBehavior: Clip.antiAlias,
+                                                  decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    color: altColor,
+                                                  ),
+                                                  child:
+                                                      assistantType ==
+                                                              "bloriko" ||
+                                                          assistantType ==
+                                                              "bloriko_r18"
+                                                      ? Image.asset(
+                                                          "assets/bloriko.png",
+                                                          filterQuality:
+                                                              FilterQuality
+                                                                  .high,
+                                                        )
+                                                      : const Icon(
+                                                          Icons.smart_toy,
+                                                          color: Colors.grey,
+                                                          size: 16,
+                                                        ),
+                                                )
+                                              else
+                                                const SizedBox(width: 44),
+                                              const SizedBox(width: 20),
+                                              Expanded(
+                                                child: Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        vertical: 4,
+                                                      ),
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      GestureDetector(
+                                                        onSecondaryTapDown:
+                                                            (
+                                                              details,
+                                                            ) => _showMessageMenu(
+                                                              context,
+                                                              details
+                                                                  .globalPosition,
+                                                              index,
+                                                            ),
+                                                        onLongPressStart:
+                                                            (
+                                                              details,
+                                                            ) => _showMessageMenu(
+                                                              context,
+                                                              details
+                                                                  .globalPosition,
+                                                              index,
+                                                            ),
+                                                        child: GptMarkdown(
+                                                          msg['content'] ??
+                                                              '...',
+                                                          style: TextStyle(
+                                                            fontSize: 14,
+                                                            color: textColor,
+                                                            height: 1.35,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      Builder(
+                                                        builder: (context) {
+                                                          final content =
+                                                              msg['content']
+                                                                  ?.toString() ??
+                                                              "";
+                                                          final regExp = RegExp(
+                                                            r'!\[.*?\]\((.*?)\)',
+                                                          );
+                                                          final matches = regExp
+                                                              .allMatches(
+                                                                content,
+                                                              );
+                                                          if (matches.isEmpty)
+                                                            return const SizedBox.shrink();
+
+                                                          return Padding(
+                                                            padding:
+                                                                const EdgeInsets.only(
+                                                                  top: 8,
+                                                                ),
+                                                            child: Wrap(
+                                                              spacing: 8,
+                                                              children: matches.map((
+                                                                m,
+                                                              ) {
+                                                                final url =
+                                                                    m.group(
+                                                                      1,
+                                                                    ) ??
+                                                                    "";
+                                                                return IconButton.filledTonal(
+                                                                  icon: const Icon(
+                                                                    Icons
+                                                                        .download_rounded,
+                                                                    size: 16,
+                                                                  ),
+                                                                  onPressed: () =>
+                                                                      _downloadImage(
+                                                                        url,
+                                                                      ),
+                                                                  tooltip:
+                                                                      "Download Image"
+                                                                          .tl,
+                                                                );
+                                                              }).toList(),
+                                                            ),
+                                                          );
+                                                        },
+                                                      ),
+                                                      const SizedBox(height: 8),
+                                                      AnimatedOpacity(
+                                                        duration:
+                                                            const Duration(
+                                                              milliseconds: 200,
+                                                            ),
+                                                        opacity:
+                                                            (_agent.busy &&
+                                                                index ==
+                                                                    _agent
+                                                                            .messages
+                                                                            .length -
+                                                                        1)
+                                                            ? 0.0
+                                                            : (_hoveredMessageIndex ==
+                                                                      index
+                                                                  ? 1.0
+                                                                  : 0.0),
+                                                        child: Row(
+                                                          children: [
+                                                            IconButton(
+                                                              icon: const Icon(
+                                                                Icons
+                                                                    .copy_rounded,
+                                                                size: 16,
+                                                              ),
+                                                              onPressed: () =>
+                                                                  _copyToClipboard(
+                                                                    msg['content'] ??
+                                                                        "",
+                                                                  ),
+                                                              tooltip:
+                                                                  "Copy".tl,
+                                                              visualDensity:
+                                                                  VisualDensity
+                                                                      .compact,
+                                                            ),
+                                                            IconButton(
+                                                              icon: const Icon(
+                                                                Icons
+                                                                    .share_rounded,
+                                                                size: 16,
+                                                              ),
+                                                              onPressed: () =>
+                                                                  _shareMessage(
+                                                                    index,
+                                                                  ),
+                                                              tooltip:
+                                                                  "Share".tl,
+                                                              visualDensity:
+                                                                  VisualDensity
+                                                                      .compact,
+                                                            ),
+                                                            IconButton(
+                                                              icon: const Icon(
+                                                                Icons
+                                                                    .refresh_rounded,
+                                                                size: 16,
+                                                              ),
+                                                              onPressed: () =>
+                                                                  _retryMessage(
+                                                                    index,
+                                                                  ),
+                                                              tooltip:
+                                                                  "Retry".tl,
+                                                              visualDensity:
+                                                                  VisualDensity
+                                                                      .compact,
+                                                            ),
+                                                            IconButton(
+                                                              icon: const Icon(
+                                                                Icons
+                                                                    .call_split_rounded,
+                                                                size: 16,
+                                                              ),
+                                                              onPressed: () =>
+                                                                  _branchConversation(
+                                                                    index,
+                                                                  ),
+                                                              tooltip:
+                                                                  "Branch Conversation"
+                                                                      .tl,
+                                                              visualDensity:
+                                                                  VisualDensity
+                                                                      .compact,
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    } else if (role == 'system') {
+                                      if (msg['tool'] == 'set_user_identity') {
+                                        return const SizedBox.shrink();
+                                      }
+                                      final isExpanded =
+                                          msg['isExpanded'] ?? false;
+                                      final hasDetail =
+                                          msg['args'] != null ||
+                                          msg['result'] != null;
+                                      messageWidget = TweenAnimationBuilder<double>(
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
+                                        curve: Curves.easeOutCubic,
+                                        tween: Tween(begin: 0.0, end: 1.0),
+                                        builder: (context, value, child) =>
+                                            Opacity(
+                                              opacity: value,
+                                              child: Transform.translate(
+                                                offset: Offset(
+                                                  0,
+                                                  5 * (1 - value),
+                                                ),
+                                                child: child,
+                                              ),
+                                            ),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Container(
+                                            margin: const EdgeInsets.symmetric(
+                                              vertical: 3,
+                                              horizontal: 16,
+                                            ),
+                                            padding: const EdgeInsets.only(
+                                              left: 32,
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                GestureDetector(
+                                                  onTap: hasDetail
+                                                      ? () => setState(
+                                                          () =>
+                                                              msg['isExpanded'] =
+                                                                  !isExpanded,
+                                                        )
+                                                      : null,
+                                                  behavior:
+                                                      HitTestBehavior.opaque,
+                                                  child: Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      if (msg['tool']
+                                                              ?.toString()
+                                                              .startsWith(
+                                                                'shizuku_',
+                                                              ) ??
+                                                          false)
+                                                        Padding(
+                                                          padding:
+                                                              const EdgeInsets.only(
+                                                                right: 6,
+                                                              ),
+                                                          child: Image.asset(
+                                                            "assets/icons/shizuku.png",
+                                                            width: 14,
+                                                            height: 14,
+                                                          ),
+                                                        ),
+                                                      Icon(
+                                                        _getToolIcon(
+                                                          msg['tool'],
+                                                        ),
+                                                        size: 13,
+                                                        color:
+                                                            secondaryTextColor
+                                                                .withValues(
+                                                                  alpha: 0.7,
+                                                                ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Text(
+                                                        msg['content'] ?? '',
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          fontStyle:
+                                                              FontStyle.italic,
+                                                          color:
+                                                              secondaryTextColor
+                                                                  .withValues(
+                                                                    alpha: 0.7,
+                                                                  ),
+                                                        ),
+                                                      ),
+                                                      if (hasDetail) ...[
+                                                        const SizedBox(
+                                                          width: 4,
+                                                        ),
+                                                        Icon(
+                                                          isExpanded
+                                                              ? Icons
+                                                                    .keyboard_arrow_up_rounded
+                                                              : Icons
+                                                                    .keyboard_arrow_down_rounded,
+                                                          size: 14,
+                                                          color:
+                                                              secondaryTextColor
+                                                                  .withValues(
+                                                                    alpha: 0.5,
+                                                                  ),
+                                                        ),
+                                                      ],
+                                                    ],
+                                                  ),
+                                                ),
+                                                AnimatedSwitcher(
+                                                  duration: const Duration(
+                                                    milliseconds: 300,
+                                                  ),
+                                                  switchInCurve:
+                                                      Curves.easeOutBack,
+                                                  switchOutCurve:
+                                                      Curves.easeOutExpo,
+                                                  transitionBuilder:
+                                                      (
+                                                        child,
+                                                        animation,
+                                                      ) => FadeTransition(
+                                                        opacity: animation,
+                                                        child: SizeTransition(
+                                                          sizeFactor: animation,
+                                                          alignment: Alignment
+                                                              .topCenter,
+                                                          child: child,
+                                                        ),
+                                                      ),
+                                                  child:
+                                                      (isExpanded && hasDetail)
+                                                      ? Container(
+                                                          key: const ValueKey(
+                                                            "detail",
+                                                          ),
+                                                          margin:
+                                                              const EdgeInsets.only(
+                                                                top: 8,
+                                                                bottom: 4,
+                                                              ),
+                                                          padding:
+                                                              const EdgeInsets.all(
+                                                                12,
+                                                              ),
+                                                          width:
+                                                              double.infinity,
+                                                          decoration: BoxDecoration(
+                                                            color: altColor
+                                                                .withValues(
+                                                                  alpha: 0.5,
+                                                                ),
+                                                            borderRadius:
+                                                                BorderRadius.circular(
+                                                                  8,
+                                                                ),
+                                                            border: Border.all(
+                                                              color: borderColor
+                                                                  .withValues(
+                                                                    alpha: 0.3,
+                                                                  ),
+                                                            ),
+                                                          ),
+                                                          child: StatefulBuilder(
+                                                            builder:
+                                                                (
+                                                                  context,
+                                                                  setDetailState,
+                                                                ) {
+                                                                  final List
+                                                                  calls =
+                                                                      msg['calls'] ??
+                                                                      [];
+                                                                  final int
+                                                                  total =
+                                                                      calls
+                                                                          .isNotEmpty
+                                                                      ? calls
+                                                                            .length
+                                                                      : 1;
+                                                                  int
+                                                                  currentIndex =
+                                                                      msg['_detailIdx'] ??
+                                                                      (total -
+                                                                          1);
+
+                                                                  Widget
+                                                                  buildContent(
+                                                                    int idx,
+                                                                  ) {
+                                                                    var data =
+                                                                        (calls
+                                                                            .isNotEmpty)
+                                                                        ? calls[idx]
+                                                                        : {
+                                                                            'args':
+                                                                                msg['args'],
+                                                                            'result':
+                                                                                msg['result'],
+                                                                          };
+                                                                    return Column(
+                                                                      key: ValueKey(
+                                                                        "call_$idx",
+                                                                      ),
+                                                                      crossAxisAlignment:
+                                                                          CrossAxisAlignment
+                                                                              .start,
+                                                                      children: [
+                                                                        if (msg['tool'] ==
+                                                                                'ask_question' &&
+                                                                            data['args'] !=
+                                                                                null) ...[
+                                                                          Builder(
+                                                                            builder:
+                                                                                (
+                                                                                  context,
+                                                                                ) {
+                                                                                  try {
+                                                                                    final Map<
+                                                                                      String,
+                                                                                      dynamic
+                                                                                    >
+                                                                                    args = jsonDecode(
+                                                                                      data['args'],
+                                                                                    );
+                                                                                    final String question =
+                                                                                        args['question'] ??
+                                                                                        "";
+                                                                                    final List options =
+                                                                                        args['options'] ??
+                                                                                        [];
+                                                                                    final bool isRunning =
+                                                                                        msg['status'] ==
+                                                                                        'running';
+
+                                                                                    return Column(
+                                                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                                                      children: [
+                                                                                        Text(
+                                                                                          question,
+                                                                                          style: const TextStyle(
+                                                                                            fontSize: 13,
+                                                                                            fontWeight: FontWeight.bold,
+                                                                                          ),
+                                                                                        ),
+                                                                                        const SizedBox(
+                                                                                          height: 12,
+                                                                                        ),
+                                                                                        if (isRunning)
+                                                                                          Wrap(
+                                                                                            spacing: 8,
+                                                                                            runSpacing: 8,
+                                                                                            children: options
+                                                                                                .map(
+                                                                                                  (
+                                                                                                    opt,
+                                                                                                  ) => BloretButton(
+                                                                                                    text: opt.toString(),
+                                                                                                    onPressed: () => _agent.answerQuestion(
+                                                                                                      opt.toString(),
+                                                                                                    ),
+                                                                                                  ),
+                                                                                                )
+                                                                                                .toList(),
+                                                                                          )
+                                                                                        else
+                                                                                          Container(
+                                                                                            padding: const EdgeInsets.symmetric(
+                                                                                              horizontal: 10,
+                                                                                              vertical: 6,
+                                                                                            ),
+                                                                                            decoration: BoxDecoration(
+                                                                                              color: accentColor.withValues(
+                                                                                                alpha: 0.1,
+                                                                                              ),
+                                                                                              borderRadius: BorderRadius.circular(
+                                                                                                6,
+                                                                                              ),
+                                                                                              border: Border.all(
+                                                                                                color: accentColor.withValues(
+                                                                                                  alpha: 0.2,
+                                                                                                ),
+                                                                                              ),
+                                                                                            ),
+                                                                                            child: Row(
+                                                                                              mainAxisSize: MainAxisSize.min,
+                                                                                              children: [
+                                                                                                Icon(
+                                                                                                  Icons.check_circle_outline_rounded,
+                                                                                                  size: 14,
+                                                                                                  color: accentColor,
+                                                                                                ),
+                                                                                                const SizedBox(
+                                                                                                  width: 6,
+                                                                                                ),
+                                                                                                Flexible(
+                                                                                                  child: Text(
+                                                                                                    "${"Selected".tl}: ${data['result'] ?? ''}",
+                                                                                                    style: TextStyle(
+                                                                                                      fontSize: 12,
+                                                                                                      color: accentColor,
+                                                                                                      fontWeight: FontWeight.bold,
+                                                                                                    ),
+                                                                                                    maxLines: 1,
+                                                                                                    overflow: TextOverflow.ellipsis,
+                                                                                                  ),
+                                                                                                ),
+                                                                                              ],
+                                                                                            ),
+                                                                                          ),
+                                                                                      ],
+                                                                                    );
+                                                                                  } catch (
+                                                                                    _
+                                                                                  ) {
+                                                                                    return const Text(
+                                                                                      "Failed to parse question",
+                                                                                    );
+                                                                                  }
+                                                                                },
+                                                                          ),
+                                                                        ] else if (msg['tool'] ==
+                                                                                'ask_question_details' &&
+                                                                            data['args'] !=
+                                                                                null) ...[
+                                                                          Builder(
+                                                                            builder:
+                                                                                (
+                                                                                  context,
+                                                                                ) {
+                                                                                  try {
+                                                                                    final Map<
+                                                                                      String,
+                                                                                      dynamic
+                                                                                    >
+                                                                                    args = jsonDecode(
+                                                                                      data['args'],
+                                                                                    );
+                                                                                    final String question =
+                                                                                        args['question'] ??
+                                                                                        "";
+                                                                                    final String description =
+                                                                                        args['description'] ??
+                                                                                        "";
+                                                                                    final bool isRunning =
+                                                                                        msg['status'] ==
+                                                                                        'running';
+
+                                                                                    return Column(
+                                                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                                                      children: [
+                                                                                        Text(
+                                                                                          question,
+                                                                                          style: const TextStyle(
+                                                                                            fontSize: 13,
+                                                                                            fontWeight: FontWeight.bold,
+                                                                                          ),
+                                                                                        ),
+                                                                                        const SizedBox(
+                                                                                          height: 12,
+                                                                                        ),
+                                                                                        if (isRunning)
+                                                                                          Padding(
+                                                                                            padding: const EdgeInsets.all(
+                                                                                              12.0,
+                                                                                            ),
+                                                                                            child: Row(
+                                                                                              children: [
+                                                                                                Expanded(
+                                                                                                  child: AnimatedContainer(
+                                                                                                    duration: const Duration(
+                                                                                                      milliseconds: 200,
+                                                                                                    ),
+                                                                                                    curve: Curves.easeInOut,
+                                                                                                    constraints: const BoxConstraints(
+                                                                                                      maxHeight: 120,
+                                                                                                    ),
+                                                                                                    padding: const EdgeInsets.symmetric(
+                                                                                                      horizontal: 10,
+                                                                                                      vertical: 4,
+                                                                                                    ),
+                                                                                                    decoration: BoxDecoration(
+                                                                                                      color: altColor,
+                                                                                                      borderRadius: BorderRadius.circular(
+                                                                                                        8,
+                                                                                                      ),
+                                                                                                      border: Border.all(
+                                                                                                        color: _isFocused
+                                                                                                            ? theme.colorScheme.onSurface
+                                                                                                            : borderColor,
+                                                                                                        width: _isFocused
+                                                                                                            ? 1.8
+                                                                                                            : 1.0,
+                                                                                                      ),
+                                                                                                    ),
+                                                                                                    child: Scrollbar(
+                                                                                                      thumbVisibility: true,
+                                                                                                      controller: _answerScrollController,
+                                                                                                      radius: const Radius.circular(
+                                                                                                        8,
+                                                                                                      ),
+                                                                                                      child: SingleChildScrollView(
+                                                                                                        controller: _answerScrollController,
+                                                                                                        child: Focus(
+                                                                                                          onKeyEvent:
+                                                                                                              (
+                                                                                                                node,
+                                                                                                                event,
+                                                                                                              ) {
+                                                                                                                if (event
+                                                                                                                        is KeyDownEvent &&
+                                                                                                                    event.logicalKey ==
+                                                                                                                        LogicalKeyboardKey.enter) {
+                                                                                                                  final isShift =
+                                                                                                                      HardwareKeyboard.instance.logicalKeysPressed.contains(
+                                                                                                                        LogicalKeyboardKey.shiftLeft,
+                                                                                                                      ) ||
+                                                                                                                      HardwareKeyboard.instance.logicalKeysPressed.contains(
+                                                                                                                        LogicalKeyboardKey.shiftRight,
+                                                                                                                      );
+                                                                                                                  if (!isShift) {
+                                                                                                                    _sendMessage();
+                                                                                                                    return KeyEventResult.handled;
+                                                                                                                  }
+                                                                                                                }
+                                                                                                                return KeyEventResult.ignored;
+                                                                                                              },
+                                                                                                          child: TextField(
+                                                                                                            controller: _inputAnswerController,
+                                                                                                            focusNode: _focusAnswerNode,
+                                                                                                            maxLines: null,
+                                                                                                            keyboardType: TextInputType.multiline,
+                                                                                                            decoration: InputDecoration(
+                                                                                                              hintText: description,
+                                                                                                              border: InputBorder.none,
+                                                                                                              isDense: true,
+                                                                                                              contentPadding: const EdgeInsets.symmetric(
+                                                                                                                vertical: 6,
+                                                                                                              ),
+                                                                                                            ),
+                                                                                                            style: TextStyle(
+                                                                                                              fontSize: 14,
+                                                                                                              color: textColor,
+                                                                                                            ),
+                                                                                                          ),
+                                                                                                        ),
+                                                                                                      ),
+                                                                                                    ),
+                                                                                                  ),
+                                                                                                ),
+                                                                                                const SizedBox(
+                                                                                                  width: 10,
+                                                                                                ),
+                                                                                                IconButton.filled(
+                                                                                                  padding: const EdgeInsets.all(
+                                                                                                    2,
+                                                                                                  ),
+                                                                                                  icon: const Icon(
+                                                                                                    Icons.send,
+                                                                                                    size: 20,
+                                                                                                  ),
+                                                                                                  onPressed: () {
+                                                                                                    data['result'] = _inputAnswerController.text;
+                                                                                                    if (data['result'] !=
+                                                                                                        null) {
+                                                                                                      _agent.answerDetailQuestion(
+                                                                                                        data['result'],
+                                                                                                      );
+                                                                                                      _inputAnswerController.clear();
+                                                                                                    }
+                                                                                                  },
+                                                                                                ),
+                                                                                              ],
+                                                                                            ),
+                                                                                          )
+                                                                                        else
+                                                                                          Container(
+                                                                                            padding: const EdgeInsets.symmetric(
+                                                                                              horizontal: 10,
+                                                                                              vertical: 6,
+                                                                                            ),
+                                                                                            decoration: BoxDecoration(
+                                                                                              color: accentColor.withValues(
+                                                                                                alpha: 0.1,
+                                                                                              ),
+                                                                                              borderRadius: BorderRadius.circular(
+                                                                                                6,
+                                                                                              ),
+                                                                                              border: Border.all(
+                                                                                                color: accentColor.withValues(
+                                                                                                  alpha: 0.2,
+                                                                                                ),
+                                                                                              ),
+                                                                                            ),
+                                                                                            child: Row(
+                                                                                              mainAxisSize: MainAxisSize.min,
+                                                                                              children: [
+                                                                                                Icon(
+                                                                                                  Icons.check_circle_outline_rounded,
+                                                                                                  size: 14,
+                                                                                                  color: accentColor,
+                                                                                                ),
+                                                                                                const SizedBox(
+                                                                                                  width: 6,
+                                                                                                ),
+                                                                                                Flexible(
+                                                                                                  child: Text(
+                                                                                                    data['result'],
+                                                                                                    style: TextStyle(
+                                                                                                      fontSize: 12,
+                                                                                                      color: accentColor,
+                                                                                                      fontWeight: FontWeight.bold,
+                                                                                                    ),
+                                                                                                    maxLines: 1,
+                                                                                                    overflow: TextOverflow.ellipsis,
+                                                                                                  ),
+                                                                                                ),
+                                                                                              ],
+                                                                                            ),
+                                                                                          ),
+                                                                                      ],
+                                                                                    );
+                                                                                  } catch (
+                                                                                    _
+                                                                                  ) {
+                                                                                    return const Text(
+                                                                                      "Failed to parse question",
+                                                                                    );
+                                                                                  }
+                                                                                },
+                                                                          ),
+                                                                        ] else ...[
+                                                                          if (data['args'] !=
+                                                                              null) ...[
+                                                                            Text(
+                                                                              "Input Parameters:".tl,
+                                                                              style: const TextStyle(
+                                                                                fontSize: 11,
+                                                                                fontWeight: FontWeight.bold,
+                                                                              ),
+                                                                            ),
+                                                                            const SizedBox(
+                                                                              height: 4,
+                                                                            ),
+                                                                            SelectableText(
+                                                                              data['args'],
+                                                                              style: const TextStyle(
+                                                                                fontSize: 11,
+                                                                                fontFamily: "monospace",
+                                                                              ),
+                                                                            ),
+                                                                          ],
+                                                                          if (data['result'] !=
+                                                                              null) ...[
+                                                                            const SizedBox(
+                                                                              height: 12,
+                                                                            ),
+                                                                            Text(
+                                                                              "Execution Result:".tl,
+                                                                              style: const TextStyle(
+                                                                                fontSize: 11,
+                                                                                fontWeight: FontWeight.bold,
+                                                                              ),
+                                                                            ),
+                                                                            const SizedBox(
+                                                                              height: 4,
+                                                                            ),
+                                                                            SelectableText(
+                                                                              data['result'],
+                                                                              style: const TextStyle(
+                                                                                fontSize: 11,
+                                                                                fontFamily: "monospace",
+                                                                              ),
+                                                                            ),
+                                                                          ],
+                                                                        ],
+                                                                      ],
+                                                                    );
+                                                                  }
+
+                                                                  return Column(
+                                                                    crossAxisAlignment:
+                                                                        CrossAxisAlignment
+                                                                            .start,
+                                                                    children: [
+                                                                      if (total >
+                                                                          1) ...[
+                                                                        Row(
+                                                                          mainAxisAlignment:
+                                                                              MainAxisAlignment.spaceBetween,
+                                                                          children: [
+                                                                            Text(
+                                                                              "${"Call".tl} ${currentIndex + 1} / $total",
+                                                                              style: TextStyle(
+                                                                                fontSize: 10,
+                                                                                fontWeight: FontWeight.bold,
+                                                                                color: secondaryTextColor.withValues(
+                                                                                  alpha: 0.6,
+                                                                                ),
+                                                                              ),
+                                                                            ),
+                                                                            Row(
+                                                                              children: [
+                                                                                IconButton(
+                                                                                  visualDensity: VisualDensity.compact,
+                                                                                  padding: EdgeInsets.zero,
+                                                                                  constraints: const BoxConstraints(),
+                                                                                  icon: Icon(
+                                                                                    Icons.arrow_back_ios_new_rounded,
+                                                                                    size: 12,
+                                                                                    color:
+                                                                                        currentIndex >
+                                                                                            0
+                                                                                        ? textColor
+                                                                                        : secondaryTextColor.withValues(
+                                                                                            alpha: 0.2,
+                                                                                          ),
+                                                                                  ),
+                                                                                  onPressed:
+                                                                                      currentIndex >
+                                                                                          0
+                                                                                      ? () => setDetailState(() {
+                                                                                          currentIndex--;
+                                                                                          msg['_detailIdx'] = currentIndex;
+                                                                                        })
+                                                                                      : null,
+                                                                                ),
+                                                                                const SizedBox(
+                                                                                  width: 12,
+                                                                                ),
+                                                                                IconButton(
+                                                                                  visualDensity: VisualDensity.compact,
+                                                                                  padding: EdgeInsets.zero,
+                                                                                  constraints: const BoxConstraints(),
+                                                                                  icon: Icon(
+                                                                                    Icons.arrow_forward_ios_rounded,
+                                                                                    size: 12,
+                                                                                    color:
+                                                                                        currentIndex <
+                                                                                            total -
+                                                                                                1
+                                                                                        ? textColor
+                                                                                        : secondaryTextColor.withValues(
+                                                                                            alpha: 0.2,
+                                                                                          ),
+                                                                                  ),
+                                                                                  onPressed:
+                                                                                      currentIndex <
+                                                                                          total -
+                                                                                              1
+                                                                                      ? () => setDetailState(() {
+                                                                                          currentIndex++;
+                                                                                          msg['_detailIdx'] = currentIndex;
+                                                                                        })
+                                                                                      : null,
+                                                                                ),
+                                                                              ],
+                                                                            ),
+                                                                          ],
+                                                                        ),
+                                                                        const Divider(
+                                                                          height:
+                                                                              16,
+                                                                          thickness:
+                                                                              0.5,
+                                                                        ),
+                                                                      ],
+                                                                      AnimatedSwitcher(
+                                                                        duration: const Duration(
+                                                                          milliseconds:
+                                                                              300,
+                                                                        ),
+                                                                        layoutBuilder:
+                                                                            (
+                                                                              currentChild,
+                                                                              previousChildren,
+                                                                            ) => Stack(
+                                                                              alignment: Alignment.topLeft,
+                                                                              children: [
+                                                                                ...previousChildren,
+                                                                                ?currentChild,
+                                                                              ],
+                                                                            ),
+                                                                        transitionBuilder:
+                                                                            (
+                                                                              child,
+                                                                              animation,
+                                                                            ) {
+                                                                              final offsetAnimation =
+                                                                                  Tween<
+                                                                                        Offset
+                                                                                      >(
+                                                                                        begin: const Offset(
+                                                                                          0.1,
+                                                                                          0.0,
+                                                                                        ),
+                                                                                        end: Offset.zero,
+                                                                                      )
+                                                                                      .animate(
+                                                                                        CurvedAnimation(
+                                                                                          parent: animation,
+                                                                                          curve: Curves.easeOutCubic,
+                                                                                        ),
+                                                                                      );
+                                                                              return FadeTransition(
+                                                                                opacity: animation,
+                                                                                child: SlideTransition(
+                                                                                  position: offsetAnimation,
+                                                                                  child: child,
+                                                                                ),
+                                                                              );
+                                                                            },
+                                                                        child: buildContent(
+                                                                          currentIndex,
+                                                                        ),
+                                                                      ),
+                                                                    ],
+                                                                  );
+                                                                },
+                                                          ),
+                                                        )
+                                                      : const SizedBox(
+                                                          key: ValueKey(
+                                                            "empty",
+                                                          ),
+                                                        ),
+                                                ),
                                               ],
                                             ),
-                                          );
-                                        }).toList(),
-                                      ),
-                                    SelectableText(
-                                      msg['displayText'] ?? (msg['content'] is String ? msg['content'] : "[Attachment]".tl),
-                                      style: TextStyle(fontSize: 14, color: theme.colorScheme.onPrimary, height: 1.35),
-                                      selectionColor: theme.colorScheme.onPrimary.withValues(alpha: 0.2),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                            } else if (role == 'assistant') {
-                              bool showAvatar = true;
-                              if (isPortrait) {
-                                showAvatar = false;
-                              } else if (index > 0) {
-                                int prevAssistantIdx = -1;
-                                bool intermediateBlocking = false;
-                                for (int i = index - 1; i >= 0; i--) {
-                                  if (_agent.messages[i]['role'] == 'assistant') { prevAssistantIdx = i; break; }
-                                  else if (_agent.messages[i]['role'] != 'system') { intermediateBlocking = true; break; }
-                                }
-                                if (prevAssistantIdx != -1 && !intermediateBlocking) {
-                                  if ((msg['emotion'] ?? 'neutral') == (_agent.messages[prevAssistantIdx]['emotion'] ?? 'neutral')) showAvatar = false;
-                                }
-                              }
-                              
-                              final assistantType = msg['agentType'] ?? Bloriko.type;
+                                          ),
+                                        ),
+                                      );
+                                    } else if (role == 'error') {
+                                      final String title =
+                                          msg['title'] ?? "Error Occurred".tl;
+                                      final String content =
+                                          msg['content'] ?? "";
 
-                              messageWidget = TweenAnimationBuilder<double>(
-                                duration: const Duration(milliseconds: 400),
-                                curve: Curves.easeOutCubic, tween: Tween(begin: 0.0, end: 1.0),
-                                builder: (context, value, child) => Opacity(opacity: value, child: Transform.translate(offset: Offset(0, 10 * (1 - value)), child: child)),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      if (showAvatar)
-                                        Container(
-                                          width: 32,
-                                          height: 32,
-                                          margin: const EdgeInsets.only(top: 8),
-                                          clipBehavior: Clip.antiAlias,
-                                          decoration: BoxDecoration(shape: BoxShape.circle, color: altColor,),
-                                          child: assistantType == "bloriko" || assistantType == "bloriko_r18" ? Image.asset("assets/bloriko.png", filterQuality: FilterQuality.high,) : const Icon(Icons.smart_toy, color: Colors.grey, size: 16),
-                                        )
-                                      else
-                                        const SizedBox(width: 44),
-                                      const SizedBox(width: 20),
-                                      Expanded(
+                                      messageWidget = Align(
+                                        alignment: Alignment.centerLeft,
                                         child: Container(
-                                          padding: const EdgeInsets.symmetric(vertical: 4),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              GestureDetector(
-                                                onSecondaryTapDown: (details) => _showMessageMenu(context, details.globalPosition, index),
-                                                onLongPressStart: (details) => _showMessageMenu(context, details.globalPosition, index),
-                                                child: GptMarkdown(msg['content'] ?? '...', style: TextStyle(fontSize: 14, color: textColor, height: 1.35)),
+                                          margin: const EdgeInsets.symmetric(
+                                            vertical: 8,
+                                            horizontal: 16,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 10,
+                                            horizontal: 14,
+                                          ),
+                                          constraints: BoxConstraints(
+                                            maxWidth:
+                                                MediaQuery.of(
+                                                  context,
+                                                ).size.width *
+                                                0.75,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.redAccent.withValues(
+                                              alpha: 0.12,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.redAccent
+                                                  .withValues(alpha: 0.25),
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.05,
+                                                ),
+                                                blurRadius: 4,
+                                                offset: const Offset(0, 2),
                                               ),
-                                              Builder(builder: (context) {
-                                                final content = msg['content']?.toString() ?? "";
-                                                final regExp = RegExp(r'!\[.*?\]\((.*?)\)');
-                                                final matches = regExp.allMatches(content);
-                                                if (matches.isEmpty) return const SizedBox.shrink();
-
-                                                return Padding(
-                                                  padding: const EdgeInsets.only(top: 8),
-                                                  child: Wrap(
-                                                    spacing: 8,
-                                                    children: matches.map((m) {
-                                                      final url = m.group(1) ?? "";
-                                                      return IconButton.filledTonal(
-                                                        icon: const Icon(Icons.download_rounded, size: 16),
-                                                        onPressed: () => _downloadImage(url),
-                                                        tooltip: "Download Image".tl,
-                                                      );
-                                                    }).toList(),
-                                                  ),
-                                                );
-                                              }),
-                                              const SizedBox(height: 8),
-                                              AnimatedOpacity(
-                                                duration: const Duration(milliseconds: 200),
-                                                opacity: (_agent.busy && index == _agent.messages.length - 1) ? 0.0 : (_hoveredMessageIndex == index ? 1.0 : 0.0),
-                                                child: Row(
+                                            ],
+                                          ),
+                                          child: Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  top: 2,
+                                                  right: 10,
+                                                ),
+                                                child: Icon(
+                                                  Icons.error_outline_rounded,
+                                                  size: 20,
+                                                  color:
+                                                      theme.colorScheme.error,
+                                                ),
+                                              ),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
                                                   children: [
-                                                    IconButton(
-                                                      icon: const Icon(Icons.copy_rounded, size: 16),
-                                                      onPressed: () => _copyToClipboard(msg['content'] ?? ""),
-                                                      tooltip: "Copy".tl,
-                                                      visualDensity: VisualDensity.compact,
+                                                    Text(
+                                                      title,
+                                                      style: TextStyle(
+                                                        fontSize: 14,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color: theme
+                                                            .colorScheme
+                                                            .error,
+                                                      ),
                                                     ),
-                                                    IconButton(
-                                                      icon: const Icon(Icons.share_rounded, size: 16),
-                                                      onPressed: () => _shareMessage(index),
-                                                      tooltip: "Share".tl,
-                                                      visualDensity: VisualDensity.compact,
-                                                    ),
-                                                    IconButton(
-                                                      icon: const Icon(Icons.refresh_rounded, size: 16),
-                                                      onPressed: () => _retryMessage(index),
-                                                      tooltip: "Retry".tl,
-                                                      visualDensity: VisualDensity.compact,
-                                                    ),
-                                                    IconButton(
-                                                      icon: const Icon(Icons.call_split_rounded, size: 16),
-                                                      onPressed: () => _branchConversation(index),
-                                                      tooltip: "Branch Conversation".tl,
-                                                      visualDensity: VisualDensity.compact,
-                                                    ),
+                                                    if (content.isNotEmpty) ...[
+                                                      const SizedBox(height: 4),
+                                                      SelectableText(
+                                                        content,
+                                                        style: TextStyle(
+                                                          fontSize: 13,
+                                                          color: theme
+                                                              .colorScheme
+                                                              .onSurface,
+                                                          height: 1.35,
+                                                        ),
+                                                        selectionColor: theme
+                                                            .colorScheme
+                                                            .error
+                                                            .withValues(
+                                                              alpha: 0.2,
+                                                            ),
+                                                      ),
+                                                    ],
                                                   ],
                                                 ),
                                               ),
                                             ],
-                                          )
-                                        )
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            } else if (role == 'system') {
-                              if (msg['tool'] == 'set_user_identity') {
-                                return const SizedBox.shrink();
-                              }
-                              final isExpanded = msg['isExpanded'] ?? false;
-                            final hasDetail = msg['args'] != null || msg['result'] != null;
-                            messageWidget = TweenAnimationBuilder<double>(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeOutCubic, tween: Tween(begin: 0.0, end: 1.0),
-                              builder: (context, value, child) => Opacity(opacity: value, child: Transform.translate(offset: Offset(0, 5 * (1 - value)), child: child)),
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 16),
-                                  padding: const EdgeInsets.only(left: 32),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      GestureDetector(
-                                        onTap: hasDetail ? () => setState(() => msg['isExpanded'] = !isExpanded) : null,
-                                        behavior: HitTestBehavior.opaque,
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            if (msg['tool']?.toString().startsWith('shizuku_') ?? false)
-                                              Padding(
-                                                padding: const EdgeInsets.only(right: 6),
-                                                child: Image.asset("assets/icons/shizuku.png", width: 14, height: 14),
-                                              ),
-                                            Icon(_getToolIcon(msg['tool']), size: 13, color: secondaryTextColor.withValues(alpha: 0.7)),
-                                            const SizedBox(width: 8),
-                                            Text(msg['content'] ?? '', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: secondaryTextColor.withValues(alpha: 0.7))),
-                                            if (hasDetail) ...[const SizedBox(width: 4), Icon(isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded, size: 14, color: secondaryTextColor.withValues(alpha: 0.5))],
-                                          ],
+                                          ),
                                         ),
-                                      ),
-                                      AnimatedSwitcher(
-                                        duration: const Duration(milliseconds: 300),
-                                        switchInCurve: Curves.easeOutBack, switchOutCurve: Curves.easeOutExpo,
-                                        transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: SizeTransition(sizeFactor: animation, alignment: Alignment.topCenter, child: child)),
-                                        child: (isExpanded && hasDetail)
-                                            ? Container(
-                                          key: const ValueKey("detail"),
-                                          margin: const EdgeInsets.only(top: 8, bottom: 4),
-                                          padding: const EdgeInsets.all(12),
-                                          width: double.infinity,
-                                          decoration: BoxDecoration(color: altColor.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(8), border: Border.all(color: borderColor.withValues(alpha: 0.3))),
-                                          child: StatefulBuilder(builder: (context, setDetailState) {
-                                            final List calls = msg['calls'] ?? [];
-                                            final int total = calls.isNotEmpty ? calls.length : 1;
-                                            int currentIndex = msg['_detailIdx'] ?? (total - 1);
+                                      );
+                                    }
 
-                                            Widget buildContent(int idx) {
-                                              var data = (calls.isNotEmpty) ? calls[idx] : {'args': msg['args'], 'result': msg['result']};
-                                              return Column(
-                                                key: ValueKey("call_$idx"),
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  if (msg['tool'] == 'ask_question' && data['args'] != null) ...[
-                                                    Builder(builder: (context) {
-                                                      try {
-                                                        final Map<String, dynamic> args = jsonDecode(data['args']);
-                                                        final String question = args['question'] ?? "";
-                                                        final List options = args['options'] ?? [];
-                                                        final bool isRunning = msg['status'] == 'running';
-
-                                                        return Column(
-                                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                                          children: [
-                                                            Text(question, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                                                            const SizedBox(height: 12),
-                                                            if (isRunning)
-                                                              Wrap(
-                                                                spacing: 8, runSpacing: 8,
-                                                                children: options.map((opt) => BloretButton(
-                                                                  text: opt.toString(),
-                                                                  onPressed: () => _agent.answerQuestion(opt.toString()),
-                                                                )).toList(),
-                                                              )
-                                                            else
-                                                              Container(
-                                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                                                decoration: BoxDecoration(color: accentColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6), border: Border.all(color: accentColor.withValues(alpha: 0.2))),
-                                                                child: Row(
-                                                                  mainAxisSize: MainAxisSize.min,
-                                                                  children: [
-                                                                    Icon(Icons.check_circle_outline_rounded, size: 14, color: accentColor),
-                                                                    const SizedBox(width: 6),
-                                                                    Flexible(
-                                                                      child: Text("${"Selected".tl}: ${data['result'] ?? ''}", style: TextStyle(fontSize: 12, color: accentColor, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                                                    ),
-                                                                  ],
-                                                                ),
-                                                              ),
-                                                          ],
-                                                        );
-                                                      } catch (_) { return const Text("Failed to parse question"); }
-                                                    }),
-                                                  ] else if (msg['tool'] == 'ask_question_details' && data['args'] != null) ...[
-                                                    Builder(builder: (context) {
-                                                      try {
-                                                        final Map<String, dynamic> args = jsonDecode(data['args']);
-                                                        final String question = args['question'] ?? "";
-                                                        final String description = args['description'] ?? "";
-                                                        final bool isRunning = msg['status'] == 'running';
-
-                                                        return Column(
-                                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                                          children: [
-                                                            Text(question, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                                                            const SizedBox(height: 12),
-                                                            if (isRunning)
-                                                              Padding(
-                                                                padding: const EdgeInsets.all(12.0),
-                                                                child: Row(
-                                                                  children: [
-                                                                    Expanded(
-                                                                      child: AnimatedContainer(
-                                                                        duration: const Duration(milliseconds: 200), curve: Curves.easeInOut,
-                                                                        constraints: const BoxConstraints(maxHeight: 120),
-                                                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                                                        decoration: BoxDecoration(color: altColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: _isFocused ? theme.colorScheme.onSurface : borderColor, width: _isFocused ? 1.8 : 1.0)),
-                                                                        child: Scrollbar(
-                                                                            thumbVisibility: true, controller: _answerScrollController, radius: const Radius.circular(8),
-                                                                            child: SingleChildScrollView(
-                                                                              controller: _answerScrollController,
-                                                                              child: Focus(
-                                                                                onKeyEvent: (node, event) {
-                                                                                  if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-                                                                                    final isShift = HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftLeft) || HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.shiftRight);
-                                                                                    if (!isShift) { _sendMessage(); return KeyEventResult.handled; }
-                                                                                  }
-                                                                                  return KeyEventResult.ignored;
-                                                                                },
-                                                                                child: TextField(controller: _inputAnswerController, focusNode: _focusAnswerNode, maxLines: null, keyboardType: TextInputType.multiline, decoration: InputDecoration(hintText: description, border: InputBorder.none, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 6)), style: TextStyle(fontSize: 14, color: textColor)),
-                                                                              ),
-                                                                            )
-                                                                        ),
-                                                                      ),
-                                                                    ),
-                                                                    const SizedBox(width: 10),
-                                                                    IconButton.filled(padding: const EdgeInsets.all(2), icon: const Icon(Icons.send, size: 20), onPressed: () {
-                                                                      data['result'] = _inputAnswerController.text;
-                                                                      if (data['result'] != null) {
-                                                                        _agent.answerDetailQuestion(data['result']);
-                                                                        _inputAnswerController.clear();
-                                                                      }}),
-                                                                  ],
-                                                                ),
-                                                              )
-                                                            else
-                                                              Container(
-                                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                                                decoration: BoxDecoration(color: accentColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6), border: Border.all(color: accentColor.withValues(alpha: 0.2))),
-                                                                child: Row(
-                                                                  mainAxisSize: MainAxisSize.min,
-                                                                  children: [
-                                                                    Icon(Icons.check_circle_outline_rounded, size: 14, color: accentColor),
-                                                                    const SizedBox(width: 6),
-                                                                    Flexible(
-                                                                      child: Text(data['result'], style: TextStyle(fontSize: 12, color: accentColor, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                                                    ),
-                                                                  ],
-                                                                ),
-                                                              ),
-                                                          ],
-                                                        );
-                                                      } catch (_) { return const Text("Failed to parse question"); }
-                                                    }),
-                                                  ] else ...[
-                                                    if (data['args'] != null) ...[Text("Input Parameters:".tl, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), const SizedBox(height: 4), SelectableText(data['args'], style: const TextStyle(fontSize: 11, fontFamily: "monospace"))],
-                                                    if (data['result'] != null) ...[const SizedBox(height: 12), Text("Execution Result:".tl, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), const SizedBox(height: 4), SelectableText(data['result'], style: const TextStyle(fontSize: 11, fontFamily: "monospace"))],
-                                                  ]
-                                                ],
+                                    return InkWell(
+                                      onTap: () {
+                                        if (_isMultiSelectMode) {
+                                          setState(() {
+                                            if (isSelected) {
+                                              _selectedMessageIndices.remove(
+                                                index,
+                                              );
+                                            } else {
+                                              _selectedMessageIndices.add(
+                                                index,
                                               );
                                             }
-
-                                            return Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                if (total > 1) ...[
-                                                  Row(
-                                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                    children: [
-                                                      Text("${"Call".tl} ${currentIndex + 1} / $total", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: secondaryTextColor.withValues(alpha: 0.6))),
-                                                      Row(
-                                                        children: [
-                                                          IconButton(
-                                                            visualDensity: VisualDensity.compact,
-                                                            padding: EdgeInsets.zero, constraints: const BoxConstraints(),
-                                                            icon: Icon(Icons.arrow_back_ios_new_rounded, size: 12, color: currentIndex > 0 ? textColor : secondaryTextColor.withValues(alpha: 0.2)),
-                                                            onPressed: currentIndex > 0 ? () => setDetailState(() { currentIndex--; msg['_detailIdx'] = currentIndex; }) : null,
-                                                          ),
-                                                          const SizedBox(width: 12),
-                                                          IconButton(
-                                                            visualDensity: VisualDensity.compact,
-                                                            padding: EdgeInsets.zero, constraints: const BoxConstraints(),
-                                                            icon: Icon(Icons.arrow_forward_ios_rounded, size: 12, color: currentIndex < total - 1 ? textColor : secondaryTextColor.withValues(alpha: 0.2)),
-                                                            onPressed: currentIndex < total - 1 ? () => setDetailState(() { currentIndex++; msg['_detailIdx'] = currentIndex; }) : null,
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  const Divider(height: 16, thickness: 0.5),
-                                                ],
-                                                AnimatedSwitcher(
-                                                  duration: const Duration(milliseconds: 300),
-                                                  layoutBuilder: (currentChild, previousChildren) => Stack(alignment: Alignment.topLeft, children: [...previousChildren, ?currentChild]),
-                                                  transitionBuilder: (child, animation) {
-                                                    final offsetAnimation = Tween<Offset>(
-                                                      begin: const Offset(0.1, 0.0),
-                                                      end: Offset.zero,
-                                                    ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
-                                                    return FadeTransition(opacity: animation, child: SlideTransition(position: offsetAnimation, child: child));
-                                                  },
-                                                  child: buildContent(currentIndex),
-                                                ),
-                                              ],
-                                            );
-                                          }),
-                                        ) : const SizedBox(key: ValueKey("empty")),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                            } else if (role == 'error') {
-                            final String title = msg['title'] ?? "Error Occurred".tl;
-                            final String content = msg['content'] ?? "";
-
-                            messageWidget = Align(
-                              alignment: Alignment.centerLeft,
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-                                constraints: BoxConstraints(
-                                  maxWidth: MediaQuery.of(context).size.width * 0.75,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.redAccent.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: Colors.redAccent.withValues(alpha: 0.25),
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.05),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 2, right: 10),
-                                      child: Icon(
-                                        Icons.error_outline_rounded,
-                                        size: 20,
-                                        color: theme.colorScheme.error,
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            title,
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.bold,
-                                              color: theme.colorScheme.error,
-                                            ),
+                                          });
+                                        }
+                                      },
+                                      onHover: (hovering) {
+                                        setState(() {
+                                          _hoveredMessageIndex = hovering
+                                              ? index
+                                              : null;
+                                        });
+                                      },
+                                      onSecondaryTapDown: (details) =>
+                                          _showMessageMenu(
+                                            context,
+                                            details.globalPosition,
+                                            index,
                                           ),
-                                          if (content.isNotEmpty) ...[
-                                            const SizedBox(height: 4),
-                                            SelectableText(
-                                              content,
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                color: theme.colorScheme.onSurface,
-                                                height: 1.35,
-                                              ),
-                                              selectionColor: theme.colorScheme.error.withValues(alpha: 0.2),
+                                      hoverColor: theme.colorScheme.primary
+                                          .withValues(alpha: 0.05),
+                                      highlightColor: theme.colorScheme.primary
+                                          .withValues(alpha: 0.1),
+                                      child: GestureDetector(
+                                        onLongPressStart: (details) =>
+                                            _showMessageMenu(
+                                              context,
+                                              details.globalPosition,
+                                              index,
                                             ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }
-
-                          return InkWell(
-                            onTap: () {
-                              if (_isMultiSelectMode) {
-                                setState(() {
-                                  if (isSelected) {
-                                    _selectedMessageIndices.remove(index);
-                                  } else {
-                                    _selectedMessageIndices.add(index);
-                                  }
-                                });
-                              }
-                            },
-                            onHover: (hovering) {
-                              setState(() {
-                                _hoveredMessageIndex = hovering ? index : null;
-                              });
-                            },
-                            onSecondaryTapDown: (details) => _showMessageMenu(context, details.globalPosition, index),
-                            hoverColor: theme.colorScheme.primary.withValues(alpha: 0.05),
-                            highlightColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-                            child: GestureDetector(
-                              onLongPressStart: (details) => _showMessageMenu(context, details.globalPosition, index),
-                              behavior: HitTestBehavior.translucent,
-                              child: Container(
-                                color: isSelected ? theme.colorScheme.primary.withValues(alpha: 0.1) : null,
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(child: messageWidget),
-                                    if (_isMultiSelectMode)
-                                      Padding(
-                                        padding: const EdgeInsets.only(right: 16, top: 16),
-                                        child: Checkbox(
-                                          value: isSelected,
-                                          onChanged: (val) {
-                                            setState(() {
-                                              if (val == true) {
-                                                _selectedMessageIndices.add(index);
-                                              } else {
-                                                _selectedMessageIndices.remove(index);
-                                              }
-                                            });
-                                          },
+                                        behavior: HitTestBehavior.translucent,
+                                        child: Container(
+                                          color: isSelected
+                                              ? theme.colorScheme.primary
+                                                    .withValues(alpha: 0.1)
+                                              : null,
+                                          child: Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(child: messageWidget),
+                                              if (_isMultiSelectMode)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        right: 16,
+                                                        top: 16,
+                                                      ),
+                                                  child: Checkbox(
+                                                    value: isSelected,
+                                                    onChanged: (val) {
+                                                      setState(() {
+                                                        if (val == true) {
+                                                          _selectedMessageIndices
+                                                              .add(index);
+                                                        } else {
+                                                          _selectedMessageIndices
+                                                              .remove(index);
+                                                        }
+                                                      });
+                                                    },
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
                                         ),
                                       ),
-                                  ],
-                                ),
-                              ),
+                                    );
+                                  },
+                                );
+                              },
                             ),
-                          );
-                        },
-
-                      );
-                    }
-                  ),
                     ),
                   ),
 
@@ -2654,11 +4504,29 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                       color: theme.scaffoldBackgroundColor,
                     ),
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                    child: _buildInputCapsule(theme, altColor, borderColor, textColor, secondaryTextColor),
+                    child: _buildInputCapsule(
+                      theme,
+                      altColor,
+                      borderColor,
+                      textColor,
+                      secondaryTextColor,
+                    ),
                   ),
                 ],
               ),
-              IgnorePointer(ignoring: !_historyPanelOpen, child: AnimatedOpacity(duration: const Duration(milliseconds: 250), opacity: _historyPanelOpen ? 1.0 : 0.0, child: GestureDetector(onTap: () => setState(() => _historyPanelOpen = false), child: Container(color: Colors.black.withValues(alpha: 0.15))))),
+              IgnorePointer(
+                ignoring: !_historyPanelOpen,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 250),
+                  opacity: _historyPanelOpen ? 1.0 : 0.0,
+                  child: GestureDetector(
+                    onTap: () => setState(() => _historyPanelOpen = false),
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.15),
+                    ),
+                  ),
+                ),
+              ),
 
               // Scroll to bottom button
               // Positioned(
@@ -2690,13 +4558,15 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
               //     ),
               //   ),
               // ),
-
               if (_isMultiSelectMode)
                 Positioned(
                   bottom: 120,
                   right: 16,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.surface,
                       borderRadius: BorderRadius.circular(20),
@@ -2714,7 +4584,14 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                         IconButton(
                           icon: const Icon(Icons.copy_rounded, size: 20),
                           onPressed: () {
-                            final texts = _selectedMessageIndices.map((i) => _agent.messages[i]['content']?.toString() ?? "").toList();
+                            final texts = _selectedMessageIndices
+                                .map(
+                                  (i) =>
+                                      _agent.messages[i]['content']
+                                          ?.toString() ??
+                                      "",
+                                )
+                                .toList();
                             _copyToClipboard(texts.join("\n\n"));
                           },
                           tooltip: "Copy Selected".tl,
@@ -2739,10 +4616,16 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                         Container(width: 1, height: 20, color: borderColor),
                         const SizedBox(width: 4),
                         IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded, size: 20, color: Colors.redAccent),
+                          icon: const Icon(
+                            Icons.delete_outline_rounded,
+                            size: 20,
+                            color: Colors.redAccent,
+                          ),
                           onPressed: () {
                             setState(() {
-                              final sortedIndices = _selectedMessageIndices.toList()..sort((a, b) => b.compareTo(a));
+                              final sortedIndices =
+                                  _selectedMessageIndices.toList()
+                                    ..sort((a, b) => b.compareTo(a));
                               for (final i in sortedIndices) {
                                 _agent.messages.removeAt(i);
                               }
@@ -2770,13 +4653,28 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
                 ),
 
               Positioned(
-                top: 0, bottom: 0, right: 0,
+                top: 0,
+                bottom: 0,
+                right: 0,
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300), curve: Curves.easeInOutQuad, width: _historyPanelOpen ? 280 : 0,
-                  child: ClipRect(child: OverflowBox(
-                    minWidth: 280, maxWidth: 280, alignment: Alignment.centerRight,
-                    child: _buildHistorySidebar(theme, borderColor, textColor, secondaryTextColor, accentColor, isPortrait),
-                  )),
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOutQuad,
+                  width: _historyPanelOpen ? 280 : 0,
+                  child: ClipRect(
+                    child: OverflowBox(
+                      minWidth: 280,
+                      maxWidth: 280,
+                      alignment: Alignment.centerRight,
+                      child: _buildHistorySidebar(
+                        theme,
+                        borderColor,
+                        textColor,
+                        secondaryTextColor,
+                        accentColor,
+                        isPortrait,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -2786,135 +4684,345 @@ class _BloraChatPageState extends State<BloraChatPage> with TickerProviderStateM
     );
   }
 
-  Widget _buildHistorySidebar(ThemeData theme, Color borderColor, Color textColor, Color secondaryTextColor, Color accentColor, bool isPortrait) {
-    return Material(elevation: 0, color: theme.cardColor, child: Container(
-      decoration: BoxDecoration(border: Border(left: BorderSide(color: borderColor.withValues(alpha: 0.2)))),
-      child: Column(children: [
-        Container(height: 52, padding: const EdgeInsets.symmetric(horizontal: 14), decoration: BoxDecoration(border: Border(bottom: BorderSide(color: borderColor))), child: Row(children: [
-          if (_isSelectMode) IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() { _isSelectMode = false; _selectedFiles.clear(); }))
-          else Icon(Icons.history, size: 20, color: textColor),
-          const SizedBox(width: 8),
-          Text(_isSelectMode ? "${_selectedFiles.length} ${"Selected".tl}" : "History".tl, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-          const Spacer(),
-          if (!_isSelectMode) ...[IconButton(icon: const Icon(Icons.checklist_rtl_rounded, size: 20), onPressed: _agent.busy ? null : () => setState(() => _isSelectMode = true), tooltip: "Batch Operations".tl), IconButton(icon: Icon(Icons.refresh, size: 20, color: _agent.busy ? textColor.withValues(alpha: 0.3) : textColor), onPressed: _agent.busy ? null : _loadHistoryList, tooltip: "Refresh List".tl)]
-          else TextButton(
-            onPressed: () {
-              setState(() {
-                if (_selectedFiles.length == _historyList.length) {
-                  _selectedFiles.clear();
-                } else {
-                  _selectedFiles.addAll(_historyList.map((e) => e['filename'] as String));
-                }
-              });
-            },
-            child: Text(_selectedFiles.length == _historyList.length ? "Deselect All".tl : "Select All".tl)
+  Widget _buildHistorySidebar(
+    ThemeData theme,
+    Color borderColor,
+    Color textColor,
+    Color secondaryTextColor,
+    Color accentColor,
+    bool isPortrait,
+  ) {
+    return Material(
+      elevation: 0,
+      color: theme.cardColor,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(color: borderColor.withValues(alpha: 0.2)),
           ),
-        ])),
-        if (isPortrait)
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: borderColor.withValues(alpha: 0.1)))),
-            child: Column(
-              children: [
-                Win11Dropdown(
-                  initialValue: Bloriko.mode,
-                  items: [
-                    Win11DropdownItem(label: "Auto Mode".tl, value: "auto"),
-                    Win11DropdownItem(label: "Assist Click".tl, value: "help"),
-                    Win11DropdownItem(label: "Planning Mode".tl, value: "plan"),
-                  ],
-                  onChanged: (value) { if (value != null) setState(() => Bloriko.setMode(value)); },
-                ),
-                const SizedBox(height: 8),
-                Win11Dropdown(
-                  initialValue: Bloriko.type,
-                  items: [
-                    Win11DropdownItem(label: "Default".tl, value: "default"),
-                    Win11DropdownItem(label: "Bloriko".tl, value: "bloriko"),
-                    if (ConfigService.get("develop_mode") ?? false) Win11DropdownItem(label: "Bloriko (R18)".tl, value: "bloriko_r18"),
-                  ],
-                  onChanged: (value) async {
-                    if (value != null && value != Bloriko.type) {
-                      if (_agent.messages.isNotEmpty) {
-                        final bool? result = await showDialog<bool>(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: Text("Switch Character Type".tl),
-                            content: Text("Switching characters during a conversation may cause AI context confusion. Start a new conversation for the best experience?".tl),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Ignore and Keep".tl)),
-                              TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Start New Conversation".tl)),
-                            ],
-                          ),
-                        );
-                        if (result == true) {
-                          _clearHistory();
-                        }
-                      }
-                      Bloriko.setType(value);
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-        Expanded(child: Stack(children: [
-          ListView.builder(itemCount: _historyList.length, itemBuilder: (context, index) {
-            final item = _historyList[index];
-            final filePath = item['filename'] ?? "";
-            final isSelected = _selectedFiles.contains(filePath);
-            return GestureDetector(
-              onSecondaryTapDown: (details) => _isSelectMode ? null : _showHistoryMenu(context, details.globalPosition, item),
-              onLongPressStart: (details) => _isSelectMode ? null : _showHistoryMenu(context, details.globalPosition, item),
-              child: InkWell(onTap: () { if (_isSelectMode) {
-                setState(() { if (isSelected) {
-                  _selectedFiles.remove(filePath);
-                } else {
-                  _selectedFiles.add(filePath);
-                } });
-              } else {
-                _loadSession(filePath);
-              } }, child: Container(
-                height: 58, padding: const EdgeInsets.symmetric(horizontal: 14), decoration: BoxDecoration(color: isSelected ? accentColor.withValues(alpha: 0.1) : null, border: Border(bottom: BorderSide(color: borderColor.withValues(alpha: 0.1)))),
-                child: Row(children: [
-                  if (_isSelectMode) ...[Icon(isSelected ? Icons.check_circle : Icons.radio_button_unchecked, size: 18, color: isSelected ? accentColor : secondaryTextColor), const SizedBox(width: 12)],
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item['displayText'] ?? '',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: textColor
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          item['subText'] ?? '',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: secondaryTextColor.withValues(alpha: 0.7)
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        )
-                      ]
+        ),
+        child: Column(
+          children: [
+            Container(
+              height: 52,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: borderColor)),
+              ),
+              child: Row(
+                children: [
+                  if (_isSelectMode)
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 20),
+                      onPressed: () => setState(() {
+                        _isSelectMode = false;
+                        _selectedFiles.clear();
+                      }),
                     )
+                  else
+                    Icon(Icons.history, size: 20, color: textColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    _isSelectMode
+                        ? "${_selectedFiles.length} ${"Selected".tl}"
+                        : "History".tl,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ]),
-              )),
-            );
-          }),
-          if (_isSelectMode && _selectedFiles.isNotEmpty) Positioned(bottom: 16, left: 16, right: 16, child: Container(height: 50, decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(25), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))]), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [IconButton(icon: const Icon(Icons.output_rounded, color: Colors.blue), onPressed: _exportSelectedSessions, tooltip: "Batch Export".tl), const VerticalDivider(width: 1, indent: 12, endIndent: 12), IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: _deleteSelectedSessions, tooltip: "Batch Delete".tl)]))),
-          if (_historyList.isEmpty) Center(child: Text("No history records".tl, style: TextStyle(fontSize: 13, color: secondaryTextColor))),
-        ])),
-      ]),
-    ));
+                  const Spacer(),
+                  if (!_isSelectMode) ...[
+                    IconButton(
+                      icon: const Icon(Icons.checklist_rtl_rounded, size: 20),
+                      onPressed: _agent.busy
+                          ? null
+                          : () => setState(() => _isSelectMode = true),
+                      tooltip: "Batch Operations".tl,
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.refresh,
+                        size: 20,
+                        color: _agent.busy
+                            ? textColor.withValues(alpha: 0.3)
+                            : textColor,
+                      ),
+                      onPressed: _agent.busy ? null : _loadHistoryList,
+                      tooltip: "Refresh List".tl,
+                    ),
+                  ] else
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          if (_selectedFiles.length == _historyList.length) {
+                            _selectedFiles.clear();
+                          } else {
+                            _selectedFiles.addAll(
+                              _historyList.map((e) => e['filename'] as String),
+                            );
+                          }
+                        });
+                      },
+                      child: Text(
+                        _selectedFiles.length == _historyList.length
+                            ? "Deselect All".tl
+                            : "Select All".tl,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (isPortrait)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: borderColor.withValues(alpha: 0.1),
+                    ),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Win11Dropdown(
+                      initialValue: Bloriko.mode,
+                      items: [
+                        Win11DropdownItem(label: "Auto Mode".tl, value: "auto"),
+                        Win11DropdownItem(
+                          label: "Assist Click".tl,
+                          value: "help",
+                        ),
+                        Win11DropdownItem(
+                          label: "Planning Mode".tl,
+                          value: "plan",
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null)
+                          setState(() => Bloriko.setMode(value));
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Win11Dropdown(
+                      initialValue: Bloriko.type,
+                      items: [
+                        Win11DropdownItem(
+                          label: "Default".tl,
+                          value: "default",
+                        ),
+                        Win11DropdownItem(
+                          label: "Bloriko".tl,
+                          value: "bloriko",
+                        ),
+                        if (ConfigService.get("develop_mode") ?? false)
+                          Win11DropdownItem(
+                            label: "Bloriko (R18)".tl,
+                            value: "bloriko_r18",
+                          ),
+                      ],
+                      onChanged: (value) async {
+                        if (value != null && value != Bloriko.type) {
+                          if (_agent.messages.isNotEmpty) {
+                            final bool? result = await showDialog<bool>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: Text("Switch Character Type".tl),
+                                content: Text(
+                                  "Switching characters during a conversation may cause AI context confusion. Start a new conversation for the best experience?"
+                                      .tl,
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, false),
+                                    child: Text("Ignore and Keep".tl),
+                                  ),
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, true),
+                                    child: Text("Start New Conversation".tl),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (result == true) {
+                              _clearHistory();
+                            }
+                          }
+                          Bloriko.setType(value);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: Stack(
+                children: [
+                  ListView.builder(
+                    itemCount: _historyList.length,
+                    itemBuilder: (context, index) {
+                      final item = _historyList[index];
+                      final filePath = item['filename'] ?? "";
+                      final isSelected = _selectedFiles.contains(filePath);
+                      return GestureDetector(
+                        onSecondaryTapDown: (details) => _isSelectMode
+                            ? null
+                            : _showHistoryMenu(
+                                context,
+                                details.globalPosition,
+                                item,
+                              ),
+                        onLongPressStart: (details) => _isSelectMode
+                            ? null
+                            : _showHistoryMenu(
+                                context,
+                                details.globalPosition,
+                                item,
+                              ),
+                        child: InkWell(
+                          onTap: () {
+                            if (_isSelectMode) {
+                              setState(() {
+                                if (isSelected) {
+                                  _selectedFiles.remove(filePath);
+                                } else {
+                                  _selectedFiles.add(filePath);
+                                }
+                              });
+                            } else {
+                              _loadSession(filePath);
+                            }
+                          },
+                          child: Container(
+                            height: 58,
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? accentColor.withValues(alpha: 0.1)
+                                  : null,
+                              border: Border(
+                                bottom: BorderSide(
+                                  color: borderColor.withValues(alpha: 0.1),
+                                ),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                if (_isSelectMode) ...[
+                                  Icon(
+                                    isSelected
+                                        ? Icons.check_circle
+                                        : Icons.radio_button_unchecked,
+                                    size: 18,
+                                    color: isSelected
+                                        ? accentColor
+                                        : secondaryTextColor,
+                                  ),
+                                  const SizedBox(width: 12),
+                                ],
+                                Expanded(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item['displayText'] ?? '',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: textColor,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        item['subText'] ?? '',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: secondaryTextColor.withValues(
+                                            alpha: 0.7,
+                                          ),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  if (_isSelectMode && _selectedFiles.isNotEmpty)
+                    Positioned(
+                      bottom: 16,
+                      left: 16,
+                      right: 16,
+                      child: Container(
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface,
+                          borderRadius: BorderRadius.circular(25),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            IconButton(
+                              icon: const Icon(
+                                Icons.output_rounded,
+                                color: Colors.blue,
+                              ),
+                              onPressed: _exportSelectedSessions,
+                              tooltip: "Batch Export".tl,
+                            ),
+                            const VerticalDivider(
+                              width: 1,
+                              indent: 12,
+                              endIndent: 12,
+                            ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                color: Colors.redAccent,
+                              ),
+                              onPressed: _deleteSelectedSessions,
+                              tooltip: "Batch Delete".tl,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (_historyList.isEmpty)
+                    Center(
+                      child: Text(
+                        "No history records".tl,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: secondaryTextColor,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -2963,11 +5071,19 @@ class _LongTextEditorDialogState extends State<_LongTextEditorDialog> {
             expands: true,
             decoration: InputDecoration(
               hintText: "Enter or paste long text here...".tl,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               filled: true,
-              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.3,
+              ),
             ),
-            style: const TextStyle(fontSize: 16, height: 1.5, fontFamily: 'Microsoft'),
+            style: const TextStyle(
+              fontSize: 16,
+              height: 1.5,
+              fontFamily: 'Microsoft',
+            ),
           ),
         ),
       ),
@@ -3003,9 +5119,13 @@ class _ScreenshotGeneratorState extends State<_ScreenshotGenerator> {
     try {
       // Give some time for rendering
       await Future.delayed(const Duration(milliseconds: 500));
-      final RenderRepaintBoundary boundary = _repaintKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final RenderRepaintBoundary boundary =
+          _repaintKey.currentContext!.findRenderObject()
+              as RenderRepaintBoundary;
       final ui.Image image = await boundary.toImage(pixelRatio: 2.0);
-      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      final ByteData? byteData = await image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
       if (byteData != null) {
         widget.onCaptured(byteData.buffer.asUint8List());
       }
@@ -3034,9 +5154,20 @@ class _ScreenshotGeneratorState extends State<_ScreenshotGenerator> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.auto_awesome, size: 16, color: Colors.blue),
+                      const Icon(
+                        Icons.auto_awesome,
+                        size: 16,
+                        color: Colors.blue,
+                      ),
                       const SizedBox(width: 8),
-                      Text("Blora Conversation Export".tl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue)),
+                      Text(
+                        "Blora Conversation Export".tl,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -3044,35 +5175,68 @@ class _ScreenshotGeneratorState extends State<_ScreenshotGenerator> {
                     final msg = widget.messages[idx];
                     final isUser = msg['role'] == 'user';
                     final agentType = msg['agentType'] ?? "default";
-                    final agentName = (agentType == "bloriko" || agentType == "bloriko_r18") ? "Bloriko".tl : "Blora Agent".tl;
-                    
+                    final agentName =
+                        (agentType == "bloriko" || agentType == "bloriko_r18")
+                        ? "Bloriko".tl
+                        : "Blora Agent".tl;
+
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Column(
-                        crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                        crossAxisAlignment: isUser
+                            ? CrossAxisAlignment.end
+                            : CrossAxisAlignment.start,
                         children: [
                           Row(
-                            mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+                            mainAxisAlignment: isUser
+                                ? MainAxisAlignment.end
+                                : MainAxisAlignment.start,
                             children: [
-                              if (!isUser) const Icon(Icons.smart_toy, size: 12, color: Colors.grey),
+                              if (!isUser)
+                                const Icon(
+                                  Icons.smart_toy,
+                                  size: 12,
+                                  color: Colors.grey,
+                                ),
                               if (!isUser) const SizedBox(width: 4),
-                              Text(isUser ? ConfigService.get("Bloret_PassPort_UserName") ?? "Me".tl : agentName, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                              Text(
+                                isUser
+                                    ? ConfigService.get(
+                                            "Bloret_PassPort_UserName",
+                                          ) ??
+                                          "Me".tl
+                                    : agentName,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey,
+                                ),
+                              ),
                               if (isUser) const SizedBox(width: 4),
-                              if (isUser) const Icon(Icons.person, size: 12, color: Colors.grey),
+                              if (isUser)
+                                const Icon(
+                                  Icons.person,
+                                  size: 12,
+                                  color: Colors.grey,
+                                ),
                             ],
                           ),
                           const SizedBox(height: 4),
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: isUser ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                              color: isUser
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.surfaceContainerHighest
+                                        .withValues(alpha: 0.5),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
                               msg['content']?.toString() ?? "",
                               style: TextStyle(
                                 fontSize: 13,
-                                color: isUser ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface,
+                                color: isUser
+                                    ? theme.colorScheme.onPrimary
+                                    : theme.colorScheme.onSurface,
                               ),
                             ),
                           ),
@@ -3082,7 +5246,10 @@ class _ScreenshotGeneratorState extends State<_ScreenshotGenerator> {
                   }),
                   const SizedBox(height: 16),
                   const Divider(),
-                  Text("Exported from Blora Launcher".tl, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                  Text(
+                    "Exported from Blora Launcher".tl,
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                  ),
                 ],
               ),
             ),

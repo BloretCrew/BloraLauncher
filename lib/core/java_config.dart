@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+// Made with Google Gemini
 class JavaConfig {
   static const Map<String, Map<String, Map<String, String>>> versions = {
     "25": {
@@ -57,8 +58,9 @@ class JavaConfig {
 
       if (year >= 24 && week >= 33) return 23; // 24w33a+ needs Java 23
       if (year >= 24 && week >= 14) return 21; // 24w14a+ needs Java 21
-      if (year >= 24 || (year == 23 && week >= 40))
+      if (year >= 24 || (year == 23 && week >= 40)) {
         return 21; // 1.20.5 snapshots
+      }
       if (year >= 21) return 17; // 1.18+ snapshots
       return 8;
     }

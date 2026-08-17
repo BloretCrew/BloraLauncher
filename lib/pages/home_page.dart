@@ -54,6 +54,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   bool _showLogsInRunning = false;
   bool _isTransitioningToRunning = false;
 
+  bool _isInfoExpanded = globalIsInfoExpanded;
+
   Timer? _logUpdateTimer;
 
   String? _selectedVersion;
@@ -174,7 +176,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _toggleTranslation() async {
-    // If translations exist and match current state, just toggle visibility
     bool langMatch = TranslationStore.lastLang == ConfigService.getLanguage();
     bool tipsMatch =
         _translatedSentences != null &&
@@ -214,10 +215,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         if (serverTasks.isNotEmpty) {
           final results = await Future.wait(serverTasks);
           int idx = 0;
-          if (server?.bestTime != null)
+          if (server?.bestTime != null) {
             TranslationStore.translatedServerBestTime = results[idx++];
-          if (server?.text != null)
+          }
+          if (server?.text != null) {
             TranslationStore.translatedServerText = results[idx++];
+          }
         }
       }());
 
@@ -332,19 +335,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
     _pageController = PageController();
     _listController.forward();
-    // Pre-initialize stats for a clean layout
     _startStatsMonitoring();
     timer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (config != null && sentences.length != config!.blTips.length) {
         setState(() {
           sentences.clear();
           sentences.addAll(config!.blTips);
-          TranslationStore.translatedTips =
-              null; // Reset translations if source changes
+          TranslationStore.translatedTips = null;
           TranslationStore.lastTipsHash = null;
         });
       } else {
-        setState(() {}); // Still trigger UI update for other things if needed
+        setState(() {});
       }
     });
   }
@@ -379,7 +380,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             final isAlive = WinProcess.isAlive(pid);
             if (!isAlive || core.exitCode != null || core.isSuspended) {
               if (!isAlive && core.exitCode == null) {
-                core.exitCode = 0; // Assume normal exit if we lost track
+                core.exitCode = 0;
               }
               continue;
             }
@@ -422,7 +423,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _selectedAppId = ConfigService.get("selected_app_id");
 
     if (_selectedVersion == null && _selectedType == "minecraft") {
-      // Try to pick first available
       LaunchService.instance.getAllAvailableVersions().then((versions) {
         if (versions.isNotEmpty && mounted) {
           setState(() {
@@ -658,7 +658,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ? app.args.split(" ")
           : [];
 
-      // Parse environment variables
       final Map<String, String> env = Map.from(Platform.environment);
       if (app.envVars.isNotEmpty) {
         final pairs = app.envVars.split(";");
@@ -1609,7 +1608,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               SlideFadeIn(
                 controller: _listController,
                 delay: 0.7,
-                child: Hero(tag: "server_card", child: _buildServerCard(theme)),
+                child: Hero(
+                  tag: "server_card",
+                  child: _buildServerCard(theme, isPortrait),
+                ),
               ),
               SlideFadeIn(
                 controller: _listController,
@@ -2979,130 +2981,168 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildServerCard(ThemeData theme) {
+  Widget _buildServerCard(ThemeData theme, bool isPortrait) {
     return FluentCard(
+      onTap: isPortrait
+          ? () => setState(() => _isInfoExpanded = !_isInfoExpanded)
+          : null,
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Image.asset(
-                theme.brightness == Brightness.dark
-                    ? "assets/bloret_dark.png"
-                    : "assets/bloret_light.png",
-                width: 48,
-                height: 48,
-                fit: BoxFit.cover,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Text(
-                          "Bloret",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (server?.links != null)
-                          Text(
-                            server?.url ?? "",
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.outline,
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Image.asset(
+                  theme.brightness == Brightness.dark
+                      ? "assets/bloret_dark.png"
+                      : "assets/bloret_light.png",
+                  width: 48,
+                  height: 48,
+                  fit: BoxFit.cover,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            "Bloret",
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
                             ),
                           ),
-                        const SizedBox(width: 8),
-                        if (server != null &&
-                            server?.realTimeStatus != null &&
-                            server?.realTimeStatus?.online == true)
+                          const Spacer(),
+                          if (server?.links != null)
+                            Text(
+                              server?.url ?? "",
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.outline,
+                              ),
+                            ),
+                          const SizedBox(width: 8),
+                          if (server != null &&
+                              server?.realTimeStatus != null &&
+                              server?.realTimeStatus?.online == true)
+                            Text(
+                              "${server?.realTimeStatus?.playersOnline ?? 0} / ${server?.realTimeStatus?.playersMax ?? 0}",
+                              style: theme.textTheme.bodySmall,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: Image.asset("assets/icons/mc_be.png"),
+                          ),
+                          const SizedBox(width: 8),
                           Text(
-                            "${server?.realTimeStatus?.playersOnline ?? 0} / ${server?.realTimeStatus?.playersMax ?? 0}",
+                            "Bloret ${server?.text == null ? "" : "| ${_showTranslatedServer ? (_translatedServerText ?? server?.text) : server?.text}"}",
                             style: theme.textTheme.bodySmall,
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: Image.asset("assets/icons/mc_be.png"),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          "Bloret ${server?.text == null ? "" : "| ${_showTranslatedServer ? (_translatedServerText ?? server?.text) : server?.text}"}",
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const Divider(height: 24),
-          Text(
-            "$agentName ${"Recommended Time".tl}",
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
-            transitionBuilder: (child, animation) {
-              final sizeAnimation = CurvedAnimation(
-                parent: animation,
-                curve: const Interval(0.0, 1.0, curve: Curves.easeOutBack),
-              );
-              final fadeAnimation = CurvedAnimation(
-                parent: animation,
-                curve: const Interval(0.3, 1.0, curve: Curves.easeIn),
-              );
-              return FadeTransition(
-                opacity: fadeAnimation,
-                child: SizeTransition(
-                  sizeFactor: sizeAnimation,
-                  alignment: Alignment.centerLeft,
-                  child: child,
-                ),
-              );
-            },
-            child: server != null
-                ? KeyedSubtree(
-                    key: ValueKey(server != null),
-                    child: GptMarkdown(
-                      _showTranslatedServer
-                          ? (_translatedServerBestTime ??
-                                server?.bestTime ??
-                                "...")
-                          : (server?.bestTime ?? "..."),
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  )
-                : Row(
-                    key: ValueKey(server != null),
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          "${"Hehe".tl}~ $agentName ${"is here! The current online player count is perfect for playing~".tl}",
-                          style: theme.textTheme.bodySmall,
-                        ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: 4),
                     ],
                   ),
+                ),
+              ],
+            ),
+          ),
+          AnimatedCrossFade(
+            firstChild: const SizedBox(width: double.infinity),
+            secondChild: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "$agentName ${"Recommended Time".tl}",
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        transitionBuilder: (child, animation) {
+                          final sizeAnimation = CurvedAnimation(
+                            parent: animation,
+                            curve: const Interval(
+                              0.0,
+                              1.0,
+                              curve: Curves.easeOutBack,
+                            ),
+                          );
+                          final fadeAnimation = CurvedAnimation(
+                            parent: animation,
+                            curve: const Interval(
+                              0.3,
+                              1.0,
+                              curve: Curves.easeIn,
+                            ),
+                          );
+                          return FadeTransition(
+                            opacity: fadeAnimation,
+                            child: SizeTransition(
+                              sizeFactor: sizeAnimation,
+                              alignment: Alignment.centerLeft,
+                              child: child,
+                            ),
+                          );
+                        },
+                        child: server != null
+                            ? KeyedSubtree(
+                                key: ValueKey(server != null),
+                                child: GptMarkdown(
+                                  _showTranslatedServer
+                                      ? (_translatedServerBestTime ??
+                                            server?.bestTime ??
+                                            "...")
+                                      : (server?.bestTime ?? "..."),
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              )
+                            : Row(
+                                key: ValueKey(server != null),
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      "${"Hehe".tl}~ $agentName ${"is here! The current online player count is perfect for playing~".tl}",
+                                      style: theme.textTheme.bodySmall,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            crossFadeState: (!isPortrait || _isInfoExpanded)
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 250),
+            sizeCurve: Curves.easeInOutCubic,
           ),
         ],
       ),

@@ -1,25 +1,27 @@
-import 'dart:convert';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
-import 'package:url_launcher/url_launcher.dart';
+
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as path;
 import 'package:file_picker/file_picker.dart';
-import '../core/i18n.dart';
+import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../core/ffi_proxy.dart';
 import '../core/grammer_candy.dart';
+import '../core/i18n.dart';
+import '../core/java_config.dart';
 import '../core/window_bridge.dart';
-import '../services/config_service.dart';
 import '../main.dart';
+import '../services/config_service.dart';
 import '../services/passport_service.dart';
 import '../services/win32_icon_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/google_widgets.dart';
 import '../widgets/windows_widgets.dart';
-import '../core/ffi_proxy.dart';
-import '../core/java_config.dart';
 
 class WelcomeSetupScreen extends StatefulWidget {
   const WelcomeSetupScreen({super.key});
@@ -28,12 +30,20 @@ class WelcomeSetupScreen extends StatefulWidget {
   State<WelcomeSetupScreen> createState() => _WelcomeSetupScreenState();
 }
 
-class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBindingObserver {
+class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
+    with WidgetsBindingObserver {
   int _currentStep = 0;
   final int _totalSteps = 6;
 
-  final List<String> _stepLabels = ['Welcome'.tl, 'Language'.tl, 'Login'.tl, 'Sync'.tl, 'Java'.tl, 'Directory'.tl,];
-  
+  final List<String> _stepLabels = [
+    'Welcome'.tl,
+    'Language'.tl,
+    'Login'.tl,
+    'Sync'.tl,
+    'Java'.tl,
+    'Directory'.tl,
+  ];
+
   String _selectedLanguage = 'zh_cn';
   List<String> _minecraftDirs = [];
 
@@ -47,7 +57,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 
   bool _isCheckingJava = false;
   bool _javaInstalled = false;
-  List<Map<String,String>> _detectedJavaList = [];
+  List<Map<String, String>> _detectedJavaList = [];
   String? _javaPath;
   bool _isInstallingJava = false;
   double _installProgress = 0.0;
@@ -67,6 +77,11 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateAppIcon();
       WindowBridge.init(context);
+
+      if (ConfigService.lastError != null) {
+        showError(ConfigService.lastError!);
+        ConfigService.lastError = null;
+      }
     });
     _checkJavaEnvironment();
     _getLocalIp();
@@ -79,7 +94,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       if (appData != null) {
         defaultPath = path.join(appData, 'BloraLauncher/.minecraft');
       } else {
-        defaultPath = 'C:/Users/Administrator/AppData/Roaming/BloraLauncher/.minecraft';
+        defaultPath =
+            'C:/Users/Administrator/AppData/Roaming/BloraLauncher/.minecraft';
       }
     } else if (Platform.isLinux) {
       final home = Platform.environment['HOME'];
@@ -92,7 +108,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
         defaultPath = path.join(dir.path, '.minecraft');
       }
     }
-    
+
     if (mounted && defaultPath.isNotEmpty) {
       setState(() {
         _minecraftDirs = [defaultPath];
@@ -105,7 +121,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       setState(() {
         _javaInstalled = true;
         _javaPath = "Internal Runtime";
-        _detectedJavaList = [{"version": "Android Runtime", "path": "internal"}];
+        _detectedJavaList = [
+          {"version": "Android Runtime", "path": "internal"},
+        ];
       });
       return;
     }
@@ -127,11 +145,15 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             if (Directory(drive).existsSync()) {
               searchPaths.add(drive);
             }
-          } catch (_) {
-          }
+          } catch (_) {}
         }
 
-        final envVars = ['JAVA_HOME', 'JDK_HOME', 'PROGRAMFILES', 'PROGRAMFILES(X86)'];
+        final envVars = [
+          'JAVA_HOME',
+          'JDK_HOME',
+          'PROGRAMFILES',
+          'PROGRAMFILES(X86)',
+        ];
         for (var env in envVars) {
           final value = Platform.environment[env];
           if (value != null && value.isNotEmpty) {
@@ -139,8 +161,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               if (Directory(value).existsSync()) {
                 searchPaths.add(value);
               }
-            } catch (_) {
-            }
+            } catch (_) {}
           }
         }
 
@@ -162,7 +183,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               if (Directory(p).existsSync()) {
                 if (!searchPaths.contains(p)) searchPaths.add(p);
                 try {
-                  await for (var subEntity in Directory(p).list(followLinks: false)) {
+                  await for (var subEntity in Directory(
+                    p,
+                  ).list(followLinks: false)) {
                     if (subEntity is Directory) {
                       try {
                         if (Directory(subEntity.path).existsSync()) {
@@ -170,30 +193,31 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                             searchPaths.add(subEntity.path);
                           }
                           try {
-                            await for (var subSubEntity in subEntity.list(followLinks: false)) {
+                            await for (var subSubEntity in subEntity.list(
+                              followLinks: false,
+                            )) {
                               if (subSubEntity is Directory) {
                                 try {
-                                  if (Directory(subSubEntity.path).existsSync()) {
-                                    if (!searchPaths.contains(subSubEntity.path)) {
+                                  if (Directory(
+                                    subSubEntity.path,
+                                  ).existsSync()) {
+                                    if (!searchPaths.contains(
+                                      subSubEntity.path,
+                                    )) {
                                       searchPaths.add(subSubEntity.path);
                                     }
                                   }
-                                } catch (_) {
-                                }
+                                } catch (_) {}
                               }
                             }
-                          } catch (_) {
-                          }
+                          } catch (_) {}
                         }
-                      } catch (_) {
-                      }
+                      } catch (_) {}
                     }
                   }
-                } catch (_) {
-                }
+                } catch (_) {}
               }
-            } catch (_) {
-            }
+            } catch (_) {}
           }
         }
       } else if (Platform.isLinux) {
@@ -211,9 +235,14 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       }
 
       try {
-        final result = await Process.run(Platform.isWindows ? 'where' : 'which', ['java']);
+        final result = await Process.run(
+          Platform.isWindows ? 'where' : 'which',
+          ['java'],
+        );
         if (result.exitCode == 0) {
-          final lines = result.stdout.toString().split(Platform.isWindows ? '\r\n' : '\n');
+          final lines = result.stdout.toString().split(
+            Platform.isWindows ? '\r\n' : '\n',
+          );
           for (var line in lines) {
             final trimmed = line.trim();
             if (trimmed.isNotEmpty) {
@@ -233,20 +262,15 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                         version = match.group(1)!;
                       }
 
-                      detected.add({
-                        "version": version,
-                        "path": candidate,
-                      });
+                      detected.add({"version": version, "path": candidate});
                     }
                   }
                 }
-              } catch (_) {
-              }
+              } catch (_) {}
             }
           }
         }
-      } catch (_) {
-      }
+      } catch (_) {}
 
       final List<String> targetDirs = [];
 
@@ -270,7 +294,6 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               targetDirs.add(entity.path);
             } else if (entity is File &&
                 path.basename(entity.path).toLowerCase() == 'java.exe') {
-
               final binDir = entity.parent;
 
               if (path.basename(binDir.path).toLowerCase() == 'bin') {
@@ -288,11 +311,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
         } catch (_) {}
       }
 
-      Future<void> scanJavaDir(
-          Directory dir,
-          int depth,
-          ) async {
-
+      Future<void> scanJavaDir(Directory dir, int depth) async {
         if (depth > 3) return;
 
         try {
@@ -300,14 +319,11 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             recursive: false,
             followLinks: false,
           )) {
-
             if (entity is File &&
                 path.basename(entity.path).toLowerCase() == 'java.exe') {
-
               final binDir = entity.parent;
 
               if (path.basename(binDir.path).toLowerCase() == 'bin') {
-
                 final candidate = binDir.parent.path;
 
                 if (!detected.any((e) => e["path"] == candidate)) {
@@ -319,24 +335,15 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               }
             }
 
-
             if (entity is Directory) {
-              await scanJavaDir(
-                entity,
-                depth + 1,
-              );
+              await scanJavaDir(entity, depth + 1);
             }
           }
-
         } catch (_) {}
       }
 
-
       for (var dirPath in targetDirs) {
-        await scanJavaDir(
-          Directory(dirPath),
-          0,
-        );
+        await scanJavaDir(Directory(dirPath), 0);
       }
     } catch (e) {
       logger.error("Java detection error: $e", .tool);
@@ -353,7 +360,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
           _javaInstalled = true;
 
           final preferred = detected.firstWhere(
-                (e) => e["version"] == "21",
+            (e) => e["version"] == "21",
             orElse: () => detected.first,
           );
 
@@ -377,7 +384,12 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   Future<void> _installJava() async {
     if (!Platform.isWindows) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Auto-installation of Java is not supported on this platform, please install manually.".tl))
+        SnackBar(
+          content: Text(
+            "Auto-installation of Java is not supported on this platform, please install manually."
+                .tl,
+          ),
+        ),
       );
       return;
     }
@@ -395,7 +407,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       if (url == null) throw "Unsupported version or platform";
 
       final tempDir = await getTemporaryDirectory();
-      final savePath = path.join(tempDir.path, "java_installer_$_selectedJavaVersion.msi");
+      final savePath = path.join(
+        tempDir.path,
+        "java_installer_$_selectedJavaVersion.msi",
+      );
 
       final dio = Dio();
       await dio.download(
@@ -408,7 +423,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             if (mounted) {
               setState(() {
                 _installProgress = progress;
-                _installStatus = "Downloading Java $_selectedJavaVersion... ($percent%)".tl;
+                _installStatus =
+                    "Downloading Java $_selectedJavaVersion... ($percent%)".tl;
               });
             }
             WinTaskbar.showProgress(percent, 100);
@@ -423,8 +439,13 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       });
       WinTaskbar.setIndeterminate();
 
-      final process = await Process.start('msiexec', ['/i', savePath, '/quiet', '/qn']);
-      
+      final process = await Process.start('msiexec', [
+        '/i',
+        savePath,
+        '/quiet',
+        '/qn',
+      ]);
+
       final exitCode = await process.exitCode;
 
       try {
@@ -436,7 +457,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
         logger.error("Failed to delete installer file: $e", .tool);
         showError("Failed to delete installer file".tl);
       }
-      
+
       if (exitCode == 0 || exitCode == 3010) {
         if (mounted) {
           setState(() {
@@ -447,7 +468,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
             _installProgress = 1.0;
           });
           showSuccess("Java installed successfully".tl);
-          logger.info("Java installed successfully: $_selectedJavaVersion", .tool);
+          logger.info(
+            "Java installed successfully: $_selectedJavaVersion",
+            .tool,
+          );
         }
         WinTaskbar.showProgress(100, 100);
       } else {
@@ -487,17 +511,20 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   List<Map<String, dynamic>> _getAccounts() {
     final data = ConfigService.get('MinecraftAccountList');
     if (data is List) {
-      return data.map((e) {
-        if (e is Map) return Map<String, dynamic>.from(e);
-        if (e is String) {
-          try {
-            return jsonDecode(e) as Map<String, dynamic>;
-          } catch (_) {
+      return data
+          .map((e) {
+            if (e is Map) return Map<String, dynamic>.from(e);
+            if (e is String) {
+              try {
+                return jsonDecode(e) as Map<String, dynamic>;
+              } catch (_) {
+                return <String, dynamic>{};
+              }
+            }
             return <String, dynamic>{};
-          }
-        }
-        return <String, dynamic>{};
-      }).where((e) => e.isNotEmpty).toList();
+          })
+          .where((e) => e.isNotEmpty)
+          .toList();
     }
 
     final oldData = ConfigService.get('MinecraftAccount');
@@ -533,7 +560,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   }
 
   void _updateAppIcon() {
-    final isDark = WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.dark;
+    final isDark =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+        Brightness.dark;
     Win32IconService.switchIcon(isDark);
   }
 
@@ -567,30 +596,48 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       if (request.uri.path == '/login/Bloret-PassPort') {
         final params = request.uri.queryParameters;
         final code = params['code'];
-        
+
         if (code != null) {
           setState(() => _isVerifyingCode = true);
           final userInfo = await PassportService.verifyCode(code);
           if (userInfo != null) {
             await ConfigService.set('Bloret_PassPort_Login', true);
-            await ConfigService.set('Bloret_PassPort_UserName', userInfo['username']);
-            await ConfigService.set('Bloret_PassPort_Avatar', userInfo['avatar']);
+            await ConfigService.set(
+              'Bloret_PassPort_UserName',
+              userInfo['username'],
+            );
+            await ConfigService.set(
+              'Bloret_PassPort_Avatar',
+              userInfo['avatar'],
+            );
             await ConfigService.set('Bloret_PassPort_Email', userInfo['email']);
-            await ConfigService.set('Bloret_PassPort_Token', userInfo['apptoken']);
-            await ConfigService.set('Bloret_PassPort_BBBS_Session', userInfo['bbbs_session']);
-            await ConfigService.set('Bloret_PassPort_BBBS_Session.sig', userInfo['bbbs_session.sig']);
+            await ConfigService.set(
+              'Bloret_PassPort_Token',
+              userInfo['apptoken'],
+            );
+            await ConfigService.set(
+              'Bloret_PassPort_BBBS_Session',
+              userInfo['bbbs_session'],
+            );
+            await ConfigService.set(
+              'Bloret_PassPort_BBBS_Session.sig',
+              userInfo['bbbs_session.sig'],
+            );
 
             final syncResult = await PassportService.syncMinecraftAccounts();
             _isTokenValidNotifier.value = syncResult;
             _syncStateToUi();
             showSuccess("Logged in successfully".tl);
-            logger.info("Passport login success: ${userInfo['username']}", .network);
+            logger.info(
+              "Passport login success: ${userInfo['username']}",
+              .network,
+            );
           } else {
             _isTokenValidNotifier.value = false;
             showError("Authentication failed".tl);
           }
           setState(() => _isVerifyingCode = false);
-          
+
           request.response
             ..statusCode = HttpStatus.ok
             ..headers.contentType = ContentType.html
@@ -709,7 +756,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 </html>
 ''')
             ..close();
-            
+
           await _authServer?.close();
           _authServer = null;
         }
@@ -720,7 +767,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   void _syncStateToUi() {
     if (mounted) {
       setState(() {
-        final bool loggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
+        final bool loggedIn =
+            ConfigService.get('Bloret_PassPort_Login') ?? false;
         if (loggedIn) {
           _isWaitingForLogin = false;
           if (_currentStep == 2) _currentStep++;
@@ -732,11 +780,15 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 
   Future<void> _loginBloretPassPort() async {
     await _startAuthServer();
-    final url = Uri.parse('https://passport.bloret.net/app/oauth?app_id=BloretLauncher&redirect_uri=http://localhost:$_actualPort/login/Bloret-PassPort');
+    final url = Uri.parse(
+      'https://passport.bloret.net/app/oauth?app_id=BloretLauncher&redirect_uri=http://localhost:$_actualPort/login/Bloret-PassPort',
+    );
     if (await canLaunchUrl(url)) {
       await launchUrl(
-        url, 
-        mode: Platform.isAndroid ? LaunchMode.inAppBrowserView : LaunchMode.externalApplication
+        url,
+        mode: Platform.isAndroid
+            ? LaunchMode.inAppBrowserView
+            : LaunchMode.externalApplication,
       );
       setState(() => _isWaitingForLogin = true);
     }
@@ -745,7 +797,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final isPortrait =
+        MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
@@ -757,58 +810,69 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               padding: EdgeInsets.only(top: isPortrait ? 10 : 20, bottom: 8),
               child: _buildStepProgressIndicator(isPortrait),
             ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                    child: Center(
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 500),
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeInCubic,
-                        transitionBuilder: (Widget child, Animation<double> animation) {
-                          return FadeTransition(
-                            opacity: animation,
-                            child: SlideTransition(
-                              position: Tween<Offset>(
-                                begin: isPortrait ? const Offset(0, 0.05) : const Offset(0.1, 0),
-                                end: Offset.zero,
-                              ).animate(animation),
-                              child: child,
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: Center(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 500),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          transitionBuilder:
+                              (Widget child, Animation<double> animation) {
+                                return FadeTransition(
+                                  opacity: animation,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: isPortrait
+                                          ? const Offset(0, 0.05)
+                                          : const Offset(0.1, 0),
+                                      end: Offset.zero,
+                                    ).animate(animation),
+                                    child: child,
+                                  ),
+                                );
+                              },
+                          child: Padding(
+                            key: ValueKey(_currentStep),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isPortrait ? 20.0 : 40.0,
+                              vertical: 20,
                             ),
-                          );
-                        },
-                        child: Padding(
-                          key: ValueKey(_currentStep),
-                          padding: EdgeInsets.symmetric(horizontal: isPortrait ? 20.0 : 40.0, vertical: 20),
-                          child: _buildStepContent(_currentStep, isPortrait),
+                            child: _buildStepContent(_currentStep, isPortrait),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                );
-              }
+                  );
+                },
+              ),
             ),
-          ),
-          Container(
-            color: theme.colorScheme.surfaceContainer,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: _buildBottomButtons(isPortrait),
-          ),
-        ],
-      ),
+            Container(
+              color: theme.colorScheme.surfaceContainer,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: _buildBottomButtons(isPortrait),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildStepProgressIndicator(bool isPortrait) {
     final theme = Theme.of(context);
-    
+
     return Container(
-      padding: EdgeInsets.symmetric(vertical: isPortrait ? 0 : 8, horizontal: 24),
+      padding: EdgeInsets.symmetric(
+        vertical: isPortrait ? 0 : 8,
+        horizontal: 24,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -844,11 +908,12 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                       borderRadius: BorderRadius.circular(5),
                       color: isCompleted
                           ? Colors.green
-                          : (isCurrent ? theme.colorScheme.primary : theme.colorScheme.outlineVariant),
+                          : (isCurrent
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.outlineVariant),
                     ),
                   ),
-                  if (!isPortrait)
-                    const SizedBox(height: 14),
+                  if (!isPortrait) const SizedBox(height: 14),
                   if (!isPortrait)
                     SizedBox(
                       width: 60,
@@ -861,9 +926,13 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                           style: TextStyle(
                             color: isCompleted
                                 ? Colors.green
-                                : (isCurrent ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant),
+                                : (isCurrent
+                                      ? theme.colorScheme.primary
+                                      : theme.colorScheme.onSurfaceVariant),
                             fontSize: 13,
-                            fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
+                            fontWeight: isCurrent
+                                ? FontWeight.w800
+                                : FontWeight.w600,
                           ),
                         ),
                       ),
@@ -879,21 +948,49 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 
   Widget _buildStepContent(int step, bool isPortrait) {
     final theme = Theme.of(context);
-    final headerStyle = (isPortrait ? theme.textTheme.headlineSmall : theme.textTheme.headlineLarge)
-        ?.copyWith(fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface);
-    final bodyStyle = TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface);
-    final hintStyle = TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey[600]);
+    final headerStyle =
+        (isPortrait
+                ? theme.textTheme.headlineSmall
+                : theme.textTheme.headlineLarge)
+            ?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: theme.colorScheme.onSurface,
+            );
+    final bodyStyle = TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+      color: theme.colorScheme.onSurface,
+    );
+    final hintStyle = TextStyle(
+      fontSize: 14,
+      fontWeight: FontWeight.w500,
+      color: Colors.grey[600],
+    );
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        _buildStepSpecificUI(step, theme, isPortrait, headerStyle, bodyStyle, hintStyle),
+        _buildStepSpecificUI(
+          step,
+          theme,
+          isPortrait,
+          headerStyle,
+          bodyStyle,
+          hintStyle,
+        ),
       ],
     );
   }
 
-  Widget _buildStepSpecificUI(int step, ThemeData theme, bool isPortrait, TextStyle? headerStyle, TextStyle bodyStyle, TextStyle hintStyle) {
+  Widget _buildStepSpecificUI(
+    int step,
+    ThemeData theme,
+    bool isPortrait,
+    TextStyle? headerStyle,
+    TextStyle bodyStyle,
+    TextStyle hintStyle,
+  ) {
     switch (step) {
       case 0:
         return Column(
@@ -902,32 +999,58 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               width: isPortrait ? 140 : 120,
               height: isPortrait ? 140 : 120,
               child: Image.asset(
-                  theme.brightness == Brightness.light ? "assets/bloret_light.png" : "assets/bloret_dark.png"),
+                theme.brightness == Brightness.light
+                    ? "assets/bloret_light.png"
+                    : "assets/bloret_dark.png",
+              ),
             ),
             const SizedBox(height: 32),
-            Text("${"Welcome to".tl} $name Launcher", textAlign: TextAlign.center, style: headerStyle),
+            Text(
+              "${"Welcome to".tl} $name Launcher",
+              textAlign: TextAlign.center,
+              style: headerStyle,
+            ),
             const SizedBox(height: 8),
-            Text("Flutter Edition".tl, textAlign: TextAlign.center, style: hintStyle),
+            Text(
+              "Flutter Edition".tl,
+              textAlign: TextAlign.center,
+              style: hintStyle,
+            ),
             const SizedBox(height: 16),
-            Text("${"Welcome! Let's start the journey with".tl} $name Launcher!\n${"Next, we need to perform some essential operations.".tl}",
-                textAlign: TextAlign.center, style: bodyStyle),
+            Text(
+              "${"Welcome! Let's start the journey with".tl} $name Launcher!\n${"Next, we need to perform some essential operations.".tl}",
+              textAlign: TextAlign.center,
+              style: bodyStyle,
+            ),
           ],
         );
       case 1:
         return Column(
           children: [
-            Text("Select Language".tl, textAlign: TextAlign.center, style: headerStyle),
+            Text(
+              "Select Language".tl,
+              textAlign: TextAlign.center,
+              style: headerStyle,
+            ),
             const SizedBox(height: 12),
-            Text("Please select the interface language you wish to use:".tl, textAlign: TextAlign.center, style: hintStyle),
+            Text(
+              "Please select the interface language you wish to use:".tl,
+              textAlign: TextAlign.center,
+              style: hintStyle,
+            ),
             const SizedBox(height: 32),
             Container(
               height: 42,
               width: isPortrait ? double.infinity : 400,
               margin: EdgeInsets.symmetric(horizontal: isPortrait ? 24 : 0),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.3,
+                ),
                 borderRadius: BorderRadius.circular(8.0),
-                border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+                border: Border.all(
+                  color: theme.dividerColor.withValues(alpha: 0.1),
+                ),
               ),
               child: Win11Dropdown(
                 items: [
@@ -944,32 +1067,53 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
           ],
         );
       case 2:
-        final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
-        String buttonText = isLoggedIn ? "Already logged in, continue".tl : (_isWaitingForLogin ? "Reopen login page".tl : "Go to login".tl);
+        final bool isLoggedIn =
+            ConfigService.get('Bloret_PassPort_Login') ?? false;
+        String buttonText = isLoggedIn
+            ? "Already logged in, continue".tl
+            : (_isWaitingForLogin ? "Reopen login page".tl : "Go to login".tl);
 
         return ValueListenableBuilder<bool>(
           valueListenable: _isTokenValidNotifier,
           builder: (context, isTokenValid, _) {
             return Column(
               children: [
-                Text("Login to Bloret PassPort".tl, textAlign: TextAlign.center, style: headerStyle),
+                Text(
+                  "Login to Bloret PassPort".tl,
+                  textAlign: TextAlign.center,
+                  style: headerStyle,
+                ),
                 const SizedBox(height: 16),
-                Text("Login to Bloret PassPort to sync your Minecraft accounts and settings.".tl, textAlign: TextAlign.center, style: bodyStyle),
+                Text(
+                  "Login to Bloret PassPort to sync your Minecraft accounts and settings."
+                      .tl,
+                  textAlign: TextAlign.center,
+                  style: bodyStyle,
+                ),
                 const SizedBox(height: 40),
                 AnimatedSize(
                   duration: const Duration(milliseconds: 300),
                   child: _isWaitingForLogin
                       ? Padding(
-                    padding: const EdgeInsets.only(bottom: 24),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                        const SizedBox(width: 12),
-                        Text("Waiting for login to complete...".tl, style: hintStyle),
-                      ],
-                    ),
-                  )
+                          padding: const EdgeInsets.only(bottom: 24),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                "Waiting for login to complete...".tl,
+                                style: hintStyle,
+                              ),
+                            ],
+                          ),
+                        )
                       : const SizedBox.shrink(),
                 ),
                 AnimatedScale(
@@ -977,60 +1121,98 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   scale: _isWaitingForLogin || _isVerifyingCode ? 1.05 : 1.0,
                   child: _isVerifyingCode
                       ? const SizedBox(
-                    height: 50,
-                    child: Center(child: CircularProgressIndicator()),
-                  )
+                          height: 50,
+                          child: Center(child: CircularProgressIndicator()),
+                        )
                       : Column(
-                        children: [
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              backgroundColor: _isWaitingForLogin ? theme.colorScheme.secondaryContainer : theme.colorScheme.primary,
-                              foregroundColor: _isWaitingForLogin ? theme.colorScheme.onSecondaryContainer : theme.colorScheme.onPrimary,
-                              elevation: 2,
-                            ),
-                            onPressed: () async {
-                              if (!isTokenValid) {
-                                await _loginBloretPassPort();
-                                return;
-                              }
-                              if (ConfigService.get('Bloret_PassPort_Login') ?? false) {
-                                setState(() => _currentStep++);
-                              } else {
-                                await _loginBloretPassPort();
-                              }
-                            },
-                            child: Text(
-                              isTokenValid ? buttonText : isLoggedIn ? "Token expired, please log in again".tl : "Go to login".tl,
-                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                            ),
-                          ),
-                          if (isLoggedIn) ...[
-                            const SizedBox(height: 12),
-                            TextButton.icon(
+                          children: [
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 32,
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                backgroundColor: _isWaitingForLogin
+                                    ? theme.colorScheme.secondaryContainer
+                                    : theme.colorScheme.primary,
+                                foregroundColor: _isWaitingForLogin
+                                    ? theme.colorScheme.onSecondaryContainer
+                                    : theme.colorScheme.onPrimary,
+                                elevation: 2,
+                              ),
                               onPressed: () async {
-                                await ConfigService.set('Bloret_PassPort_Login', false);
-                                await ConfigService.set('Bloret_PassPort_UserName', '');
-                                await ConfigService.set('Bloret_PassPort_Token', '');
-                                await ConfigService.set('Bloret_PassPort_Avatar', '');
-                                await ConfigService.set('MinecraftAccountList', []);
-                                _isTokenValidNotifier.value = false;
-                                setState(() {});
-                                showInfo("Logged out".tl);
+                                if (!isTokenValid) {
+                                  await _loginBloretPassPort();
+                                  return;
+                                }
+                                if (ConfigService.get(
+                                      'Bloret_PassPort_Login',
+                                    ) ??
+                                    false) {
+                                  setState(() => _currentStep++);
+                                } else {
+                                  await _loginBloretPassPort();
+                                }
                               },
-                              icon: const Icon(Icons.logout, size: 16),
-                              label: Text("Logout and Switch Account".tl),
-                              style: TextButton.styleFrom(
-                                foregroundColor: theme.colorScheme.error,
+                              child: Text(
+                                isTokenValid
+                                    ? buttonText
+                                    : isLoggedIn
+                                    ? "Token expired, please log in again".tl
+                                    : "Go to login".tl,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                ),
                               ),
                             ),
+                            if (isLoggedIn) ...[
+                              const SizedBox(height: 12),
+                              TextButton.icon(
+                                onPressed: () async {
+                                  await ConfigService.set(
+                                    'Bloret_PassPort_Login',
+                                    false,
+                                  );
+                                  await ConfigService.set(
+                                    'Bloret_PassPort_UserName',
+                                    '',
+                                  );
+                                  await ConfigService.set(
+                                    'Bloret_PassPort_Token',
+                                    '',
+                                  );
+                                  await ConfigService.set(
+                                    'Bloret_PassPort_Avatar',
+                                    '',
+                                  );
+                                  await ConfigService.set(
+                                    'MinecraftAccountList',
+                                    [],
+                                  );
+                                  _isTokenValidNotifier.value = false;
+                                  setState(() {});
+                                  showInfo("Logged out".tl);
+                                },
+                                icon: const Icon(Icons.logout, size: 16),
+                                label: Text("Logout and Switch Account".tl),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: theme.colorScheme.error,
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
-                      ),
+                        ),
                 ),
                 const SizedBox(height: 24),
-                Text("Tip: You must log in to Bloret PassPort to continue.".tl, textAlign: TextAlign.center, style: hintStyle),
+                Text(
+                  "Tip: You must log in to Bloret PassPort to continue.".tl,
+                  textAlign: TextAlign.center,
+                  style: hintStyle,
+                ),
               ],
             );
           },
@@ -1041,16 +1223,28 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
 
         return Column(
           children: [
-            Text("Sync Minecraft Accounts".tl, textAlign: TextAlign.center, style: headerStyle),
+            Text(
+              "Sync Minecraft Accounts".tl,
+              textAlign: TextAlign.center,
+              style: headerStyle,
+            ),
             const SizedBox(height: 12),
-            Text("Sync your Minecraft account information from Bloret PassPort.".tl, textAlign: TextAlign.center, style: hintStyle),
+            Text(
+              "Sync your Minecraft account information from Bloret PassPort."
+                  .tl,
+              textAlign: TextAlign.center,
+              style: hintStyle,
+            ),
             const SizedBox(height: 24),
             if (_isSyncingAccounts)
               Column(
                 children: [
                   const CircularProgressIndicator(),
                   const SizedBox(height: 16),
-                  Text("Syncing accounts...".tl, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(
+                    "Syncing accounts...".tl,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                 ],
               )
             else if (accounts.isEmpty)
@@ -1059,16 +1253,30 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.warning_amber_rounded, size: 20, color: Colors.red),
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        size: 20,
+                        color: Colors.red,
+                      ),
                       const SizedBox(width: 8),
-                      Text("No Minecraft accounts found".tl, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                      Text(
+                        "No Minecraft accounts found".tl,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 40),
-                    child: Text("Please go to passport.bloret.net first to add an account, then click the sync button here.".tl,
-                        textAlign: TextAlign.center, style: hintStyle),
+                    child: Text(
+                      "Please go to passport.bloret.net first to add an account, then click the sync button here."
+                          .tl,
+                      textAlign: TextAlign.center,
+                      style: hintStyle,
+                    ),
                   ),
                 ],
               )
@@ -1085,14 +1293,21 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                     final isSelected = chosenIndex == index;
                     return InkWell(
                       onTap: () async {
-                        await ConfigService.set('MinecraftAccount_Chosen', index);
+                        await ConfigService.set(
+                          'MinecraftAccount_Chosen',
+                          index,
+                        );
                         final oldData = ConfigService.get('MinecraftAccount');
                         if (oldData is String) {
-                           try {
-                             final decoded = jsonDecode(oldData) as Map<String, dynamic>;
-                             decoded['chosen'] = index;
-                             await ConfigService.set('MinecraftAccount', jsonEncode(decoded));
-                           } catch (_) {}
+                          try {
+                            final decoded =
+                                jsonDecode(oldData) as Map<String, dynamic>;
+                            decoded['chosen'] = index;
+                            await ConfigService.set(
+                              'MinecraftAccount',
+                              jsonEncode(decoded),
+                            );
+                          } catch (_) {}
                         }
                         setState(() {});
                       },
@@ -1101,29 +1316,40 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                         curve: Curves.easeOutCubic,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          gradient: isSelected 
+                          gradient: isSelected
                               ? LinearGradient(
                                   colors: [
-                                    theme.colorScheme.primaryContainer.withValues(alpha: 0.2),
-                                    theme.colorScheme.primaryContainer.withValues(alpha: 0.05),
+                                    theme.colorScheme.primaryContainer
+                                        .withValues(alpha: 0.2),
+                                    theme.colorScheme.primaryContainer
+                                        .withValues(alpha: 0.05),
                                   ],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 )
                               : null,
-                          color: isSelected ? null : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                          color: isSelected
+                              ? null
+                              : theme.colorScheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: isSelected ? theme.colorScheme.primary : theme.dividerColor.withValues(alpha: 0.1),
+                            color: isSelected
+                                ? theme.colorScheme.primary
+                                : theme.dividerColor.withValues(alpha: 0.1),
                             width: isSelected ? 1.5 : 1.0,
                           ),
-                          boxShadow: isSelected ? [
-                            BoxShadow(
-                              color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            )
-                          ] : [],
+                          boxShadow: isSelected
+                              ? [
+                                  BoxShadow(
+                                    color: theme.colorScheme.primary.withValues(
+                                      alpha: 0.1,
+                                    ),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ]
+                              : [],
                         ),
                         child: Row(
                           children: [
@@ -1135,24 +1361,40 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                                 child: Container(
                                   width: 32,
                                   height: 32,
-                                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                                  color: theme
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.5),
                                   child: Stack(
                                     children: [
-                                      const Center(child: Icon(Icons.account_circle, size: 24, color: Colors.grey)),
+                                      const Center(
+                                        child: Icon(
+                                          Icons.account_circle,
+                                          size: 24,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
                                       CachedNetworkImage(
-                                        imageUrl: account['avatarUrl'] ?? "https://mc-heads.net/avatar/${account['uuid']}/32",
+                                        imageUrl:
+                                            account['avatarUrl'] ??
+                                            "https://mc-heads.net/avatar/${account['uuid']}/32",
                                         width: 32,
                                         height: 32,
                                         fit: BoxFit.cover,
                                         placeholder: (context, _) {
                                           return AnimatedOpacity(
                                             opacity: 1,
-                                            duration: const Duration(milliseconds: 500),
+                                            duration: const Duration(
+                                              milliseconds: 500,
+                                            ),
                                             curve: Curves.easeOut,
-                                            child: const CircularProgressIndicator(),
+                                            child:
+                                                const CircularProgressIndicator(),
                                           );
                                         },
-                                        errorWidget: (context, error, stackTrace) => const SizedBox.shrink(),
+                                        errorWidget:
+                                            (context, error, stackTrace) =>
+                                                const SizedBox.shrink(),
                                       ),
                                     ],
                                   ),
@@ -1164,20 +1406,36 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(account['username'] ?? "Unknown",
+                                  Text(
+                                    account['username'] ?? "Unknown",
                                     style: TextStyle(
-                                      fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
-                                      color: isSelected ? theme.colorScheme.primary : null,
-                                    )
+                                      fontWeight: isSelected
+                                          ? FontWeight.w900
+                                          : FontWeight.w700,
+                                      color: isSelected
+                                          ? theme.colorScheme.primary
+                                          : null,
+                                    ),
                                   ),
                                   Row(
                                     children: [
-                                      Text((account['type'] ?? "Offline").toString().tl, style: hintStyle.copyWith(fontSize: 12)),
+                                      Text(
+                                        (account['type'] ?? "Offline")
+                                            .toString()
+                                            .tl,
+                                        style: hintStyle.copyWith(fontSize: 12),
+                                      ),
                                       if (account['login_time'] != null) ...[
                                         const SizedBox(width: 8),
                                         Text(
-                                          account['login_time'].toString().split(' ').first,
-                                          style: hintStyle.copyWith(fontSize: 10, color: Colors.grey),
+                                          account['login_time']
+                                              .toString()
+                                              .split(' ')
+                                              .first,
+                                          style: hintStyle.copyWith(
+                                            fontSize: 10,
+                                            color: Colors.grey,
+                                          ),
                                         ),
                                       ],
                                     ],
@@ -1186,15 +1444,29 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                               ),
                             ),
                             if (isSelected)
-                              Icon(Icons.check_circle, color: theme.colorScheme.primary, size: 20)
+                              Icon(
+                                Icons.check_circle,
+                                color: theme.colorScheme.primary,
+                                size: 20,
+                              )
                             else
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: theme.colorScheme.surfaceContainerHighest,
+                                  color:
+                                      theme.colorScheme.surfaceContainerHighest,
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: Text("Switch".tl, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                child: Text(
+                                  "Switch".tl,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
                           ],
                         ),
@@ -1209,26 +1481,40 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               curve: Curves.easeOutBack,
               scale: _isSyncingAccounts ? 0.9 : 1.0,
               child: ElevatedButton.icon(
-                onPressed: _isSyncingAccounts ? null : () async {
-                  setState(() => _isSyncingAccounts = true);
-                  try {
-                    final success = await PassportService.syncMinecraftAccounts();
-                    if (success) {
-                      showSuccess("Sync complete".tl);
-                    } else {
-                      showError("Sync failed. Please check your network or login status.".tl);
-                    }
-                  } catch (e) {
-                    showError("Sync failed".tl);
-                    logger.error("Welcome sync error: $e", .network);
-                  }
-                  if (mounted) setState(() => _isSyncingAccounts = false);
-                },
+                onPressed: _isSyncingAccounts
+                    ? null
+                    : () async {
+                        setState(() => _isSyncingAccounts = true);
+                        try {
+                          final success =
+                              await PassportService.syncMinecraftAccounts();
+                          if (success) {
+                            showSuccess("Sync complete".tl);
+                          } else {
+                            showError(
+                              "Sync failed. Please check your network or login status."
+                                  .tl,
+                            );
+                          }
+                        } catch (e) {
+                          showError("Sync failed".tl);
+                          logger.error("Welcome sync error: $e", .network);
+                        }
+                        if (mounted) setState(() => _isSyncingAccounts = false);
+                      },
                 icon: const Icon(Icons.sync),
-                label: Text(accounts.isEmpty ? "Sync Accounts".tl : "Resync".tl, style: const TextStyle(fontWeight: FontWeight.w700)),
+                label: Text(
+                  accounts.isEmpty ? "Sync Accounts".tl : "Resync".tl,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
                 style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
             ),
@@ -1237,7 +1523,11 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
       case 4:
         return Column(
           children: [
-            Text("Java Runtime Environment".tl, textAlign: TextAlign.center, style: headerStyle),
+            Text(
+              "Java Runtime Environment".tl,
+              textAlign: TextAlign.center,
+              style: headerStyle,
+            ),
             const SizedBox(height: 24),
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
@@ -1247,7 +1537,11 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   if (_isCheckingJava)
-                    const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   else
                     Icon(
                       _javaInstalled ? Icons.check_circle : Icons.info_outline,
@@ -1258,7 +1552,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   Text(
                     _isCheckingJava
                         ? "Checking Java environment...".tl
-                        : (_javaInstalled ? "Java environment detected.".tl : "Java not detected, it is recommended to install Java 21.".tl),
+                        : (_javaInstalled
+                              ? "Java environment detected.".tl
+                              : "Java not detected, it is recommended to install Java 21."
+                                    .tl),
                     textAlign: TextAlign.start,
                     style: bodyStyle,
                   ),
@@ -1269,116 +1566,140 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               duration: const Duration(milliseconds: 300),
               child: _javaInstalled && _javaPath != null
                   ? Center(
-                child: Container(
-                  width: isPortrait ? double.infinity : 400,
-                  margin: const EdgeInsets.only(top: 16),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.folder_open,
-                        size: 20,
-                        color: theme.colorScheme.primary,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Detected Java:".tl,
-                              style: hintStyle.copyWith(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
+                      child: Container(
+                        width: isPortrait ? double.infinity : 400,
+                        margin: const EdgeInsets.only(top: 16),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primaryContainer.withValues(
+                            alpha: 0.1,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: theme.colorScheme.primary.withValues(
+                              alpha: 0.2,
                             ),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.folder_open,
+                              size: 20,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "Detected Java:".tl,
+                                    style: hintStyle.copyWith(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
 
-                            Win11Dropdown(
-                              items: _detectedJavaList.map((java) {
-                                return Win11DropdownItem(
-                                  label:
-                                  "Java ${java["version"] ?? ""} (${java["path"] ?? ""})",
-                                  value:
-                                  java["path"] ?? "",
-                                );
-                              }).toList(),
+                                  Win11Dropdown(
+                                    items: _detectedJavaList.map((java) {
+                                      return Win11DropdownItem(
+                                        label:
+                                            "Java ${java["version"] ?? ""} (${java["path"] ?? ""})",
+                                        value: java["path"] ?? "",
+                                      );
+                                    }).toList(),
 
-                              initialValue: _javaPath,
+                                    initialValue: _javaPath,
 
-                              themeColor: theme.colorScheme.primary,
+                                    themeColor: theme.colorScheme.primary,
 
-                              onChanged: (value) {
-                                setState(() {
-                                  _javaPath = value;
-                                });
-                              },
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _javaPath = value;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              )
+                    )
                   : const SizedBox.shrink(),
             ),
             const SizedBox(height: 32),
             const Divider(),
             const SizedBox(height: 24),
-            Text("Install or Change Java Version".tl, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              "Install or Change Java Version".tl,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(height: 16),
             if (Platform.isWindows) ...[
               Container(
-                  height: 42,
-                  width: isPortrait ? double.infinity : 300,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(8.0),
-                    border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+                height: 42,
+                width: isPortrait ? double.infinity : 300,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.3,
                   ),
-                  child: Win11Dropdown(
-                    items: JavaConfig.versionList.map((String version) {
-                      return Win11DropdownItem(
-                        value: version,
-                        label: "Java $version",
-                      );
-                    }).toList(),
-                    initialValue: "21",
-                    onChanged: _isInstallingJava ? null : (val) => setState(() => _selectedJavaVersion = val!),
-                  )
+                  borderRadius: BorderRadius.circular(8.0),
+                  border: Border.all(
+                    color: theme.dividerColor.withValues(alpha: 0.1),
+                  ),
+                ),
+                child: Win11Dropdown(
+                  items: JavaConfig.versionList.map((String version) {
+                    return Win11DropdownItem(
+                      value: version,
+                      label: "Java $version",
+                    );
+                  }).toList(),
+                  initialValue: "21",
+                  onChanged: _isInstallingJava
+                      ? null
+                      : (val) => setState(() => _selectedJavaVersion = val!),
+                ),
               ),
               AnimatedSize(
                 duration: const Duration(milliseconds: 400),
                 curve: Curves.easeInOutCubic,
                 child: _isInstallingJava
                     ? Padding(
-                  padding: const EdgeInsets.only(top: 24),
-                  child: SizedBox(
-                    width: isPortrait ? double.infinity : 400,
-                    child: Column(
-                      children: [
-                        IgnorePointer(
-                          child: GoogleSquigglySlider(
-                            value: _installProgress * 100, 
-                            max: 100,
-                            isPlaying: _installStatus.contains("Download".tl),
-                            activeColor: Theme.of(context).colorScheme.primary,
-                            inactiveColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        padding: const EdgeInsets.only(top: 24),
+                        child: SizedBox(
+                          width: isPortrait ? double.infinity : 400,
+                          child: Column(
+                            children: [
+                              IgnorePointer(
+                                child: GoogleSquigglySlider(
+                                  value: _installProgress * 100,
+                                  max: 100,
+                                  isPlaying: _installStatus.contains(
+                                    "Download".tl,
+                                  ),
+                                  activeColor: Theme.of(
+                                    context,
+                                  ).colorScheme.primary,
+                                  inactiveColor: Theme.of(
+                                    context,
+                                  ).colorScheme.surfaceContainerHighest,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                _installStatus,
+                                textAlign: TextAlign.center,
+                                style: hintStyle,
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        Text(_installStatus, textAlign: TextAlign.center, style: hintStyle),
-                      ],
-                    ),
-                  ),
-                )
+                      )
                     : const SizedBox.shrink(),
               ),
               const SizedBox(height: 32),
@@ -1386,22 +1707,42 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   OutlinedButton(
-                    onPressed: _isCheckingJava || _isInstallingJava ? null : _checkJavaEnvironment,
+                    onPressed: _isCheckingJava || _isInstallingJava
+                        ? null
+                        : _checkJavaEnvironment,
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       side: BorderSide(width: 1.5, color: theme.dividerColor),
                     ),
                     child: Text("Redetect".tl),
                   ),
                   const SizedBox(width: 16),
                   FilledButton(
-                    onPressed: _isCheckingJava || _isInstallingJava ? null : _installJava,
+                    onPressed: _isCheckingJava || _isInstallingJava
+                        ? null
+                        : _installJava,
                     style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
-                    child: Text(_isInstallingJava ? "Installing...".tl : (_javaInstalled ? "${"Change to".tl} Java $_selectedJavaVersion" : "${"Install".tl} Java $_selectedJavaVersion")),
+                    child: Text(
+                      _isInstallingJava
+                          ? "Installing...".tl
+                          : (_javaInstalled
+                                ? "${"Change to".tl} Java $_selectedJavaVersion"
+                                : "${"Install".tl} Java $_selectedJavaVersion"),
+                    ),
                   ),
                 ],
               ),
@@ -1409,15 +1750,22 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Text(
-                  Platform.isAndroid 
-                    ? "Android version uses built-in runtime, no additional Java installation required.".tl 
-                    : "Linux version does not support automatic installation yet, please use system package manager.".tl,
+                  Platform.isAndroid
+                      ? "Android version uses built-in runtime, no additional Java installation required."
+                            .tl
+                      : "Linux version does not support automatic installation yet, please use system package manager."
+                            .tl,
                   textAlign: TextAlign.center,
                   style: bodyStyle.copyWith(color: theme.colorScheme.primary),
                 ),
               ),
             const SizedBox(height: 24),
-            Text("Recommended to install Java 21 for latest Minecraft versions.".tl, textAlign: TextAlign.center, style: hintStyle),
+            Text(
+              "Recommended to install Java 21 for latest Minecraft versions."
+                  .tl,
+              textAlign: TextAlign.center,
+              style: hintStyle,
+            ),
           ],
         );
       case 5:
@@ -1425,18 +1773,29 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
           padding: EdgeInsets.symmetric(horizontal: isPortrait ? 24 : 0),
           child: Column(
             children: [
-              Text("Minecraft Game Folder".tl, textAlign: TextAlign.center, style: headerStyle),
+              Text(
+                "Minecraft Game Folder".tl,
+                textAlign: TextAlign.center,
+                style: headerStyle,
+              ),
               const SizedBox(height: 16),
-              Text("${"Please select or confirm your".tl} Minecraft ${"game folder location".tl}.\n${"You can add multiple directories, Launcher will automatically scan for versions.".tl}",
-                  textAlign: TextAlign.center, style: hintStyle),
+              Text(
+                "${"Please select or confirm your".tl} Minecraft ${"game folder location".tl}.\n${"You can add multiple directories, Launcher will automatically scan for versions.".tl}",
+                textAlign: TextAlign.center,
+                style: hintStyle,
+              ),
               const SizedBox(height: 32),
               Container(
                 constraints: const BoxConstraints(maxHeight: 250),
                 width: isPortrait ? double.infinity : 500,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.1),
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.1,
+                  ),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+                  border: Border.all(
+                    color: theme.dividerColor.withValues(alpha: 0.1),
+                  ),
                 ),
                 child: ListView.separated(
                   shrinkWrap: true,
@@ -1445,20 +1804,33 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: theme.colorScheme.surface,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+                        border: Border.all(
+                          color: theme.dividerColor.withValues(alpha: 0.1),
+                        ),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.folder, size: 20, color: theme.colorScheme.primary),
+                          Icon(
+                            Icons.folder,
+                            size: 20,
+                            color: theme.colorScheme.primary,
+                          ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               _minecraftDirs[index],
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'monospace'),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                fontFamily: 'monospace',
+                              ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -1466,7 +1838,11 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                             onPressed: () {
                               setState(() => _minecraftDirs.removeAt(index));
                             },
-                            icon: const Icon(Icons.remove_circle_outline, size: 20, color: Colors.red),
+                            icon: const Icon(
+                              Icons.remove_circle_outline,
+                              size: 20,
+                              color: Colors.red,
+                            ),
                             visualDensity: VisualDensity.compact,
                           ),
                         ],
@@ -1478,7 +1854,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 onPressed: () async {
-                  String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+                  String? selectedDirectory = await FilePicker.platform
+                      .getDirectoryPath();
                   if (selectedDirectory != null) {
                     setState(() {
                       if (!_minecraftDirs.contains(selectedDirectory)) {
@@ -1488,26 +1865,48 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   }
                 },
                 icon: const Icon(Icons.add_location_alt_outlined),
-                label: Text("Add Directory".tl, style: const TextStyle(fontWeight: FontWeight.bold)),
+                label: Text(
+                  "Add Directory".tl,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
                 style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
-              Text("Tip: If you don't know where it is, you can use the default path.".tl, textAlign: TextAlign.center, style: hintStyle),
+              Text(
+                "Tip: If you don't know where it is, you can use the default path."
+                    .tl,
+                textAlign: TextAlign.center,
+                style: hintStyle,
+              ),
             ],
           ),
         );
       case 6:
         return Column(
           children: [
-            Text("Multi-device Link".tl, textAlign: TextAlign.center, style: headerStyle),
+            Text(
+              "Multi-device Link".tl,
+              textAlign: TextAlign.center,
+              style: headerStyle,
+            ),
             const SizedBox(height: 16),
-            Text(Platform.isAndroid 
-                ? "You can run the Launcher on PC and use this phone as a remote controller!\nEnable this feature in PC settings.".tl 
-                : "You can use your phone as a remote controller for Minecraft!\nScan the QR code below or open the following address in browser:".tl,
-                textAlign: TextAlign.center, style: bodyStyle),
+            Text(
+              Platform.isAndroid
+                  ? "You can run the Launcher on PC and use this phone as a remote controller!\nEnable this feature in PC settings."
+                        .tl
+                  : "You can use your phone as a remote controller for Minecraft!\nScan the QR code below or open the following address in browser:"
+                        .tl,
+              textAlign: TextAlign.center,
+              style: bodyStyle,
+            ),
             if (!Platform.isAndroid) ...[
               const SizedBox(height: 32),
               Container(
@@ -1517,9 +1916,15 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: theme.dividerColor.withValues(alpha: 0.2)),
+                  border: Border.all(
+                    color: theme.dividerColor.withValues(alpha: 0.2),
+                  ),
                 ),
-                child: const Icon(Icons.qr_code_2, size: 140, color: Colors.black),
+                child: const Icon(
+                  Icons.qr_code_2,
+                  size: 140,
+                  color: Colors.black,
+                ),
               ),
               const SizedBox(height: 24),
               Text("Scan or open in browser:".tl, style: bodyStyle),
@@ -1534,15 +1939,27 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
               ),
             ],
             const SizedBox(height: 24),
-            Text("Tip: Ensure devices are on the same network.".tl, textAlign: TextAlign.center, style: hintStyle),
+            Text(
+              "Tip: Ensure devices are on the same network.".tl,
+              textAlign: TextAlign.center,
+              style: hintStyle,
+            ),
           ],
         );
       default:
         return Column(
           children: [
-            Text(_stepLabels[step], textAlign: TextAlign.center, style: headerStyle),
+            Text(
+              _stepLabels[step],
+              textAlign: TextAlign.center,
+              style: headerStyle,
+            ),
             const SizedBox(height: 16),
-            Text("Undefined step content".tl, textAlign: TextAlign.center, style: bodyStyle),
+            Text(
+              "Undefined step content".tl,
+              textAlign: TextAlign.center,
+              style: bodyStyle,
+            ),
           ],
         );
     }
@@ -1551,33 +1968,50 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
   Widget _buildBottomButtons(bool isPortrait) {
     final theme = Theme.of(context);
     final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
-    
+
     bool canProceed() {
       switch (_currentStep) {
-        case 0: return true;
-        case 1: return true;
-        case 2: return isLoggedIn && _isTokenValidNotifier.value;
-        case 3: return _getAccounts().isNotEmpty;
-        case 4: return _javaInstalled || Platform.isAndroid;
-        case 5: return _minecraftDirs.isNotEmpty;
-        case 6: return true;
-        default: return false;
+        case 0:
+          return true;
+        case 1:
+          return true;
+        case 2:
+          return isLoggedIn && _isTokenValidNotifier.value;
+        case 3:
+          return _getAccounts().isNotEmpty;
+        case 4:
+          return _javaInstalled || Platform.isAndroid;
+        case 5:
+          return _minecraftDirs.isNotEmpty;
+        case 6:
+          return true;
+        default:
+          return false;
       }
     }
 
     final bool nextDisabled = !canProceed();
 
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: isPortrait ? 10.0 : 32.0, vertical: isPortrait ? 4.0 : 8.0),
+      padding: EdgeInsets.symmetric(
+        horizontal: isPortrait ? 10.0 : 32.0,
+        vertical: isPortrait ? 4.0 : 8.0,
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           if (_currentStep > 0)
             TextButton(
               style: TextButton.styleFrom(
-                backgroundColor: theme.colorScheme.secondaryContainer.withValues(alpha: 0.5),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                backgroundColor: theme.colorScheme.secondaryContainer
+                    .withValues(alpha: 0.5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               onPressed: () {
                 setState(() => _currentStep--);
@@ -1585,48 +2019,77 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen> with WidgetsBin
                   _checkTokenValidity();
                 }
               },
-              child: Text("Back".tl, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              child: Text(
+                "Back".tl,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           const SizedBox(width: 12),
           FilledButton(
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
-            onPressed: nextDisabled ? null : () async {
-              if (_currentStep < _totalSteps - 1) {
-                setState(() => _currentStep++);
-                if (_currentStep == 2) {
-                  _checkTokenValidity();
-                }
-              } else {
-                await ConfigService.setLanguage(_selectedLanguage);
-                await ConfigService.set('minecraft_dirs', _minecraftDirs);
-                await ConfigService.setFirstRunCompleted();
+            onPressed: nextDisabled
+                ? null
+                : () async {
+                    if (_currentStep < _totalSteps - 1) {
+                      setState(() => _currentStep++);
+                      if (_currentStep == 2) {
+                        _checkTokenValidity();
+                      }
+                    } else {
+                      await ConfigService.setLanguage(_selectedLanguage);
+                      await ConfigService.set('minecraft_dirs', _minecraftDirs);
+                      await ConfigService.setFirstRunCompleted();
 
-                if (mounted) {
-                  Navigator.of(context).pushReplacement(
-                    PageRouteBuilder(
-                      pageBuilder: (context, animation, secondaryAnimation) => MainShell(),
-                      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                        return FadeTransition(
-                          opacity: animation,
-                          child: SlideTransition(
-                            position: Tween<Offset>(
-                              begin: const Offset(0.0, 0.05),
-                              end: Offset.zero,
-                            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-                            child: child,
+                      if (mounted) {
+                        Navigator.of(context).pushReplacement(
+                          PageRouteBuilder(
+                            pageBuilder:
+                                (context, animation, secondaryAnimation) =>
+                                    MainShell(),
+                            transitionsBuilder:
+                                (
+                                  context,
+                                  animation,
+                                  secondaryAnimation,
+                                  child,
+                                ) {
+                                  return FadeTransition(
+                                    opacity: animation,
+                                    child: SlideTransition(
+                                      position:
+                                          Tween<Offset>(
+                                            begin: const Offset(0.0, 0.05),
+                                            end: Offset.zero,
+                                          ).animate(
+                                            CurvedAnimation(
+                                              parent: animation,
+                                              curve: Curves.easeOutCubic,
+                                            ),
+                                          ),
+                                      child: child,
+                                    ),
+                                  );
+                                },
+                            transitionDuration: const Duration(
+                              milliseconds: 800,
+                            ),
                           ),
                         );
-                      },
-                      transitionDuration: const Duration(milliseconds: 800),
-                    ),
-                  );
-                }
-              }
-            },
-            child: Text(_currentStep == _totalSteps - 1 ? "Finish".tl : "Next".tl, style: const TextStyle(fontWeight: FontWeight.w700)),
+                      }
+                    }
+                  },
+            child: Text(
+              _currentStep == _totalSteps - 1 ? "Finish".tl : "Next".tl,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ),
@@ -1715,29 +2178,29 @@ class _GeneratedJavaSelectorState extends State<_GeneratedJavaSelector> {
           curve: Curves.easeOut,
           child: open
               ? Column(
-            children: widget.paths.map((path) {
-              return ListTile(
-                dense: true,
-                leading: const Icon(Icons.computer, size: 18),
-                title: Text(
-                  path,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontFamily: "monospace",
-                    fontSize: 12,
-                  ),
-                ),
-                selected: path == widget.current,
-                onTap: () {
-                  widget.onChanged(path);
-                  setState(() {
-                    open = false;
-                  });
-                },
-              );
-            }).toList(),
-          )
+                  children: widget.paths.map((path) {
+                    return ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.computer, size: 18),
+                      title: Text(
+                        path,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: "monospace",
+                          fontSize: 12,
+                        ),
+                      ),
+                      selected: path == widget.current,
+                      onTap: () {
+                        widget.onChanged(path);
+                        setState(() {
+                          open = false;
+                        });
+                      },
+                    );
+                  }).toList(),
+                )
               : const SizedBox.shrink(),
         ),
       ],

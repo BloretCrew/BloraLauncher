@@ -28,13 +28,11 @@ enum PageType { minecraft, java, external, modrinth }
 class _DownloadPageState extends State<DownloadPage> {
   final PageController _pageController = PageController();
   PageType _selectedPageType = PageType.minecraft;
-  List<String> javaVersions = [];
   String? selectedTargetDir;
 
   @override
   void initState() {
     super.initState();
-    javaVersions = JavaConfig.versionList.map((e) => "Java $e").toList();
     _loadTargetDirs();
   }
 

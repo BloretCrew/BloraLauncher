@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:ai_flutter_agent/ai_flutter_agent.dart';
 import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/core/logger.dart';
@@ -12,11 +13,13 @@ import 'package:bloret_launcher/shell/main_shell.dart';
 import 'package:bloret_launcher/tools/server_info.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+
 import 'core/global.dart';
 import 'core/network_config.dart';
+import 'core/theme_manager.dart';
+import 'pages/welcome_page.dart';
 import 'services/config_service.dart';
 import 'services/win32_icon_service.dart';
-import 'pages/welcome_page.dart';
 
 BloraLauncherConfig? config;
 
@@ -45,15 +48,18 @@ void main() async {
   updateManager = await UpdateManager.instance.init();
   Timer.periodic(const Duration(seconds: 30), (timer) async {
     try {
-      final res = await Dio().get("https://raw.gitcode.com/Bloret/Bloret-Launcher/raw/Windows/IP.json");
+      final res = await Dio().get(
+        "https://raw.gitcode.com/Bloret/Bloret-Launcher/raw/Windows/IP.json",
+      );
       if (res.statusCode == 200) {
-        if (jsonDecode(res.data)["PCFS"] != null && jsonDecode(res.data)["PCFS"] != serverIP) {
+        if (jsonDecode(res.data)["PCFS"] != null &&
+            jsonDecode(res.data)["PCFS"] != serverIP) {
           serverIP = res.data["PCFS"];
           timer.cancel();
         }
       }
     } catch (e) {
-      logger.error("Fetch Server IP Error: $e",);
+      logger.error("Fetch Server IP Error: $e");
     }
   });
   runApp(const BloraLauncherApp());
@@ -65,44 +71,14 @@ class BloraLauncherApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: I18n.instance,
+      listenable: Listenable.merge([I18n.instance, ThemeManager.instance]),
       builder: (context, child) {
         return MaterialApp(
           title: '$name Launcher',
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF0078D4),
-              brightness: Brightness.light,
-            ),
-            cardTheme: CardTheme(
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.withValues(alpha: 0.2))),
-            ).data,
-            buttonTheme: ButtonThemeData(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
-            ),
-            fontFamily: "Microsoft",
-            textTheme: const TextTheme().apply(fontFamily: "Microsoft"),
-          ),
-          darkTheme: ThemeData(
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF0078D4),
-              brightness: Brightness.dark,
-            ),
-            cardTheme: CardTheme(
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
-            ).data,
-            buttonTheme: ButtonThemeData(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
-            ),
-            fontFamily: "Microsoft",
-            textTheme: const TextTheme().apply(fontFamily: "Microsoft"),
-          ),
-          themeMode: ThemeMode.system,
+          theme: ThemeManager.instance.getTheme(Brightness.light),
+          darkTheme: ThemeManager.instance.getTheme(Brightness.dark),
+          themeMode: ThemeManager.instance.themeMode,
           home: Semantics(
             container: true,
             child: ConfigService.isFirstRun()
@@ -123,27 +99,25 @@ Widget buildSimpleMarkdownText(String text, {TextStyle? style}) {
 
   for (final Match match in exp.allMatches(text)) {
     if (match.start > lastMatchEnd) {
-      spans.add(TextSpan(
-        text: text.substring(lastMatchEnd, match.start),
-        style: style,
-      ));
+      spans.add(
+        TextSpan(text: text.substring(lastMatchEnd, match.start), style: style),
+      );
     }
 
-    spans.add(TextSpan(
-      text: match.group(1),
-      style: (style ?? const TextStyle()).copyWith(
-        fontWeight: FontWeight.bold,
+    spans.add(
+      TextSpan(
+        text: match.group(1),
+        style: (style ?? const TextStyle()).copyWith(
+          fontWeight: FontWeight.bold,
+        ),
       ),
-    ));
+    );
 
     lastMatchEnd = match.end;
   }
 
   if (lastMatchEnd < text.length) {
-    spans.add(TextSpan(
-      text: text.substring(lastMatchEnd),
-      style: style,
-    ));
+    spans.add(TextSpan(text: text.substring(lastMatchEnd), style: style));
   }
 
   return Text.rich(TextSpan(children: spans));
@@ -154,13 +128,22 @@ class SlideFadeIn extends StatelessWidget {
   final double delay;
   final AnimationController controller;
 
-  const SlideFadeIn({super.key, required this.child, required this.delay, required this.controller});
+  const SlideFadeIn({
+    super.key,
+    required this.child,
+    required this.delay,
+    required this.controller,
+  });
 
   @override
   Widget build(BuildContext context) {
     final animation = CurvedAnimation(
       parent: controller,
-      curve: Interval(delay, (delay + 0.3).clamp(0.0, 1.0), curve: Curves.easeOutCubic),
+      curve: Interval(
+        delay,
+        (delay + 0.3).clamp(0.0, 1.0),
+        curve: Curves.easeOutCubic,
+      ),
     );
 
     return AnimatedBuilder(
@@ -184,18 +167,32 @@ class FluentCard extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
   final Color? color;
   final void Function()? onTap;
-  const FluentCard({super.key, required this.child, this.padding, this.color, this.onTap});
+  const FluentCard({
+    super.key,
+    required this.child,
+    this.padding,
+    this.color,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       color: color,
-      child: onTap != null ? InkWell(mouseCursor: SystemMouseCursors.click, onTap: onTap,child: Padding(padding: padding ?? const EdgeInsets.all(16), child: child),) : Padding(padding: padding ?? const EdgeInsets.all(16), child: child),
+      child: onTap != null
+          ? InkWell(
+              mouseCursor: SystemMouseCursors.click,
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: padding ?? const EdgeInsets.all(16),
+                child: child,
+              ),
+            )
+          : Padding(padding: padding ?? const EdgeInsets.all(16), child: child),
     );
   }
 }
-
-
 
 class PlaceholderPage extends StatelessWidget {
   final String title;
@@ -203,6 +200,8 @@ class PlaceholderPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(child: Text(title, style: Theme.of(context).textTheme.headlineMedium));
+    return Center(
+      child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
+    );
   }
 }

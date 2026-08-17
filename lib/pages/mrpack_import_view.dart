@@ -333,8 +333,9 @@ class _MrpackImportViewState extends State<MrpackImportView> {
                         : () async {
                             String? path = await FilePicker.platform
                                 .getDirectoryPath();
-                            if (path != null)
+                            if (path != null) {
                               setState(() => _mcDirController.text = path);
+                            }
                           },
                     color: theme.colorScheme.primary,
                   ),

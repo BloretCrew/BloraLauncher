@@ -62,6 +62,11 @@ dependencies:
   speech_to_text: ^7.4.0
   intl: ^0.20.3
   vector_math: ^2.4.2
+  device_info_plus: ^11.3.0
+  encrypt: ^5.0.3
+
+dependency_overrides:
+  pointycastle: ^4.0.0
 
 dev_dependencies:
   flutter_test:

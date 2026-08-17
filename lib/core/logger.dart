@@ -1,5 +1,6 @@
-import 'dart:io';
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -30,14 +31,22 @@ class AppLogger {
 
   static int _getDefaultIconId(LogSource source) {
     switch (source) {
-      case LogSource.system: return 0;
-      case LogSource.network: return 3;
-      case LogSource.ui: return 8;
-      case LogSource.db: return 6;
-      case LogSource.cache: return 5;
-      case LogSource.tool: return 4;
-      case LogSource.download: return 7;
-      case LogSource.fileSystem: return 6;
+      case LogSource.system:
+        return 0;
+      case LogSource.network:
+        return 3;
+      case LogSource.ui:
+        return 8;
+      case LogSource.db:
+        return 6;
+      case LogSource.cache:
+        return 5;
+      case LogSource.tool:
+        return 4;
+      case LogSource.download:
+        return 7;
+      case LogSource.fileSystem:
+        return 6;
     }
   }
 
@@ -71,29 +80,41 @@ class AppLogger {
     return p.dirname(path);
   }
 
-  Future<void> info(String message, [LogSource source = LogSource.system]) async {
+  Future<void> info(
+    String message, [
+    LogSource source = LogSource.system,
+  ]) async {
     await log(message, source: source);
   }
 
-  Future<void> warning(String message, [LogSource source = LogSource.system]) async {
+  Future<void> warning(
+    String message, [
+    LogSource source = LogSource.system,
+  ]) async {
     await log(message, source: source, level: .warning);
   }
 
-  Future<void> error(String message, [LogSource source = LogSource.system]) async {
+  Future<void> error(
+    String message, [
+    LogSource source = LogSource.system,
+  ]) async {
     await log(message, source: source, level: .error);
   }
 
-  Future<void> debug(String message, [LogSource source = LogSource.system]) async {
+  Future<void> debug(
+    String message, [
+    LogSource source = LogSource.system,
+  ]) async {
     await log(message, source: source, level: .debug);
   }
 
   Future<void> log(
-      String message, {
-        LogLevel level = LogLevel.info,
-        int? iconId,
-        LogSource source = LogSource.system,
-        String detail = "",
-      }) async {
+    String message, {
+    LogLevel level = LogLevel.info,
+    int? iconId,
+    LogSource source = LogSource.system,
+    String detail = "",
+  }) async {
     if (kIsWeb) return;
 
     final effectiveIconId = iconId ?? _getDefaultIconId(source);
@@ -114,12 +135,25 @@ class AppLogger {
       if (logs.length > maxLogs) logs.removeRange(0, logs.length - maxLogs);
 
       final jsonList = logs.map((e) => e.toJson()).toList();
-      await _logFile.writeAsString(jsonEncode(jsonList));
+      await _safeWrite(jsonEncode(jsonList));
 
       if (kDebugMode) print(entry);
       _logController.notify();
     } catch (e) {
       debugPrint("Logging failed: $e");
+    }
+  }
+
+  Future<void> _safeWrite(String content) async {
+    try {
+      final tmpFile = File('${_logFile.path}.tmp');
+      await tmpFile.writeAsString(content, flush: true);
+      if (await _logFile.exists()) {
+        await _logFile.delete();
+      }
+      await tmpFile.rename(_logFile.path);
+    } catch (e) {
+      debugPrint("Safe write failed: $e");
     }
   }
 
@@ -135,12 +169,13 @@ class AppLogger {
   }
 
   Future<void> clearLogs() async {
-    await _logFile.writeAsString(jsonEncode([]));
+    await _safeWrite(jsonEncode([]));
     _logController.notify();
   }
 }
 
 enum LogLevel { error, warning, info, debug }
+
 enum LogSource { system, network, ui, db, cache, tool, download, fileSystem }
 
 String logSourceToString(LogSource source) => source.name;
@@ -153,7 +188,14 @@ class LogEntry {
   final LogSource source;
   final String detail;
 
-  LogEntry({required this.timestamp, required this.message, required this.level, required this.iconId, required this.source, required this.detail});
+  LogEntry({
+    required this.timestamp,
+    required this.message,
+    required this.level,
+    required this.iconId,
+    required this.source,
+    required this.detail,
+  });
 
   Map<String, dynamic> toJson() => {
     "timestamp": timestamp.toIso8601String(),
@@ -167,9 +209,15 @@ class LogEntry {
   static LogEntry fromJson(Map<String, dynamic> json) => LogEntry(
     timestamp: DateTime.parse(json["timestamp"]),
     message: json["message"] ?? "",
-    level: LogLevel.values.firstWhere((e) => e.name == json["level"], orElse: () => LogLevel.info),
+    level: LogLevel.values.firstWhere(
+      (e) => e.name == json["level"],
+      orElse: () => LogLevel.info,
+    ),
     iconId: json["iconId"] ?? 0,
-    source: LogSource.values.firstWhere((e) => e.name == json["source"], orElse: () => LogSource.system),
+    source: LogSource.values.firstWhere(
+      (e) => e.name == json["source"],
+      orElse: () => LogSource.system,
+    ),
     detail: json["detail"] ?? "",
   );
 

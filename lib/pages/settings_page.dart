@@ -9,6 +9,7 @@ import 'package:bloret_launcher/core/logger.dart';
 import 'package:bloret_launcher/main.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/update_manager.dart';
+import 'package:bloret_launcher/tools/isolate.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/google_widgets.dart';
 import 'package:bloret_launcher/widgets/log_viewer.dart';
@@ -20,7 +21,24 @@ import 'package:path/path.dart' as p;
 
 import '../core/android_bridge.dart';
 import '../core/grammer_candy.dart';
+import '../core/theme.dart';
+import '../core/theme_manager.dart';
 import '../services/bloriko.dart';
+
+enum SettingCategory {
+  minecraft,
+  home,
+  system,
+  gamepad,
+  notification,
+  appearance,
+  plugins,
+  log,
+  network,
+  ai,
+  bloriko,
+  control,
+}
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -30,7 +48,10 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  String _currentCategory = "";
+  final PageController _pageController = PageController();
+  int _currentPageIndex = 0;
+  SettingCategory _selectedCategory = SettingCategory.appearance;
+
   bool _isCheckingUpdate = false;
   String _hotfixVersion = currentVersion;
   List<String> _minecraftDirs = [];
@@ -41,6 +62,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isFetchingAiModels = false;
   final Set<String> _expandedItems = {};
   final TextEditingController _proxyController = TextEditingController();
+  String? _hoveredColorKey;
 
   @override
   void initState() {
@@ -51,16 +73,61 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     _proxyList = List<String>.from(ConfigService.get('proxy_list') ?? []);
 
-    final cachedJava = ConfigService.get('detected_java_list');
-    if (cachedJava != null) {
-      try {
-        _detectedJavaList = (jsonDecode(cachedJava) as List)
-            .map((e) => Map<String, String>.from(e))
-            .toList();
-      } catch (_) {}
-    }
+    Future.delayed(Duration.zero, () async {
+      _detectedJavaList = await parseJavaCache(
+        ConfigService.get('detected_java_list'),
+      );
+      _refreshJavaList();
+    });
+  }
 
-    _refreshJavaList();
+  static Future<List<dynamic>> jsonDecodeIsolate(String data) async {
+    return jsonDecode(data);
+  }
+
+  static Future<List<Map<String, String>>> parseJavaCache(
+    dynamic cachedData,
+  ) async {
+    final cachedJava = ConfigService.get('detected_java_list');
+    if (cachedJava == null) return [];
+    try {
+      final List list = cachedData is String
+          ? await runIsolate(jsonDecodeIsolate, cachedData)
+          : cachedData;
+      return list.map((e) => Map<String, String>.from(e)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _proxyController.dispose();
+    super.dispose();
+  }
+
+  void _goBackToHub() {
+    _pageController.animateToPage(
+      0,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOutCubic,
+    );
+    setState(() => _currentPageIndex = 0);
+  }
+
+  void _navigateToCategory(SettingCategory category) async {
+    setState(() {
+      _selectedCategory = category;
+      _currentPageIndex = 1;
+    });
+    await Future.delayed(const Duration(milliseconds: 50));
+    if (category == SettingCategory.ai) _fetchRemoteAiModels();
+    _pageController.animateToPage(
+      1,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOutCubic,
+    );
   }
 
   Future<void> _refreshJavaList() async {
@@ -126,8 +193,9 @@ class _SettingsPageState extends State<SettingsPage> {
       final List<Win11DropdownItem> items = [];
 
       for (var model in response.data) {
-        if (provider == 'google_ai_studio' && !model.id.contains('gemini'))
+        if (provider == 'google_ai_studio' && !model.id.contains('gemini')) {
           continue;
+        }
 
         String rawName = model.id.replaceAll('models/', '');
         String formattedName = rawName
@@ -170,73 +238,73 @@ class _SettingsPageState extends State<SettingsPage> {
 
   final List<Map<String, dynamic>> _categories = [
     {
-      "id": "minecraft",
+      "id": SettingCategory.minecraft,
       "title": "Minecraft & Java".tl,
       "desc": "Java, game directories and download sources".tl,
       "icon": CupertinoIcons.cube,
     },
     {
-      "id": "home",
+      "id": SettingCategory.home,
       "title": "Home".tl,
       "desc": "Account display, tray and multi-instance".tl,
       "icon": Icons.home,
     },
     {
-      "id": "system",
+      "id": SettingCategory.system,
       "title": "System".tl,
       "desc": "Close and restart program".tl,
       "icon": Icons.power_settings_new,
     },
     {
-      "id": "gamepad",
+      "id": SettingCategory.gamepad,
       "title": "Virtual Gamepad".tl,
       "desc": "COMING SOON",
       "icon": Icons.videogame_asset,
     },
     {
-      "id": "notification",
+      "id": SettingCategory.notification,
       "title": "Notifications".tl,
       "desc": "COMING SOON",
       "icon": Icons.notifications,
     },
     {
-      "id": "appearance",
+      "id": SettingCategory.appearance,
       "title": "Appearance".tl,
       "desc": "Language and Theme".tl,
       "icon": Icons.color_lens,
     },
     {
-      "id": "plugins",
+      "id": SettingCategory.plugins,
       "title": "Plugins".tl,
       "desc": "COMING SOON",
       "icon": Icons.extension,
     },
     {
-      "id": "log",
+      "id": SettingCategory.log,
       "title": "Logs".tl,
       "desc": "Open or clear log files".tl,
       "icon": Icons.list_alt,
     },
     {
-      "id": "network",
+      "id": SettingCategory.network,
       "title": "Network".tl,
       "desc": "HTTP / SOCKS5 Proxy".tl,
       "icon": Icons.language,
     },
     {
-      "id": "ai",
+      "id": SettingCategory.ai,
       "title": "AI Providers".tl,
       "desc": "Default models and custom providers".tl,
       "icon": Icons.smart_toy,
     },
     {
-      "id": "bloriko",
+      "id": SettingCategory.bloriko,
       "title": "Blora Agent".tl,
       "desc": "AI settings and message connector management".tl,
       "icon": Icons.chat_bubble_outline,
     },
     {
-      "id": "control",
+      "id": SettingCategory.control,
       "title": "App Control".tl,
       "desc": "Hot updates and advanced debugging".tl,
       "icon": Icons.build,
@@ -250,18 +318,17 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: PopScope(
-        canPop: _currentCategory == "",
+        canPop: _currentPageIndex == 0,
         onPopInvokedWithResult: (didPop, result) {
           if (didPop) return;
-          if (_currentCategory != "") {
-            setState(() => _currentCategory = "");
+          if (_currentPageIndex != 0) {
+            _goBackToHub();
           }
         },
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          child: _currentCategory == ""
-              ? _buildHub(theme)
-              : _buildDetail(theme),
+        child: PageView(
+          controller: _pageController,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [_buildHub(theme), _buildDetail(theme)],
         ),
       ),
     );
@@ -344,10 +411,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: InkWell(
                     onTap: isComingSoon
                         ? null
-                        : () {
-                            setState(() => _currentCategory = cat["id"]);
-                            if (cat["id"] == "ai") _fetchRemoteAiModels();
-                          },
+                        : () => _navigateToCategory(cat["id"]),
                     borderRadius: BorderRadius.circular(8),
                     splashColor: theme.colorScheme.primary.withValues(
                       alpha: 0.03,
@@ -409,17 +473,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _buildDetail(ThemeData theme) {
     final cat = _categories.firstWhere(
-      (element) => element["id"] == _currentCategory,
+      (element) => element["id"] == _selectedCategory,
     );
     final brightness = MediaQuery.platformBrightnessOf(context);
     return ListView(
-      key: const ValueKey("detail"),
+      key: ValueKey("detail_${_selectedCategory.name}"),
       padding: const EdgeInsets.all(24),
       children: [
         Row(
           children: [
             IconButton(
-              onPressed: () => setState(() => _currentCategory = ""),
+              onPressed: _goBackToHub,
               icon: const Icon(Icons.arrow_back),
             ),
             const SizedBox(width: 8),
@@ -432,7 +496,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
         ),
         const SizedBox(height: 24),
-        if (_currentCategory == "appearance") ...[
+        if (_selectedCategory == SettingCategory.appearance) ...[
           _buildSettingItem(
             "Language".tl,
             "Adjust language settings".tl,
@@ -465,7 +529,223 @@ class _SettingsPageState extends State<SettingsPage> {
               initialValue: ConfigService.get("theme_mode") ?? "Auto",
               onChanged: (v) async {
                 await ConfigService.set("theme_mode", v);
+                ThemeManager.instance.updateTheme();
               },
+            ),
+          ),
+          _buildSettingItem(
+            "Theme Color".tl,
+            "Select a seed color for the interface".tl,
+            Icons.palette,
+            itemKey: "theme_color",
+            expandedChild: SizedBox(
+              height: 48,
+              child: Stack(
+                children: [
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      ...appThemeColors.entries.map((e) {
+                        final bool isHovered = _hoveredColorKey == e.key;
+                        return Tooltip(
+                          message: e.key.tl,
+                          child: MouseRegion(
+                            onEnter: (_) =>
+                                setState(() => _hoveredColorKey = e.key),
+                            onExit: (_) =>
+                                setState(() => _hoveredColorKey = null),
+                            cursor: SystemMouseCursors.click,
+                            child: GestureDetector(
+                              onTap: () async {
+                                await ConfigService.set(
+                                  "theme_color_key",
+                                  e.key,
+                                );
+                                await ConfigService.set(
+                                  "theme_seed_color",
+                                  null,
+                                );
+                                setState(() {});
+
+                                Future.delayed(
+                                  const Duration(milliseconds: 400),
+                                  () {
+                                    if (mounted) {
+                                      ThemeManager.instance.updateTheme();
+                                    }
+                                  },
+                                );
+                              },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: isHovered
+                                      ? e.value.withValues(alpha: 0.8)
+                                      : e.value,
+                                  shape: BoxShape.circle,
+                                  boxShadow: isHovered
+                                      ? [
+                                          BoxShadow(
+                                            color: e.value.withValues(
+                                              alpha: 0.4,
+                                            ),
+                                            blurRadius: 8,
+                                            spreadRadius: 2,
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                      Tooltip(
+                        message: "Custom Color".tl,
+                        child: MouseRegion(
+                          onEnter: (_) =>
+                              setState(() => _hoveredColorKey = "custom"),
+                          onExit: (_) =>
+                              setState(() => _hoveredColorKey = null),
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: () => _showColorPickerDialog(context),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Colors.red,
+                                    Colors.yellow,
+                                    Colors.green,
+                                    Colors.blue,
+                                  ],
+                                ),
+                                boxShadow: _hoveredColorKey == "custom"
+                                    ? [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.2,
+                                          ),
+                                          blurRadius: 8,
+                                          spreadRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                              child: Opacity(
+                                opacity: 0.4,
+                                child: GridView.count(
+                                  crossAxisCount: 2,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.all(4),
+                                  children: [
+                                    Container(
+                                      margin: const EdgeInsets.all(2),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    Container(
+                                      margin: const EdgeInsets.all(2),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    Container(
+                                      margin: const EdgeInsets.all(2),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    Container(
+                                      margin: const EdgeInsets.all(2),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Builder(
+                    builder: (context) {
+                      final selectedKey =
+                          ConfigService.get("theme_color_key") ??
+                          "classic_blue";
+                      final customColor = ConfigService.get("theme_seed_color");
+
+                      int index;
+                      bool isCustom = false;
+                      if (customColor != null) {
+                        index = appThemeColors.length;
+                        isCustom = true;
+                      } else {
+                        index = appThemeColors.keys.toList().indexOf(
+                          selectedKey,
+                        );
+                      }
+
+                      if (index == -1) return const SizedBox.shrink();
+
+                      return AnimatedPositioned(
+                        duration: const Duration(milliseconds: 350),
+                        curve: Curves.easeOutCubic,
+                        left: index * (40 + 12).toDouble(),
+                        top: 0,
+                        child: IgnorePointer(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              // 始终使用 Rectangle 配合动态 BorderRadius，防止 BoxShape 切换导致的组件重建/消失
+                              borderRadius: BorderRadius.circular(
+                                isCustom ? 8 : 20,
+                              ),
+                              border: Border.all(
+                                color: Colors.white,
+                                width: 2.5,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.3),
+                                  blurRadius: 10,
+                                  spreadRadius: 1,
+                                ),
+                              ],
+                            ),
+                            child: const Center(
+                              child: Icon(
+                                Icons.check,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
           if (Platform.isAndroid)
@@ -495,7 +775,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
         ],
-        if (_currentCategory == "minecraft") ...[
+        if (_selectedCategory == SettingCategory.minecraft) ...[
           _buildSettingItem(
             "Java Selection Mode".tl,
             (ConfigService.get("java_selection_mode") ?? "auto") == "auto"
@@ -777,7 +1057,7 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
         ],
-        if (_currentCategory == "home") ...[
+        if (_selectedCategory == SettingCategory.home) ...[
           _buildSettingItem(
             "Show Account Info".tl,
             "Show account details on home page".tl,
@@ -810,7 +1090,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
         ],
-        if (_currentCategory == "system") ...[
+        if (_selectedCategory == SettingCategory.system) ...[
           _buildSettingItem(
             "Close Program".tl,
             "Completely exit Blora Launcher".tl,
@@ -888,7 +1168,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
         ],
-        if (_currentCategory == "gamepad") ...[
+        if (_selectedCategory == SettingCategory.gamepad) ...[
           Center(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -896,7 +1176,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
         ],
-        if (_currentCategory == "notification") ...[
+        if (_selectedCategory == SettingCategory.notification) ...[
           _buildSettingItem(
             "Enable System Notifications".tl,
             "Master Switch".tl,
@@ -919,7 +1199,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onSwitchChanged: (v) {},
           ),
         ],
-        if (_currentCategory == "log") ...[
+        if (_selectedCategory == SettingCategory.log) ...[
           _buildSettingItem(
             "View Logs".tl,
             "View launcher runtime logs in real-time".tl,
@@ -945,7 +1225,14 @@ class _SettingsPageState extends State<SettingsPage> {
             Icons.folder,
             trailing: IconButton(
               icon: const Icon(Icons.open_in_new),
-              onPressed: () {},
+              onPressed: () async {
+                final logPath = p.join(
+                  p.dirname(Platform.resolvedExecutable),
+                  'app_log.json',
+                );
+
+                await Process.run('explorer.exe', ['/select,$logPath']);
+              },
             ),
           ),
           _buildSettingItem(
@@ -988,7 +1275,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
         ],
-        if (_currentCategory == "network") ...[
+        if (_selectedCategory == SettingCategory.network) ...[
           _buildSettingItem(
             "Network Proxy".tl,
             ConfigService.get("proxy") == null ||
@@ -1099,13 +1386,15 @@ class _SettingsPageState extends State<SettingsPage> {
                                     ConfigService.set("proxy_list", _proxyList);
                                     _proxyController.clear();
                                   });
-                                  if (mounted)
+                                  if (mounted) {
                                     showSuccess("Proxy address added".tl);
+                                  }
                                 } else {
-                                  if (mounted)
+                                  if (mounted) {
                                     showWarning(
                                       "This address is already in the list".tl,
                                     );
+                                  }
                                 }
                               }
                             },
@@ -1121,13 +1410,15 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ConfigService.set("proxy_list", _proxyList);
                                   _proxyController.clear();
                                 });
-                                if (mounted)
+                                if (mounted) {
                                   showSuccess("Proxy address added".tl);
+                                }
                               } else {
-                                if (mounted)
+                                if (mounted) {
                                   showWarning(
                                     "This address is already in the list".tl,
                                   );
+                                }
                               }
                             }
                           },
@@ -1142,7 +1433,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
         ],
-        if (_currentCategory == "bloriko") ...[
+        if (_selectedCategory == SettingCategory.bloriko) ...[
           _buildSettingItem(
             "Current Character Type".tl,
             "Switch AI processing logic".tl,
@@ -1199,7 +1490,7 @@ class _SettingsPageState extends State<SettingsPage> {
             trailing: BloretButton(text: "WIP".tl, onPressed: null),
           ),
         ],
-        if (_currentCategory == "ai") ...[
+        if (_selectedCategory == SettingCategory.ai) ...[
           _buildSettingItem(
             "Current Provider".tl,
             "Switch backend interface source".tl,
@@ -1346,7 +1637,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
         ],
-        if (_currentCategory == "control") ...[
+        if (_selectedCategory == SettingCategory.control) ...[
           if (Platform.isWindows)
             _buildSettingItem(
               "Check for Updates".tl,
@@ -1487,8 +1778,9 @@ class _SettingsPageState extends State<SettingsPage> {
                             showError("${"Check error".tl}: $e");
                           }
                         } finally {
-                          if (mounted)
+                          if (mounted) {
                             setState(() => _isCheckingUpdate = false);
+                          }
                         }
                       },
                     ),
@@ -1504,6 +1796,39 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             ),
           ),
+          _buildSettingItem(
+            "Notifications Success".tl,
+            "Show a test notification".tl,
+            Icons.notifications_active,
+            trailing: BloretButton(
+              text: "Show".tl,
+              onPressed: () {
+                showSuccess("This is a test notification".tl);
+              },
+            ),
+          ),
+          _buildSettingItem(
+            "Notifications Warning".tl,
+            "Show a test notification".tl,
+            Icons.notifications_active,
+            trailing: BloretButton(
+              text: "Show".tl,
+              onPressed: () {
+                showWarning("This is a test notification".tl);
+              },
+            ),
+          ),
+          _buildSettingItem(
+            "Notifications Error".tl,
+            "Show a test notification".tl,
+            Icons.notifications_active,
+            trailing: BloretButton(
+              text: "Show".tl,
+              onPressed: () {
+                showError("This is a test notification".tl);
+              },
+            ),
+          ),
         ],
         const SizedBox(height: 24),
         Text(
@@ -1511,6 +1836,271 @@ class _SettingsPageState extends State<SettingsPage> {
           style: const TextStyle(fontSize: 12, color: Colors.grey),
         ),
       ],
+    );
+  }
+
+  Future<void> _showColorPickerDialog(BuildContext context) async {
+    Color selectedColor = ThemeManager.instance.seedColor;
+    HSVColor hsvColor = HSVColor.fromColor(selectedColor);
+    final TextEditingController hexController = TextEditingController(
+      text: selectedColor
+          .toARGB32()
+          .toRadixString(16)
+          .substring(2)
+          .toUpperCase(),
+    );
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text("Custom Theme Color".tl),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    child: Container(
+                      height: 180,
+                      width: 240,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white,
+                            hsvColor.withSaturation(1).withValue(1).toColor(),
+                          ],
+                        ),
+                      ),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black],
+                          ),
+                        ),
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              left: hsvColor.saturation * 240 - 8,
+                              top: (1 - hsvColor.value) * 180 - 8,
+                              child: Container(
+                                width: 16,
+                                height: 16,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 2,
+                                  ),
+                                  boxShadow: [
+                                    const BoxShadow(
+                                      blurRadius: 4,
+                                      color: Colors.black26,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            // 用于捕捉点击的透明层
+                            Positioned.fill(
+                              child: GestureDetector(
+                                onTapDown: (details) {
+                                  setDialogState(() {
+                                    final s = (details.localPosition.dx / 240)
+                                        .clamp(0.0, 1.0);
+                                    final v =
+                                        (1 - (details.localPosition.dy / 180))
+                                            .clamp(0.0, 1.0);
+                                    hsvColor = hsvColor
+                                        .withSaturation(s)
+                                        .withValue(v);
+                                    selectedColor = hsvColor.toColor();
+                                    hexController.text = selectedColor
+                                        .toARGB32()
+                                        .toRadixString(16)
+                                        .substring(2)
+                                        .toUpperCase();
+                                  });
+                                },
+                                onPanUpdate: (details) {
+                                  setDialogState(() {
+                                    final s = (details.localPosition.dx / 240)
+                                        .clamp(0.0, 1.0);
+                                    final v =
+                                        (1 - (details.localPosition.dy / 180))
+                                            .clamp(0.0, 1.0);
+                                    hsvColor = hsvColor
+                                        .withSaturation(s)
+                                        .withValue(v);
+                                    selectedColor = hsvColor.toColor();
+                                    hexController.text = selectedColor
+                                        .toARGB32()
+                                        .toRadixString(16)
+                                        .substring(2)
+                                        .toUpperCase();
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // 色相滑块
+                  Container(
+                    height: 12,
+                    width: 240,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6),
+                      gradient: const LinearGradient(
+                        colors: [
+                          Color(0xFFFF0000),
+                          Color(0xFFFFFF00),
+                          Color(0xFF00FF00),
+                          Color(0xFF00FFFF),
+                          Color(0xFF0000FF),
+                          Color(0xFFFF00FF),
+                          Color(0xFFFF0000),
+                        ],
+                      ),
+                    ),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          left: (hsvColor.hue / 360) * 240 - 6,
+                          child: Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.black26),
+                            ),
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: GestureDetector(
+                            onPanUpdate: (details) {
+                              setDialogState(() {
+                                final h =
+                                    (details.localPosition.dx / 240).clamp(
+                                      0.0,
+                                      1.0,
+                                    ) *
+                                    360;
+                                hsvColor = hsvColor.withHue(h);
+                                selectedColor = hsvColor.toColor();
+                                hexController.text = selectedColor
+                                    .toARGB32()
+                                    .toRadixString(16)
+                                    .substring(2)
+                                    .toUpperCase();
+                              });
+                            },
+                            onTapDown: (details) {
+                              setDialogState(() {
+                                final h =
+                                    (details.localPosition.dx / 240).clamp(
+                                      0.0,
+                                      1.0,
+                                    ) *
+                                    360;
+                                hsvColor = hsvColor.withHue(h);
+                                selectedColor = hsvColor.toColor();
+                                hexController.text = selectedColor
+                                    .toARGB32()
+                                    .toRadixString(16)
+                                    .substring(2)
+                                    .toUpperCase();
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // 16 进制输入与预览
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: selectedColor,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.grey.withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: hexController,
+                          decoration: InputDecoration(
+                            prefixText: "# ",
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 10,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                          ),
+                          onChanged: (v) {
+                            if (v.length == 6) {
+                              try {
+                                final color = Color(
+                                  int.parse("FF$v", radix: 16),
+                                );
+                                setDialogState(() {
+                                  selectedColor = color;
+                                  hsvColor = HSVColor.fromColor(color);
+                                });
+                              } catch (_) {}
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text("Cancel".tl),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await ThemeManager.instance.setCustomSeedColor(selectedColor);
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    setState(() {});
+                    Future.delayed(const Duration(milliseconds: 400), () {
+                      if (mounted) ThemeManager.instance.updateTheme();
+                    });
+                  }
+                },
+                child: Text("Apply".tl),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 

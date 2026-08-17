@@ -10,6 +10,10 @@ String get agentName => switch (Bloriko.type) {
   _ => "Blora Agent".tl,
 };
 
+// 全局布局状态记录
+bool globalIsAgentExpanded = false;
+bool globalIsInfoExpanded = false;
+
 class TranslationStore {
   static bool showTranslated = false;
   static List<String>? translatedTips;

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:bloret_launcher/core/grammer_candy.dart';
 import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/download_service.dart';
@@ -774,7 +775,10 @@ class LaunchService {
     int totalDownloaded = 0;
 
     while (missing.isNotEmpty) {
-      onStatus?.call("Completing files (${missing.length} pending)...".tl, 0.0);
+      onStatus?.call(
+        "Completing files (%s pending)...".tl.format(missing.length),
+        0.0,
+      );
 
       final List<DownloadItem> items = [];
       for (var m in missing) {
@@ -798,7 +802,6 @@ class LaunchService {
       );
       totalDownloaded += items.length;
 
-      // If index was downloaded, need to re-scan objects
       if (indexDownloaded) {
         indexDownloaded = false;
         missing = await getMissingFiles(minecraftDir, versionId);
@@ -807,7 +810,7 @@ class LaunchService {
       }
     }
 
-    onStatus?.call("Completed $totalDownloaded files".tl, 1.0);
+    onStatus?.call("Completed %s files".tl.format(totalDownloaded), 1.0);
   }
 
   Future<Process> launch({
@@ -927,7 +930,7 @@ class LaunchService {
       versionData,
       onProgress: (p) {
         onStatus?.call(
-          "Scanning library files ($version)...".tl,
+          "Scanning library files (%s)...".tl.format(version),
           0.2 + (p * 0.3),
         );
       },

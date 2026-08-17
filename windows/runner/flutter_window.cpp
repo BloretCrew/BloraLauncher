@@ -32,8 +32,6 @@ using namespace Gdiplus;
 static FlutterWindow* g_flutter_window = nullptr;
 bool g_isDark = false;
 
-// --- High Res Icon Extraction Helper Section ---
-
 #pragma pack(push, 2)
 typedef struct {
     BYTE bWidth;
@@ -156,8 +154,6 @@ extern "C" __declspec(dllexport) int ExtractHighResIcon(const wchar_t* exePath, 
     FreeLibrary(hModule);
     return param.found ? 0 : 2;
 }
-
-// --- End of High Res Icon Extraction Helper Section ---
 
 extern "C" __declspec(dllexport) void SetTaskbarProgress(uint64_t completed, uint64_t total) {
   if (g_flutter_window) g_flutter_window->SetTaskbarProgress(completed, total);
@@ -343,8 +339,8 @@ void SetDarkMode(HWND hwnd, bool dark)
 extern "C" __declspec(dllexport)
 void SetIconTheme(bool dark)
 {
-  HWND hwnd = FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", nullptr);
-  if (!hwnd) return;
+  if (!g_flutter_window) return;
+  HWND hwnd = g_flutter_window->GetHandle();
 
   SetDarkMode(hwnd, dark);
 

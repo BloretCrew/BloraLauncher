@@ -22,10 +22,10 @@ class ModpackService {
       final bytes = await mrpackFile.readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
 
-      // 1. Read index
       final indexFile = archive.findFile('modrinth.index.json');
-      if (indexFile == null)
+      if (indexFile == null) {
         throw Exception("modrinth.index.json not found in mrpack");
+      }
       final indexData =
           jsonDecode(utf8.decode(indexFile.content)) as Map<String, dynamic>;
 
@@ -53,7 +53,6 @@ class ModpackService {
         loaderVersion = indexData['dependencies']['quilt-loader'];
       }
 
-      // 2. Ensure unique instance name
       String instanceName = name
           .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1f]'), '_')
           .replaceAll(' ', '_');
@@ -71,7 +70,6 @@ class ModpackService {
       );
       await instanceDir.create(recursive: true);
 
-      // 3. Install Minecraft & Loader
       onProgress?.call("Installing Minecraft $mcVersion...".tl, 0.1);
       final versions = await DownloadService.instance.fetchAllVanillaVersions();
       final mcInfo = versions.firstWhere(
@@ -92,12 +90,13 @@ class ModpackService {
         LoaderType type = LoaderType.vanilla;
         if (loaderType == 'fabric') {
           type = LoaderType.fabric;
-        } else if (loaderType == 'forge')
+        } else if (loaderType == 'forge') {
           type = LoaderType.forge;
-        else if (loaderType == 'neoforge')
+        } else if (loaderType == 'neoforge') {
           type = LoaderType.neoforge;
-        else if (loaderType == 'quilt')
+        } else if (loaderType == 'quilt') {
           type = LoaderType.quilt;
+        }
 
         await DownloadService.instance.installLoader(
           mcVersion,
@@ -106,13 +105,8 @@ class ModpackService {
           Directory(minecraftDir),
           customVersionId: uniqueName,
         );
-        // Note: installLoader usually creates its own version folder.
-        // mrpack import usually wants to merge everything into 'uniqueName'.
-        // But the current installLoader doesn't take a target instance name.
-        // We might need to rename it later or adjust the logic.
       }
 
-      // 4. Download files
       final files = indexData['files'] as List;
       if (files.isNotEmpty) {
         onProgress?.call(

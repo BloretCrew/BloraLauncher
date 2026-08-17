@@ -137,8 +137,9 @@ class I18n extends ChangeNotifier {
         _missingValues[key] = "";
         _saveMissingKeys();
       }
-      if (_currentLang != 'en_us')
+      if (_currentLang != 'en_us') {
         debugPrint("----------MISSING KEY: $key-----------");
+      }
     }
 
     return value ?? key;
@@ -157,5 +158,6 @@ class I18n extends ChangeNotifier {
 
 extension I18nExtension on String {
   /// Internationalization syntax sugar. Use as: 'my_key'.tl
+  /// Use with .format() to interpolate variables.
   String get tl => I18n.translate(this);
 }

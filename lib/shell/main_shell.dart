@@ -1,4 +1,6 @@
 import 'dart:async';
+
+import 'package:bloret_launcher/core/window_bridge.dart';
 import 'package:bloret_launcher/pages/about_page.dart';
 import 'package:bloret_launcher/pages/bbbs_page.dart';
 import 'package:bloret_launcher/pages/blora_chat_page.dart';
@@ -12,19 +14,18 @@ import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/download_service.dart';
 import 'package:bloret_launcher/services/win32_icon_service.dart';
-import 'package:bloret_launcher/core/window_bridge.dart';
+import 'package:bloret_launcher/tools/server_info.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher_string.dart';
-import 'package:bloret_launcher/tools/server_info.dart';
 
 import '../core/global.dart';
+import '../core/i18n.dart';
 import '../main.dart';
 import '../pages/home_page.dart';
 import '../pages/passport_page.dart';
 import '../pages/settings_page.dart';
-import '../core/i18n.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -40,7 +41,10 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   Timer? _timer;
   final Set<int> _renderedIndices = {0};
 
-  final _trayChannel = const BasicMessageChannel('bloret/tray', StandardMessageCodec());
+  final _trayChannel = const BasicMessageChannel(
+    'bloret/tray',
+    StandardMessageCodec(),
+  );
 
   @override
   void initState() {
@@ -72,7 +76,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
       _updateAppIcon();
       final futures = Future.wait([
         BloretApiService.fetchLauncherConfig(),
-        BloretApiService.fetchServerInfo("Bloret")
+        BloretApiService.fetchServerInfo("Bloret"),
       ]);
       futures.then((value) {
         config = value[0] as BloraLauncherConfig?;
@@ -109,26 +113,93 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   void _updateAppIcon() {
-    final isDark = WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.dark;
+    final isDark =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+        Brightness.dark;
     Win32IconService.switchIcon(isDark);
   }
 
   List<dynamic> get _pages => [
-    (_NavDestination("Home".tl, Icons.home_outlined, Icons.home,), () => const HomePage()),
-    (_NavDestination("Agent".tl, Icons.smart_toy_outlined, Icons.smart_toy, keepAlive: true), () => const BloraChatPage()),
+    (
+      _NavDestination("Home".tl, Icons.home_outlined, Icons.home),
+      () => const HomePage(),
+    ),
+    (
+      _NavDestination(
+        "Agent".tl,
+        Icons.smart_toy_outlined,
+        Icons.smart_toy,
+        keepAlive: true,
+      ),
+      () => const BloraChatPage(),
+    ),
     "divider",
-    (_NavDestination("Download".tl, Icons.file_download_outlined, Icons.file_download,), () => const DownloadPage()),
-    (_NavDestination("Cores".tl, Icons.view_in_ar_outlined, Icons.view_in_ar, keepAlive: true), () => const CoresPage()),
-    (_NavDestination("Tools".tl, Icons.handyman_outlined, Icons.handyman, keepAlive: true), () => const ToolsPage()),
-    (_NavDestination("Stats".tl, Icons.bar_chart_outlined, Icons.bar_chart), () => const StatsPage()),
-    (_NavDestination("Mods".tl, Icons.extension_outlined, Icons.extension), () => const ModsPage()),
-    (_NavDestination("BBBS".tl, Icons.forum_outlined, Icons.forum, keepAlive: true), () => const BbbsPage()),
-    (_NavDestination("Live".tl, Icons.live_tv_outlined, Icons.live_tv, keepAlive: true), () => const LivePage()),
+    (
+      _NavDestination(
+        "Download".tl,
+        Icons.file_download_outlined,
+        Icons.file_download,
+      ),
+      () => const DownloadPage(),
+    ),
+    (
+      _NavDestination(
+        "Cores".tl,
+        Icons.view_in_ar_outlined,
+        Icons.view_in_ar,
+        keepAlive: true,
+      ),
+      () => const CoresPage(),
+    ),
+    (
+      _NavDestination(
+        "Tools".tl,
+        Icons.handyman_outlined,
+        Icons.handyman,
+        keepAlive: true,
+      ),
+      () => const ToolsPage(),
+    ),
+    (
+      _NavDestination("Stats".tl, Icons.bar_chart_outlined, Icons.bar_chart),
+      () => const StatsPage(),
+    ),
+    (
+      _NavDestination("Mods".tl, Icons.extension_outlined, Icons.extension),
+      () => const ModsPage(),
+    ),
+    (
+      _NavDestination(
+        "BBBS".tl,
+        Icons.forum_outlined,
+        Icons.forum,
+        keepAlive: true,
+      ),
+      () => const BbbsPage(),
+    ),
+    (
+      _NavDestination(
+        "Live".tl,
+        Icons.live_tv_outlined,
+        Icons.live_tv,
+        keepAlive: true,
+      ),
+      () => const LivePage(),
+    ),
 
     "divider",
-    (_NavDestination("Passport".tl, Icons.person_outline, Icons.person), () => const PassPortPage()),
-    (_NavDestination("Settings".tl, Icons.settings_outlined, Icons.settings), () => const SettingsPage()),
-    (_NavDestination("About".tl, Icons.info_outline, Icons.info), () => const AboutPage()),
+    (
+      _NavDestination("Passport".tl, Icons.person_outline, Icons.person),
+      () => const PassPortPage(),
+    ),
+    (
+      _NavDestination("Settings".tl, Icons.settings_outlined, Icons.settings),
+      () => const SettingsPage(),
+    ),
+    (
+      _NavDestination("About".tl, Icons.info_outline, Icons.info),
+      () => const AboutPage(),
+    ),
   ];
 
   Widget _buildAgentOverlay(BuildContext context, bool isPortrait) {
@@ -139,10 +210,22 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.9),
+            color: Theme.of(
+              context,
+            ).colorScheme.primaryContainer.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(25),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))],
-            border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            border: Border.all(
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.3),
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -150,7 +233,11 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
               Stack(
                 alignment: Alignment.center,
                 children: [
-                  const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2)),
+                  const SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
                   Icon(_getEmotionIcon(Bloriko.instance.emotion), size: 16),
                 ],
               ),
@@ -159,23 +246,38 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(Bloriko.instance.currentTool != null && Bloriko.instance.currentTool! != "set_user_identity"
-                      ? Bloriko.instance.currentTool!
-                      : agentName.tl,
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onPrimaryContainer)
+                  Text(
+                    Bloriko.instance.currentTool != null &&
+                            Bloriko.instance.currentTool! != "set_user_identity"
+                        ? Bloriko.instance.currentTool!
+                        : agentName.tl,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
                   ),
                   if (Bloriko.instance.currentTool == null)
                     Row(
                       children: [
                         Text(
-                            switch (Bloriko.instance.connectionStatus) {
-                              BlorikoConnectionStatus.connecting => "Connecting...".tl,
-                              BlorikoConnectionStatus.handshake => "Verifying...".tl,
-                              BlorikoConnectionStatus.streaming => "Thinking...".tl,
-                              BlorikoConnectionStatus.error => "Error".tl,
-                              _ => "Running".tl,
-                            },
-                            style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.7))
+                          switch (Bloriko.instance.connectionStatus) {
+                            BlorikoConnectionStatus.connecting =>
+                              "Connecting...".tl,
+                            BlorikoConnectionStatus.handshake =>
+                              "Verifying...".tl,
+                            BlorikoConnectionStatus.streaming =>
+                              "Thinking...".tl,
+                            BlorikoConnectionStatus.error => "Error".tl,
+                            _ => "Running".tl,
+                          },
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onPrimaryContainer
+                                .withValues(alpha: 0.7),
+                          ),
                         ),
                       ],
                     ),
@@ -199,16 +301,32 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
         curve: Curves.easeOutQuart,
         width: _isDownloadExpanded ? 300 : 48,
         height: _isDownloadExpanded ? 350 : 48,
-        padding: _isDownloadExpanded ? const EdgeInsets.all(12) : EdgeInsets.zero,
+        padding: _isDownloadExpanded
+            ? const EdgeInsets.all(12)
+            : EdgeInsets.zero,
         decoration: BoxDecoration(
-          color: _isDownloadExpanded 
+          color: _isDownloadExpanded
               ? Theme.of(context).colorScheme.surface.withValues(alpha: 0.95)
-              : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
+              : Theme.of(
+                  context,
+                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(_isDownloadExpanded ? 20 : 24),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4))],
-          border: Border.all(color: (_isDownloadExpanded ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline).withValues(alpha: 0.3)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+          border: Border.all(
+            color:
+                (_isDownloadExpanded
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.outline)
+                    .withValues(alpha: 0.3),
+          ),
         ),
-        child: _isDownloadExpanded 
+        child: _isDownloadExpanded
             ? _buildExpandedDownload(context, activeTasks, progress)
             : _buildCompactDownload(progress),
       ),
@@ -221,24 +339,34 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
       alignment: Alignment.center,
       children: [
         SizedBox(
-          width: 36, height: 36, 
+          width: 36,
+          height: 36,
           child: CircularProgressIndicator(
             value: progress,
             strokeWidth: 3,
             color: Colors.blueAccent,
-          )
+          ),
         ),
-        Icon(speed > 0 ? Icons.downloading : Icons.file_download_outlined, size: 18, color: Colors.blueAccent),
+        Icon(
+          speed > 0 ? Icons.downloading : Icons.file_download_outlined,
+          size: 18,
+          color: Colors.blueAccent,
+        ),
       ],
     );
   }
 
-  Widget _buildExpandedDownload(BuildContext context, List<DownloadTask> activeTasks, double progress) {
-    // 仅显示正在下载或已有进度（或报错）的任务，过滤掉纯排队/准备中的任务
+  Widget _buildExpandedDownload(
+    BuildContext context,
+    List<DownloadTask> activeTasks,
+    double progress,
+  ) {
     final tasks = DownloadService.instance.getTasks().where((t) {
-      return t.isDownloading || (t.progress > 0 && t.progress < 1.0) || t.status.contains("失败");
+      return t.isDownloading ||
+          (t.progress > 0 && t.progress < 1.0) ||
+          t.status.contains("失败");
     }).toList();
-    
+
     final totalSpeed = DownloadService.instance.totalSpeed;
     final remaining = DownloadService.instance.remainingTasks;
 
@@ -247,7 +375,11 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
       children: [
         Row(
           children: [
-            Icon(Icons.file_download, color: Theme.of(context).colorScheme.primary, size: 20),
+            Icon(
+              Icons.file_download,
+              color: Theme.of(context).colorScheme.primary,
+              size: 20,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -255,10 +387,13 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    activeTasks.length > 1 
+                    activeTasks.length > 1
                         ? "${activeTasks.length} ${"Downloads".tl}"
-                        : "Downloading".tl, 
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)
+                        : "Downloading".tl,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
                   ),
                   if (totalSpeed > 0)
                     Text(
@@ -273,7 +408,13 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 ],
               ),
             ),
-            Text("${(progress * 100).toInt()}%", style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
+            Text(
+              "${(progress * 100).toInt()}%",
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(width: 8),
             IconButton(
               icon: const Icon(Icons.close, size: 18),
@@ -285,50 +426,84 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
         ),
         const Divider(height: 12),
         Expanded(
-          child: tasks.isEmpty 
-            ? Center(child: Text("No tasks".tl))
-            : ListView.builder(
-                padding: EdgeInsets.zero,
-                itemCount: tasks.length,
-                itemBuilder: (context, index) {
-                  final task = tasks[index];
-                  return ListenableBuilder(
-                    listenable: task,
-                    builder: (context, child) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(child: Text(task.id, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
-                                if (task.isDownloading) ...[
-                                  Text(DownloadService.instance.formatSpeed(task.speed), style: const TextStyle(fontSize: 9, color: Colors.blueAccent)),
-                                  const SizedBox(width: 4),
-                                  IconButton(
-                                    icon: const Icon(Icons.cancel_outlined, size: 14, color: Colors.redAccent),
-                                    onPressed: () => DownloadService.instance.cancelTask(task.id),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
+          child: tasks.isEmpty
+              ? Center(child: Text("No tasks".tl))
+              : ListView.builder(
+                  padding: EdgeInsets.zero,
+                  itemCount: tasks.length,
+                  itemBuilder: (context, index) {
+                    final task = tasks[index];
+                    return ListenableBuilder(
+                      listenable: task,
+                      builder: (context, child) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      task.id,
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
+                                  if (task.isDownloading) ...[
+                                    Text(
+                                      DownloadService.instance.formatSpeed(
+                                        task.speed,
+                                      ),
+                                      style: const TextStyle(
+                                        fontSize: 9,
+                                        color: Colors.blueAccent,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.cancel_outlined,
+                                        size: 14,
+                                        color: Colors.redAccent,
+                                      ),
+                                      onPressed: () => DownloadService.instance
+                                          .cancelTask(task.id),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ],
                                 ],
-                              ],
-                            ),
-                            const SizedBox(height: 2),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(2),
-                              child: LinearProgressIndicator(value: task.progress, minHeight: 3, backgroundColor: Colors.grey.withValues(alpha: 0.1)),
-                            ),
-                            if (task.isDownloading)
-                              Text(task.status, style: const TextStyle(fontSize: 9, color: Colors.grey)),
-                          ],
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
+                              ),
+                              const SizedBox(height: 2),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(2),
+                                child: LinearProgressIndicator(
+                                  value: task.progress,
+                                  minHeight: 3,
+                                  backgroundColor: Colors.grey.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                ),
+                              ),
+                              if (task.isDownloading)
+                                Text(
+                                  task.status,
+                                  style: const TextStyle(
+                                    fontSize: 9,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -372,269 +547,337 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final isPortrait =
+        MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
-    final userName = ConfigService.get('Bloret_PassPort_UserName') ?? "Guest".tl;
+    final userName =
+        ConfigService.get('Bloret_PassPort_UserName') ?? "Guest".tl;
     final avatar = ConfigService.get('Bloret_PassPort_Avatar') ?? "";
 
     return Scaffold(
-        body: SafeArea(
-          child: Stack(
-            children: [
-              Row(
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 400),
-                    width: !isPortrait ? (_isExtended ? 240 : 48) : 0,
-                    curve: Curves.linearToEaseOut,
-                    child: ClipRect(
-                      child: OverflowBox(
-                        alignment: Alignment.topLeft,
-                        minWidth: _isExtended ? 240 : 48,
-                        maxWidth: _isExtended ? 240 : 48,
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: _isExtended ? 239 : 47,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 4),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const SizedBox(height: 8),
-                                    _NavTile(
-                                      icon: Icons.menu,
-                                      title: "Menu".tl,
-                                      isExtended: false,
-                                      isSelected: false,
-                                      compact: true,
-                                      onTap: () => setState(() => _isExtended = !_isExtended),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 400),
+                  width: !isPortrait ? (_isExtended ? 240 : 48) : 0,
+                  curve: Curves.linearToEaseOut,
+                  child: ClipRect(
+                    child: OverflowBox(
+                      alignment: Alignment.topLeft,
+                      minWidth: _isExtended ? 240 : 48,
+                      maxWidth: _isExtended ? 240 : 48,
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: _isExtended ? 239 : 47,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 8),
+                                  _NavTile(
+                                    icon: Icons.menu,
+                                    title: "Menu".tl,
+                                    isExtended: false,
+                                    isSelected: false,
+                                    compact: true,
+                                    onTap: () => setState(
+                                      () => _isExtended = !_isExtended,
                                     ),
-                                    const SizedBox(height: 12),
-                                    Expanded(
-                                      child: ListView.builder(
-                                        padding: EdgeInsets.zero,
-                                        itemCount: 10,
-                                        itemBuilder: (context, index) {
-                                          final item = _pages[index];
-                                          if (item is String) {
-                                            return const Divider(height: 16, indent: 8, endIndent: 8);
-                                          }
-                                          final dest = item.$1;
-                                          return _NavTile(
-                                            icon: dest.icon,
-                                            selectedIcon: dest.selectedIcon,
-                                            title: dest.title,
-                                            isExtended: _isExtended,
-                                            isSelected: selectedIndex == index,
-                                            onTap: () => _onPageChanged(index),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Expanded(
+                                    child: ListView.builder(
+                                      padding: EdgeInsets.zero,
+                                      itemCount: 10,
+                                      itemBuilder: (context, index) {
+                                        final item = _pages[index];
+                                        if (item is String) {
+                                          return const Divider(
+                                            height: 16,
+                                            indent: 8,
+                                            endIndent: 8,
                                           );
-                                        },
-                                      ),
+                                        }
+                                        final dest = item.$1;
+                                        return _NavTile(
+                                          icon: dest.icon,
+                                          selectedIcon: dest.selectedIcon,
+                                          title: dest.title,
+                                          isExtended: _isExtended,
+                                          isSelected: selectedIndex == index,
+                                          onTap: () => _onPageChanged(index),
+                                        );
+                                      },
                                     ),
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 8),
-                                      child: Column(
-                                        children: [
-                                          const Divider(height: 16, indent: 8, endIndent: 8),
-                                          _AccountTile(
-                                            isExtended: _isExtended,
-                                            isSelected: selectedIndex == 11,
-                                            userName: userName,
-                                            avatar: avatar,
-                                            onTap: () => _onPageChanged(11),
-                                          ),
-                                          _NavTile(
-                                            icon: _pages[12].$1.icon,
-                                            title: _pages[12].$1.title,
-                                            isExtended: _isExtended,
-                                            isSelected: selectedIndex == 12,
-                                            onTap: () => _onPageChanged(12),
-                                          ),
-                                          _NavTile(
-                                            icon: _pages[13].$1.icon,
-                                            title: _pages[13].$1.title,
-                                            isExtended: _isExtended,
-                                            isSelected: selectedIndex == 13,
-                                            onTap: () => _onPageChanged(13),
-                                          ),
-                                        ],
-                                      ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Column(
+                                      children: [
+                                        const Divider(
+                                          height: 16,
+                                          indent: 8,
+                                          endIndent: 8,
+                                        ),
+                                        _AccountTile(
+                                          isExtended: _isExtended,
+                                          isSelected: selectedIndex == 11,
+                                          userName: userName,
+                                          avatar: avatar,
+                                          onTap: () => _onPageChanged(11),
+                                        ),
+                                        _NavTile(
+                                          icon: _pages[12].$1.icon,
+                                          title: _pages[12].$1.title,
+                                          isExtended: _isExtended,
+                                          isSelected: selectedIndex == 12,
+                                          onTap: () => _onPageChanged(12),
+                                        ),
+                                        _NavTile(
+                                          icon: _pages[13].$1.icon,
+                                          title: _pages[13].$1.title,
+                                          isExtended: _isExtended,
+                                          isSelected: selectedIndex == 13,
+                                          onTap: () => _onPageChanged(13),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const VerticalDivider(thickness: 1, width: 1),
-                          ],
-                        ),
+                          ),
+                          const VerticalDivider(thickness: 1, width: 1),
+                        ],
                       ),
                     ),
                   ),
-                  Expanded(
-                    child: ListenableBuilder(
-                      listenable: Listenable.merge([Bloriko.instance, Bloriko.typeNotifier, Bloriko.modeNotifier]),
-                      builder: (context, child) {
-                        return Stack(
-                          children: _pages.asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final item = entry.value;
-                            if (item is String) return const SizedBox.shrink();
+                ),
+                Expanded(
+                  child: ListenableBuilder(
+                    listenable: Listenable.merge([
+                      Bloriko.instance,
+                      Bloriko.typeNotifier,
+                      Bloriko.modeNotifier,
+                    ]),
+                    builder: (context, child) {
+                      return Stack(
+                        children: _pages.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final item = entry.value;
+                          if (item is String) return const SizedBox.shrink();
 
-                            final isSelected = selectedIndex == index;
-                            if (!_renderedIndices.contains(index)) return const SizedBox.shrink();
+                          final isSelected = selectedIndex == index;
+                          if (!_renderedIndices.contains(index)) {
+                            return const SizedBox.shrink();
+                          }
 
-                            return AnimatedOpacity(
-                              key: ValueKey(index),
-                              duration: const Duration(milliseconds: 400),
-                              curve: Curves.easeOutCubic,
-                              opacity: isSelected ? 1.0 : 0.0,
-                              child: IgnorePointer(
-                                ignoring: !isSelected,
-                                child: AnimatedSlide(
-                                  duration: const Duration(milliseconds: 400),
-                                  curve: Curves.easeOutCubic,
-                                  offset: isSelected
-                                      ? Offset.zero
-                                      : (isPortrait ? const Offset(0, 0.05) : const Offset(0.02, 0)),
-                                  child: (item.$2 as Widget Function())(),
-                                ),
+                          return AnimatedOpacity(
+                            key: ValueKey(index),
+                            duration: const Duration(milliseconds: 400),
+                            curve: Curves.easeOutCubic,
+                            opacity: isSelected ? 1.0 : 0.0,
+                            child: IgnorePointer(
+                              ignoring: !isSelected,
+                              child: AnimatedSlide(
+                                duration: const Duration(milliseconds: 400),
+                                curve: Curves.easeOutCubic,
+                                offset: isSelected
+                                    ? Offset.zero
+                                    : (isPortrait
+                                          ? const Offset(0, 0.05)
+                                          : const Offset(0.02, 0)),
+                                child: (item.$2 as Widget Function())(),
                               ),
-                            );
-                          }).toList(),
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+
+            Positioned(
+              bottom: isPortrait ? 100 : 100,
+              right: 24,
+              child: ListenableBuilder(
+                listenable: Listenable.merge([
+                  DownloadService.instance,
+                  Bloriko.instance,
+                ]),
+                builder: (context, child) {
+                  final showDownload =
+                      DownloadService.instance.activeTasks.isNotEmpty;
+                  final showAgent = Bloriko.instance.busy && selectedIndex != 1;
+
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 500),
+                        transitionBuilder: (child, animation) => FadeTransition(
+                          opacity: animation,
+                          child: ScaleTransition(
+                            scale: animation,
+                            child: child,
+                          ),
+                        ),
+                        child: showDownload
+                            ? _buildDownloadOverlay(context)
+                            : const SizedBox.shrink(
+                                key: ValueKey("no_download"),
+                              ),
+                      ),
+                      if (showDownload && showAgent) const SizedBox(width: 12),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 500),
+                        transitionBuilder: (child, animation) => FadeTransition(
+                          opacity: animation,
+                          child: ScaleTransition(
+                            scale: animation,
+                            child: child,
+                          ),
+                        ),
+                        child: showAgent
+                            ? _buildAgentOverlay(context, isPortrait)
+                            : const SizedBox.shrink(key: ValueKey("no_agent")),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        height: isPortrait ? 84 : 0,
+        child: ClipRect(
+          child: isPortrait
+              ? Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    border: Border(
+                      top: BorderSide(
+                        color: Theme.of(
+                          context,
+                        ).dividerColor.withValues(alpha: 0.1),
+                      ),
+                    ),
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: _pages.length,
+                      itemBuilder: (context, index) {
+                        final item = _pages[index];
+                        if (item is String) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            child: Center(
+                              child: SizedBox(
+                                height: 24,
+                                child: VerticalDivider(width: 1),
+                              ),
+                            ),
+                          );
+                        }
+
+                        final dest = item.$1;
+                        final isSelected = selectedIndex == index;
+                        final theme = Theme.of(context);
+
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 4,
+                          ),
+                          child: InkWell(
+                            onTap: () => _onPageChanged(index),
+                            borderRadius: BorderRadius.circular(12),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color: isSelected
+                                    ? theme.colorScheme.primaryContainer
+                                          .withValues(alpha: 0.4)
+                                    : Colors.transparent,
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    isSelected ? dest.selectedIcon : dest.icon,
+                                    color: isSelected
+                                        ? theme.colorScheme.primary
+                                        : theme.colorScheme.onSurfaceVariant,
+                                    size: 24,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    dest.title,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.w500,
+                                      color: isSelected
+                                          ? theme.colorScheme.primary
+                                          : theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         );
                       },
                     ),
                   ),
-                ],
-              ),
-
-              // Floating Overlays (Download & Agent)
-              Positioned(
-                bottom: isPortrait ? 100 : 100,
-                right: 24,
-                child: ListenableBuilder(
-                  listenable: Listenable.merge([DownloadService.instance, Bloriko.instance]),
-                  builder: (context, child) {
-                    final showDownload = DownloadService.instance.activeTasks.isNotEmpty;
-                    final showAgent = Bloriko.instance.busy && selectedIndex != 1;
-                    
-                    return Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 500),
-                          transitionBuilder: (child, animation) => FadeTransition(
-                            opacity: animation,
-                            child: ScaleTransition(scale: animation, child: child),
-                          ),
-                          child: showDownload 
-                            ? _buildDownloadOverlay(context)
-                            : const SizedBox.shrink(key: ValueKey("no_download")),
-                        ),
-                        if (showDownload && showAgent) const SizedBox(width: 12),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 500),
-                          transitionBuilder: (child, animation) => FadeTransition(
-                            opacity: animation,
-                            child: ScaleTransition(scale: animation, child: child),
-                          ),
-                          child: showAgent 
-                            ? _buildAgentOverlay(context, isPortrait)
-                            : const SizedBox.shrink(key: ValueKey("no_agent")),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
+                )
+              : const SizedBox.shrink(),
         ),
-        bottomNavigationBar: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
-          height: isPortrait ? 84 : 0,
-          child: ClipRect(
-            child: isPortrait ? Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                border: Border(top: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.1))),
-              ),
-              child: SafeArea(
-                top: false,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: _pages.length,
-                  itemBuilder: (context, index) {
-                    final item = _pages[index];
-                    if (item is String) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8),
-                        child: Center(child: SizedBox(height: 24, child: VerticalDivider(width: 1))),
-                      );
-                    }
-
-                    final dest = item.$1;
-                    final isSelected = selectedIndex == index;
-                    final theme = Theme.of(context);
-
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                      child: InkWell(
-                        onTap: () => _onPageChanged(index),
-                        borderRadius: BorderRadius.circular(12),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            color: isSelected ? theme.colorScheme.primaryContainer.withValues(alpha: 0.4) : Colors.transparent,
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                  isSelected ? dest.selectedIcon : dest.icon,
-                                  color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
-                                  size: 24
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                dest.title,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                  color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ) : const SizedBox.shrink(),
-          ),
-        )
+      ),
     );
   }
 }
 
 IconData _getEmotionIcon(String emotion) {
   switch (emotion) {
-    case 'neutral': return Icons.sentiment_satisfied;
-    case 'happy': return Icons.sentiment_very_satisfied;
-    case 'shy': return Icons.face_retouching_natural;
-    case 'angry': return Icons.sentiment_very_dissatisfied;
-    case 'sad': return Icons.sentiment_dissatisfied;
-    case 'excited': return Icons.celebration;
-    case 'curious': return Icons.help_outline;
-    default: return Icons.sentiment_satisfied;
+    case 'neutral':
+      return Icons.sentiment_satisfied;
+    case 'happy':
+      return Icons.sentiment_very_satisfied;
+    case 'shy':
+      return Icons.face_retouching_natural;
+    case 'angry':
+      return Icons.sentiment_very_dissatisfied;
+    case 'sad':
+      return Icons.sentiment_dissatisfied;
+    case 'excited':
+      return Icons.celebration;
+    case 'curious':
+      return Icons.help_outline;
+    default:
+      return Icons.sentiment_satisfied;
   }
 }
 
@@ -660,7 +903,9 @@ class _NavTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurface;
+    final color = isSelected
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurface;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
@@ -675,7 +920,9 @@ class _NavTile extends StatelessWidget {
             width: compact ? 40 : null,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
-              color: isSelected ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.5) : Colors.transparent,
+              color: isSelected
+                  ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.5)
+                  : Colors.transparent,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
@@ -683,7 +930,11 @@ class _NavTile extends StatelessWidget {
                 const SizedBox(width: 10),
                 SizedBox(
                   width: 20,
-                  child: Icon(isSelected ? (selectedIcon ?? icon) : icon, color: color, size: 20),
+                  child: Icon(
+                    isSelected ? (selectedIcon ?? icon) : icon,
+                    color: color,
+                    size: 20,
+                  ),
                 ),
                 if (isExtended && !compact) ...[
                   const SizedBox(width: 12),
@@ -694,7 +945,9 @@ class _NavTile extends StatelessWidget {
                       child: Text(
                         title,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
                           fontSize: 13,
                           color: color,
                         ),
@@ -745,7 +998,9 @@ class _AccountTile extends StatelessWidget {
             height: 44,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
-              color: isSelected ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.5) : Colors.transparent,
+              color: isSelected
+                  ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.5)
+                  : Colors.transparent,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
@@ -756,12 +1011,27 @@ class _AccountTile extends StatelessWidget {
                   height: 28,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
-                    child: avatar.isNotEmpty && ConfigService.get('Bloret_PassPort_Login') == true
-                        ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover, errorWidget: (_,_,_) => const Icon(Icons.account_circle, size: 28), progressIndicatorBuilder: (_, _, loadingProgress) => const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 4),))
+                    child:
+                        avatar.isNotEmpty &&
+                            ConfigService.get('Bloret_PassPort_Login') == true
+                        ? CachedNetworkImage(
+                            imageUrl: avatar,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, _, _) =>
+                                const Icon(Icons.account_circle, size: 28),
+                            progressIndicatorBuilder: (_, _, loadingProgress) =>
+                                const SizedBox(
+                                  width: 28,
+                                  height: 28,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 4,
+                                  ),
+                                ),
+                          )
                         : Container(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      child: const Icon(Icons.person, size: 18),
-                    ),
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            child: const Icon(Icons.person, size: 18),
+                          ),
                   ),
                 ),
                 if (isExtended) ...[
@@ -771,7 +1041,9 @@ class _AccountTile extends StatelessWidget {
                       duration: const Duration(milliseconds: 200),
                       opacity: isExtended ? 1.0 : 0.0,
                       child: Text(
-                        ConfigService.get('Bloret_PassPort_Login') == true ? userName : "Login".tl,
+                        ConfigService.get('Bloret_PassPort_Login') == true
+                            ? userName
+                            : "Login".tl,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                           fontSize: 13,
@@ -798,5 +1070,10 @@ class _NavDestination {
   final IconData icon;
   final IconData selectedIcon;
   final bool keepAlive;
-  const _NavDestination(this.title, this.icon, this.selectedIcon, {this.keepAlive = false});
+  const _NavDestination(
+    this.title,
+    this.icon,
+    this.selectedIcon, {
+    this.keepAlive = false,
+  });
 }

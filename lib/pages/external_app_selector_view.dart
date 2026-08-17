@@ -450,8 +450,9 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
                       onPressed: () async {
                         String? path = await FilePicker.platform
                             .getDirectoryPath();
-                        if (path != null)
+                        if (path != null) {
                           setState(() => _workingDirController.text = path);
+                        }
                       },
                       color: theme.colorScheme.primary,
                     ),

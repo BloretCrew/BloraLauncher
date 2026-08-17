@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
+import 'package:bloret_launcher/core/grammer_candy.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -512,7 +513,7 @@ class DownloadService extends ChangeNotifier {
       } on DioException catch (e) {
         attempts++;
         if (attempts <= retries) {
-          _versionsUpdateStatus = "Retry $attempts/$retries...".tl;
+          _versionsUpdateStatus = "Retry %s/%s...".tl.format(attempts, retries);
           notifyListeners();
           await Future.delayed(Duration(seconds: 2 * attempts));
           continue;
