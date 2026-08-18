@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:bloret_launcher/main.dart';
+import 'package:bloret_launcher/services/plugin_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/gestures.dart';
@@ -280,8 +281,9 @@ class _ToolsPageState extends State<ToolsPage> with TickerProviderStateMixin {
   }
 
   void loadPluginToolCards() {
-    // TODO PluginHost.getToolsContributionsJson()
-    pluginToolCards = [];
+    setState(() {
+      pluginToolCards = PluginService.instance.getToolsContributions();
+    });
   }
 
   Widget sectionTitle(String text) {
@@ -315,7 +317,16 @@ class _ToolsPageState extends State<ToolsPage> with TickerProviderStateMixin {
 
           if (pluginToolCards.isNotEmpty) ...[
             sectionTitle("Plugin Tools".tl),
-            // TODO PluginHost Widget
+            const SizedBox(height: 4),
+            ...pluginToolCards.map((card) {
+              return ToolCard(
+                icon: card['icon'] ?? "assets/icons/default_plugin.png",
+                title: (card['title'] ?? "Plugin Tool").toString().tl,
+                subtitle: (card['subtitle'] ?? "").toString().tl,
+                button: (card['button'] ?? "Open").toString().tl,
+                onPressed: () => PluginService.instance.runToolAction(card),
+              );
+            }),
           ],
 
           if (Platform.isWindows) ...[

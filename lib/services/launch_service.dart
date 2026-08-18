@@ -569,6 +569,7 @@ class LaunchService {
           "directory": app.exePath,
           "type": "custom_app",
           "icon": app.iconPath ?? "",
+          "category": app.category,
         });
       }
     }
@@ -1178,5 +1179,57 @@ class LaunchService {
   Future<bool> isVersionComplete(String minecraftDir, String versionId) async {
     final missing = await getMissingFiles(minecraftDir, versionId);
     return missing.isEmpty;
+  }
+
+  Future<String> generateLaunchScript({
+    required String version,
+    required String minecraftDir,
+  }) async {
+    // This is a simplified version of the launch logic to generate a .bat file
+    final versionData = await loadMergedVersionJson(minecraftDir, version);
+    final cp = await buildClasspath(minecraftDir, versionData);
+    final clientJarName = versionData['jar'] ?? version;
+    final clientJar = p.join(
+      minecraftDir,
+      'versions',
+      clientJarName,
+      '$clientJarName.jar',
+    );
+    final fullClasspath = '$clientJar${Platform.isWindows ? ';' : ':'}$cp';
+
+    // ... Simplified argument building for the script
+    final StringBuffer sb = StringBuffer();
+    sb.writeln("@echo off");
+    sb.writeln("set MINECRAFT_DIR=$minecraftDir");
+    sb.writeln("set VERSION=$version");
+    sb.writeln("cd /d %MINECRAFT_DIR%\\versions\\%VERSION%");
+
+    // We would need the Java path here too
+    String javaExe = ConfigService.get('java_path') ?? "java";
+    if (!javaExe.endsWith(".exe") && !javaExe.endsWith("java")) {
+      javaExe = p.join(javaExe, "bin", "java.exe");
+    }
+
+    sb.write("\"$javaExe\" ");
+    // Add some basic JVM args
+    sb.write("-Xms512M -Xmx4096M ");
+    sb.write("-Dfile.encoding=UTF-8 ");
+    sb.write("-cp \"$fullClasspath\" ");
+
+    final mainClass =
+        versionData['mainClass'] ?? "net.minecraft.client.main.Main";
+    sb.write("$mainClass ");
+
+    // Game args - simplified
+    final gameArguments = versionData['arguments']?['game'] as List?;
+    if (gameArguments != null) {
+      for (var arg in gameArguments) {
+        if (arg is String && !arg.contains("\${")) {
+          sb.write("$arg ");
+        }
+      }
+    }
+
+    return sb.toString();
   }
 }

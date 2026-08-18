@@ -21,6 +21,7 @@ class CustomApp {
   String priority;
   String envVars;
   bool killOnExit;
+  String category;
 
   CustomApp({
     required this.id,
@@ -33,6 +34,7 @@ class CustomApp {
     this.priority = "Normal",
     this.envVars = "",
     this.killOnExit = false,
+    this.category = "Standard",
   });
 
   Map<String, dynamic> toJson() => {
@@ -40,7 +42,7 @@ class CustomApp {
     'name': name,
     'showname': name, // Compatibility with Python
     'exePath': exePath,
-    'path': exePath,  // Compatibility with Python
+    'path': exePath, // Compatibility with Python
     'iconPath': iconPath,
     'args': args,
     'workingDir': workingDir,
@@ -48,10 +50,14 @@ class CustomApp {
     'priority': priority,
     'envVars': envVars,
     'killOnExit': killOnExit,
+    'category': category,
   };
 
   factory CustomApp.fromJson(Map<String, dynamic> json) => CustomApp(
-    id: json['id'] ?? json['showname'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+    id:
+        json['id'] ??
+        json['showname'] ??
+        DateTime.now().millisecondsSinceEpoch.toString(),
     name: json['name'] ?? json['showname'] ?? "Unknown",
     exePath: json['exePath'] ?? json['path'] ?? "",
     iconPath: json['iconPath'],
@@ -61,6 +67,7 @@ class CustomApp {
     priority: json['priority'] ?? "Normal",
     envVars: json['envVars'] ?? "",
     killOnExit: json['killOnExit'] ?? json['closeLauncher'] ?? false,
+    category: json['category'] ?? "Standard",
   );
 }
 
@@ -69,13 +76,16 @@ class ExternalAppService {
   ExternalAppService._();
 
   List<CustomApp> getCustomApps() {
-    final List<dynamic>? raw = ConfigService.get('custom_apps') ?? ConfigService.get('Customize');
+    final List<dynamic>? raw =
+        ConfigService.get('custom_apps') ?? ConfigService.get('Customize');
     if (raw == null) return [];
     return raw.map((e) => CustomApp.fromJson(e)).toList();
   }
 
   Future<void> saveCustomApps(List<CustomApp> apps) async {
-    final List<Map<String, dynamic>> jsonList = apps.map((e) => e.toJson()).toList();
+    final List<Map<String, dynamic>> jsonList = apps
+        .map((e) => e.toJson())
+        .toList();
     await ConfigService.set('custom_apps', jsonList);
     await ConfigService.set('Customize', jsonList); // Keep both in sync
   }
@@ -103,10 +113,13 @@ class ExternalAppService {
     return [];
   }
 
-  static Future<List<Map<String, dynamic>>> _listProcessesTask(dynamic _) async {
-    final psCommand = 'Get-CimInstance Win32_Process | Select-Object ProcessId, Name, ExecutablePath, ParentProcessId | ConvertTo-Json';
+  static Future<List<Map<String, dynamic>>> _listProcessesTask(
+    dynamic _,
+  ) async {
+    final psCommand =
+        'Get-CimInstance Win32_Process | Select-Object ProcessId, Name, ExecutablePath, ParentProcessId | ConvertTo-Json';
     final result = await Process.run('powershell', ['-Command', psCommand]);
-    
+
     if (result.exitCode == 0) {
       final List<dynamic> data = jsonDecode(result.stdout);
       return data.map((e) => Map<String, dynamic>.from(e)).toList();
@@ -122,13 +135,16 @@ class ExternalAppService {
       final iconDir = Directory(p.join(appDir.path, 'custom_app_icons'));
       if (!iconDir.existsSync()) await iconDir.create(recursive: true);
 
-      final iconPath = p.join(iconDir.path, '${DateTime.now().millisecondsSinceEpoch}.png');
+      final iconPath = p.join(
+        iconDir.path,
+        '${DateTime.now().millisecondsSinceEpoch}.png',
+      );
 
       final bool success = await runIsolate(_extractIconTask, {
         'exePath': exePath,
         'iconPath': iconPath,
       });
-      
+
       if (success && File(iconPath).existsSync()) {
         return iconPath;
       }
@@ -147,7 +163,8 @@ class ExternalAppService {
     if (result == 0) return true;
 
     // Fallback in isolate
-    final psCommand = '''
+    final psCommand =
+        '''
 Add-Type -AssemblyName System.Drawing
 try {
   [System.Drawing.Icon]::ExtractAssociatedIcon("${exePath.replaceAll('"', '`"')}").ToBitmap().Save("${iconPath.replaceAll('"', '`"')}", [System.Drawing.Imaging.ImageFormat]::Png)
@@ -156,7 +173,10 @@ try {
   exit 1
 }
 ''';
-    final fallbackResult = await Process.run('powershell', ['-Command', psCommand]);
+    final fallbackResult = await Process.run('powershell', [
+      '-Command',
+      psCommand,
+    ]);
     return fallbackResult.exitCode == 0;
   }
 }

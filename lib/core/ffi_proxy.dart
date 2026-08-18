@@ -5,12 +5,78 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/cupertino.dart';
 
 final DynamicLibrary _executable = DynamicLibrary.executable();
+final DynamicLibrary _kernel32 = DynamicLibrary.open("kernel32.dll");
+
+final class MemoryStatusEx extends Struct {
+  @Uint32()
+  external int dwLength;
+  @Uint32()
+  external int dwMemoryLoad;
+  @Uint64()
+  external int ullTotalPhys;
+  @Uint64()
+  external int ullAvailPhys;
+  @Uint64()
+  external int ullTotalPageFile;
+  @Uint64()
+  external int ullAvailPageFile;
+  @Uint64()
+  external int ullTotalVirtual;
+  @Uint64()
+  external int ullAvailVirtual;
+  @Uint64()
+  external int ullAvailExtendedVirtual;
+}
+
+typedef GlobalMemoryStatusExNative =
+    Int32 Function(Pointer<MemoryStatusEx> lpBuffer);
+typedef GlobalMemoryStatusExDart =
+    int Function(Pointer<MemoryStatusEx> lpBuffer);
+
+class WinSystem {
+  static final _getMemStatus = Platform.isWindows
+      ? _kernel32.lookupFunction<
+          GlobalMemoryStatusExNative,
+          GlobalMemoryStatusExDart
+        >("GlobalMemoryStatusEx")
+      : null;
+
+  static Map<String, double> getMemoryInfo() {
+    if (_getMemStatus == null) return {"total": 16.0, "free": 8.0};
+
+    final pointer = calloc<MemoryStatusEx>();
+    pointer.ref.dwLength = sizeOf<MemoryStatusEx>();
+
+    try {
+      final result = _getMemStatus!(pointer);
+      if (result != 0) {
+        return {
+          "total": pointer.ref.ullTotalPhys / (1024 * 1024 * 1024),
+          "free": pointer.ref.ullAvailPhys / (1024 * 1024 * 1024),
+        };
+      }
+    } finally {
+      calloc.free(pointer);
+    }
+    return {"total": 16.0, "free": 8.0};
+  }
+
+  static bool showNotification(String title, String body) => _showNotificationNative(title.toNativeUtf16(), body.toNativeUtf16());
+
+  static final _showNotificationNative = _executable.lookupFunction<
+      Bool Function(Pointer<Utf16>, Pointer<Utf16>),
+      bool Function(Pointer<Utf16>, Pointer<Utf16>)
+  >('ShowWindowsNotification');
+}
 
 typedef SetProgressNative = Void Function(Uint64 completed, Uint64 total);
 typedef SetProgressDart = void Function(int completed, int total);
 
 typedef SetStateNative = Void Function(Int32 state);
 typedef SetStateDart = void Function(int state);
+
+typedef SetIconThemeNative = Void Function(Bool dark);
+typedef SetIconThemeDart = void Function(bool dark);
 
 final terminateProcess = _executable
     .lookupFunction<Void Function(), void Function()>("c_terminate_process");
@@ -38,6 +104,29 @@ class WinWindow {
     } catch (e) {
       debugPrint("FFI Error: $e");
     }
+  }
+
+  static void setAcrylic(bool enable) {
+    if (!Platform.isWindows) return;
+    try {
+      final func = _executable
+          .lookupFunction<Void Function(Bool), void Function(bool)>(
+            "SetAcrylic",
+          );
+      func(enable);
+    } catch (e) {
+      debugPrint("FFI Error: $e");
+    }
+  }
+
+  static final _setIconTheme = (Platform.isWindows || Platform.isLinux)
+      ? _executable.lookupFunction<SetIconThemeNative, SetIconThemeDart>(
+          "SetIconTheme",
+        )
+      : null;
+
+  static void setIconTheme(bool dark) {
+    _setIconTheme?.call(dark);
   }
 }
 

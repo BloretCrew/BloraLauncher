@@ -16,6 +16,43 @@ namespace {
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
+#ifndef DWMWA_SYSTEMBACKDROP_TYPE
+#define DWMWA_SYSTEMBACKDROP_TYPE 38
+#endif
+
+// We use raw integers for backdrop types to avoid naming conflicts with newer Windows SDKs
+// DWMSBT_AUTO = 0, DWMSBT_TRANSIENTWINDOW = 3
+#define BLORET_DWMSBT_AUTO 0
+#define BLORET_DWMSBT_TRANSIENTWINDOW 3
+
+typedef enum _WINDOWCOMPOSITIONATTRIB {
+  WCA_ACCENT_POLICY = 19
+} WINDOWCOMPOSITIONATTRIB;
+
+typedef struct _WINDOWCOMPOSITIONATTRIBDATA {
+  WINDOWCOMPOSITIONATTRIB Attrib;
+  PVOID pvData;
+  SIZE_T cbData;
+} WINDOWCOMPOSITIONATTRIBDATA;
+
+typedef enum _ACCENT_STATE {
+  ACCENT_DISABLED = 0,
+  ACCENT_ENABLE_GRADIENT = 1,
+  ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
+  ACCENT_ENABLE_BLURBEHIND = 3,
+  ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
+  ACCENT_INVALID_STATE = 5
+} ACCENT_STATE;
+
+typedef struct _ACCENT_POLICY {
+  ACCENT_STATE AccentState;
+  DWORD AccentFlags;
+  DWORD GradientColor;
+  DWORD AnimationId;
+} ACCENT_POLICY;
+
+typedef BOOL(WINAPI* pSetWindowCompositionAttribute)(HWND, WINDOWCOMPOSITIONATTRIBDATA*);
+
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
 /// Registry key for app theme preference.
@@ -216,6 +253,9 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;
+
+    case WM_ERASEBKGND:
+      return 1;
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
@@ -285,4 +325,65 @@ void Win32Window::UpdateTheme(HWND const window) {
     DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
                           &enable_dark_mode, sizeof(enable_dark_mode));
   }
+}
+
+void Win32Window::SetAcrylic(bool enabled) {
+  if (window_handle_ == nullptr) return;
+
+  if (enabled) {
+    // 1. Try Windows 11 System Backdrop (Modern Acrylic)
+    int backdrop_type = BLORET_DWMSBT_TRANSIENTWINDOW;
+    DwmSetWindowAttribute(window_handle_, DWMWA_SYSTEMBACKDROP_TYPE,
+                          &backdrop_type, sizeof(backdrop_type));
+
+    // 2. Extend frame into client area
+    MARGINS margins = {-1, -1, -1, -1};
+    DwmExtendFrameIntoClientArea(window_handle_, &margins);
+
+    // 3. Force transparency on the window surface using SetWindowCompositionAttribute
+    // This solves the issue where the Flutter surface might be opaque.
+    HMODULE hUser = GetModuleHandleA("user32.dll");
+    if (hUser) {
+      auto setWindowCompositionAttribute = (pSetWindowCompositionAttribute)GetProcAddress(hUser, "SetWindowCompositionAttribute");
+      if (setWindowCompositionAttribute) {
+        ACCENT_POLICY accent = { ACCENT_ENABLE_ACRYLICBLURBEHIND, 0, 0, 0 };
+        WINDOWCOMPOSITIONATTRIBDATA data;
+        data.Attrib = WCA_ACCENT_POLICY;
+        data.pvData = &accent;
+        data.cbData = sizeof(accent);
+        setWindowCompositionAttribute(window_handle_, &data);
+      }
+    }
+
+    // Set window to be layered to support alpha blending if needed
+    SetWindowLong(window_handle_, GWL_EXSTYLE, GetWindowLong(window_handle_, GWL_EXSTYLE) | WS_EX_LAYERED);
+    SetLayeredWindowAttributes(window_handle_, 0, 255, LWA_ALPHA);
+
+  } else {
+    // Restore defaults
+    int backdrop_type = BLORET_DWMSBT_AUTO;
+    DwmSetWindowAttribute(window_handle_, DWMWA_SYSTEMBACKDROP_TYPE,
+                          &backdrop_type, sizeof(backdrop_type));
+    MARGINS margins = {0, 0, 0, 0};
+    DwmExtendFrameIntoClientArea(window_handle_, &margins);
+
+    HMODULE hUser = GetModuleHandleA("user32.dll");
+    if (hUser) {
+      auto setWindowCompositionAttribute = (pSetWindowCompositionAttribute)GetProcAddress(hUser, "SetWindowCompositionAttribute");
+      if (setWindowCompositionAttribute) {
+        ACCENT_POLICY accent = { ACCENT_DISABLED, 0, 0, 0 };
+        WINDOWCOMPOSITIONATTRIBDATA data;
+        data.Attrib = WCA_ACCENT_POLICY;
+        data.pvData = &accent;
+        data.cbData = sizeof(accent);
+        setWindowCompositionAttribute(window_handle_, &data);
+      }
+    }
+
+    SetWindowLong(window_handle_, GWL_EXSTYLE, GetWindowLong(window_handle_, GWL_EXSTYLE) & ~WS_EX_LAYERED);
+  }
+
+  // Force a redraw
+  SetWindowPos(window_handle_, nullptr, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 }

@@ -27,7 +27,6 @@ class ThemeManager extends ChangeNotifier {
       } catch (_) {}
     }
 
-    // Default color if none set
     final colorKey = ConfigService.get("theme_color_key") ?? "classic_blue";
     return appThemeColors[colorKey] ?? const Color(0xFF0078D4);
   }
@@ -42,10 +41,7 @@ class ThemeManager extends ChangeNotifier {
 
   Future<void> setThemeColor(String key) async {
     await ConfigService.set("theme_color_key", key);
-    await ConfigService.set(
-      "theme_seed_color",
-      null,
-    ); // Clear custom hex if selecting preset
+    await ConfigService.set("theme_seed_color", null);
     notifyListeners();
   }
 

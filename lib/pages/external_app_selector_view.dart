@@ -36,6 +36,7 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
   bool _runAsAdmin = false;
   bool _killOnExit = false;
   String _priority = "Normal";
+  String _category = "Standard";
   String? _currentIconPath;
 
   bool _isAttachMode = false;
@@ -53,6 +54,7 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
       _runAsAdmin = app.runAsAdmin;
       _killOnExit = app.killOnExit;
       _priority = app.priority;
+      _category = app.category;
       _currentIconPath = app.iconPath;
     }
   }
@@ -136,6 +138,7 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
       priority: _priority,
       envVars: _envVarsController.text,
       killOnExit: _killOnExit,
+      category: _category,
     );
 
     if (widget.app != null) {
@@ -473,6 +476,39 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
                         ),
                         style: const TextStyle(fontSize: 13),
                       ),
+                    ),
+                  ),
+
+                  _buildConfigRow(
+                    theme: theme,
+                    icon: Icons.category_outlined,
+                    title: "Category".tl,
+                    subtitle: "Organize your instances".tl,
+                    child: Win11Dropdown(
+                      width: 160,
+                      initialValue: _category,
+                      items: [
+                        Win11DropdownItem(
+                          label: "Standard".tl,
+                          value: "Standard",
+                        ),
+                        Win11DropdownItem(
+                          label: "Moddable".tl,
+                          value: "Moddable",
+                        ),
+                        Win11DropdownItem(
+                          label: "Bloret Exclusive".tl,
+                          value: "Exclusive",
+                        ),
+                        Win11DropdownItem(
+                          label: "Rarely Used".tl,
+                          value: "RarelyUsed",
+                        ),
+                        Win11DropdownItem(label: "Hidden".tl, value: "Hidden"),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setState(() => _category = v);
+                      },
                     ),
                   ),
 

@@ -8,6 +8,7 @@ import 'package:bloret_launcher/core/logger.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/memory.dart';
 import 'package:bloret_launcher/services/notice_manager.dart';
+import 'package:bloret_launcher/services/plugin_service.dart';
 import 'package:bloret_launcher/services/update_manager.dart';
 import 'package:bloret_launcher/shell/main_shell.dart';
 import 'package:bloret_launcher/tools/server_info.dart';
@@ -19,7 +20,6 @@ import 'core/network_config.dart';
 import 'core/theme_manager.dart';
 import 'pages/welcome_page.dart';
 import 'services/config_service.dart';
-import 'services/win32_icon_service.dart';
 
 BloraLauncherConfig? config;
 
@@ -39,12 +39,12 @@ void main() async {
   await I18n.init();
   HttpOverrides.global = BloraHttpOverrides();
   logger = await AppLogger.getInstance();
-  Win32IconService.init();
   ErrorWidget.builder = (FlutterErrorDetails details) {
     return const SizedBox.shrink();
   };
   Bloriko.getInstance();
   await MemoryStore.instance.loadOnInit();
+  await PluginService.instance.init();
   updateManager = await UpdateManager.instance.init();
   Timer.periodic(const Duration(seconds: 30), (timer) async {
     try {

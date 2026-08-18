@@ -19,6 +19,13 @@
 #include <vector>
 #include <fstream>
 #include <string>
+#include <winrt/base.h>
+#include <winrt/Windows.Data.Xml.Dom.h>
+#include <winrt/Windows.UI.Notifications.h>
+
+using namespace winrt;
+using namespace Windows::Data::Xml::Dom;
+using namespace Windows::UI::Notifications;
 
 using namespace Gdiplus;
 
@@ -51,6 +58,19 @@ typedef struct {
     GRPICONDIRENTRY idEntries[1];
 } GRPICONDIR, * LPGRPICONDIR;
 #pragma pack(pop)
+
+#include "notification_manager.h"
+
+extern "C" __declspec(dllexport)
+bool ShowWindowsNotification(
+        const wchar_t* title,
+        const wchar_t* body) {
+    if (!title || !body) {
+        return false;
+    }
+
+    return NotificationManager::Show(title, body);
+}
 
 static int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
     UINT num = 0, size = 0;
@@ -361,6 +381,13 @@ void SetFullscreen(bool fullscreen) {
             SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
         g_is_fullscreen = false;
     }
+}
+
+extern "C" __declspec(dllexport)
+void SetAcrylic(bool enabled) {
+  if (g_flutter_window) {
+    g_flutter_window->SetAcrylic(enabled);
+  }
 }
 
 extern "C" __declspec(dllexport)

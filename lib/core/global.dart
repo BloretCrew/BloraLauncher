@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 
 import 'i18n.dart';
@@ -9,10 +10,10 @@ String get agentName => switch (Bloriko.type) {
   "bloriko_r18" => "Bloriko(R18)".tl,
   _ => "Blora Agent".tl,
 };
-
-// 全局布局状态记录
 bool globalIsAgentExpanded = false;
 bool globalIsInfoExpanded = false;
+
+BuildContext? globalShellContext;
 
 class TranslationStore {
   static bool showTranslated = false;

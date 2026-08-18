@@ -4,12 +4,12 @@ import 'package:dio/dio.dart';
 import 'package:crypto/crypto.dart';
 import 'package:archive/archive_io.dart';
 import 'package:bloret_launcher/core/source_decoder.dart';
-import 'package:bloret_launcher/services/notice_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/i18n.dart';
+import '../main.dart';
 import '../tools/isolate.dart';
 import 'config_service.dart';
 

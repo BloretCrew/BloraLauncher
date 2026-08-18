@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:bloret_launcher/core/ffi_proxy.dart';
 import 'package:bloret_launcher/core/window_bridge.dart';
 import 'package:bloret_launcher/pages/about_page.dart';
 import 'package:bloret_launcher/pages/bbbs_page.dart';
@@ -13,7 +14,6 @@ import 'package:bloret_launcher/pages/tools_page.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/download_service.dart';
-import 'package:bloret_launcher/services/win32_icon_service.dart';
 import 'package:bloret_launcher/tools/server_info.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -40,6 +40,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   bool _isDownloadExpanded = false;
   Timer? _timer;
   final Set<int> _renderedIndices = {0};
+  Brightness? _lastBrightness;
 
   final _trayChannel = const BasicMessageChannel(
     'bloret/tray',
@@ -49,6 +50,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    globalShellContext = context;
     WindowBridge.init(context);
 
     _trayChannel.setMessageHandler((message) async {
@@ -74,6 +76,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
         Bloriko.getInstance();
       }
       _updateAppIcon();
+
       final futures = Future.wait([
         BloretApiService.fetchLauncherConfig(),
         BloretApiService.fetchServerInfo("Bloret"),
@@ -115,10 +118,8 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   void _updateAppIcon() {
-    final isDark =
-        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-        Brightness.dark;
-    Win32IconService.switchIcon(isDark);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    WinWindow.setIconTheme(isDark);
   }
 
   List<dynamic> get _pages => [
@@ -549,6 +550,15 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    // Sync theme with native side
+    if (_lastBrightness != theme.brightness) {
+      _lastBrightness = theme.brightness;
+      WinWindow.setIconTheme(isDark);
+    }
+
     final isPortrait =
         MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 

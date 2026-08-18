@@ -12,15 +12,19 @@ import 'package:bloret_launcher/services/update_manager.dart';
 import 'package:bloret_launcher/tools/isolate.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/google_widgets.dart';
+import 'package:bloret_launcher/widgets/hoshivetw_icon.dart';
 import 'package:bloret_launcher/widgets/log_viewer.dart';
 import 'package:bloret_launcher/widgets/windows_widgets.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher_string.dart';
 
 import '../core/android_bridge.dart';
 import '../core/grammer_candy.dart';
+import '../services/plugin_service.dart';
+import '../models/plugin.dart';
 import '../core/theme.dart';
 import '../core/theme_manager.dart';
 import '../services/bloriko.dart';
@@ -264,7 +268,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {
       "id": SettingCategory.notification,
       "title": "Notifications".tl,
-      "desc": "COMING SOON",
+      "desc": "Manage system notifications",
       "icon": Icons.notifications,
     },
     {
@@ -276,7 +280,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {
       "id": SettingCategory.plugins,
       "title": "Plugins".tl,
-      "desc": "COMING SOON",
+      "desc": "Manage launcher extensions".tl,
       "icon": Icons.extension,
     },
     {
@@ -519,7 +523,11 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildSettingItem(
             "Theme".tl,
             "Choose interface color mode".tl,
-            Icons.color_lens,
+            switch (ConfigService.get("theme_mode") ?? "Auto") {
+              "Light" => Icons.wb_sunny,
+              "Dark" => Icons.dark_mode,
+              _ => Icons.desktop_windows_rounded,
+            },
             dropdown: Win11Dropdown(
               items: [
                 Win11DropdownItem(label: "Auto".tl, value: "Auto"),
@@ -530,9 +538,24 @@ class _SettingsPageState extends State<SettingsPage> {
               onChanged: (v) async {
                 await ConfigService.set("theme_mode", v);
                 ThemeManager.instance.updateTheme();
+                setState(() {});
               },
             ),
           ),
+          // if (Platform.isWindows)
+          //   _buildSettingItem(
+          //     "Acrylic Blur".tl,
+          //     "Enable Windows 11 Acrylic blur effect".tl,
+          //     Icons.blur_on,
+          //     trailing: Switch(
+          //       value: ConfigService.get("enable_acrylic") ?? false,
+          //       onChanged: (v) async {
+          //         await ConfigService.set("enable_acrylic", v);
+          //         WinWindow.setAcrylic(v);
+          //         setState(() {});
+          //       },
+          //     ),
+          //   ),
           _buildSettingItem(
             "Theme Color".tl,
             "Select a seed color for the interface".tl,
@@ -716,7 +739,6 @@ class _SettingsPageState extends State<SettingsPage> {
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
-                              // 始终使用 Rectangle 配合动态 BorderRadius，防止 BoxShape 切换导致的组件重建/消失
                               borderRadius: BorderRadius.circular(
                                 isCustom ? 8 : 20,
                               ),
@@ -1198,6 +1220,20 @@ class _SettingsPageState extends State<SettingsPage> {
             switchValue: true,
             onSwitchChanged: (v) {},
           ),
+          _buildSettingItem(
+            "Test Notifications".tl,
+            "Show test notifications".tl,
+            Icons.notifications_active,
+            trailing: BloretButton(
+              text: "Show".tl,
+              onPressed: () {
+                WinSystem.showNotification("Test Notification".tl, "Test Message");
+              },
+            )
+          ),
+        ],
+        if (_selectedCategory == SettingCategory.plugins) ...[
+          _buildPluginList(),
         ],
         if (_selectedCategory == SettingCategory.log) ...[
           _buildSettingItem(
@@ -1216,6 +1252,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 );
               },
             ),
+            hoshivetw: true,
           ),
           _buildSettingItem(
             "Log Folder Location".tl,
@@ -1905,7 +1942,6 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               ),
                             ),
-                            // 用于捕捉点击的透明层
                             Positioned.fill(
                               child: GestureDetector(
                                 onTapDown: (details) {
@@ -1952,7 +1988,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // 色相滑块
                   Container(
                     height: 12,
                     width: 240,
@@ -2026,7 +2061,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  // 16 进制输入与预览
                   Row(
                     children: [
                       Container(
@@ -2192,6 +2226,143 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Widget _buildPluginList() {
+    final service = PluginService.instance;
+
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) {
+        final plugins = service.plugins;
+        if (plugins.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.extension_off, size: 64, color: Colors.grey),
+                const SizedBox(height: 16),
+                Text("No plugins installed".tl, style: const TextStyle(color: Colors.grey)),
+                const SizedBox(height: 8),
+                Text(
+                  "Place plugin folders in your data/plugins directory".tl,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                BloretButton(
+                  text: "Open Plugins Folder".tl,
+                  onPressed: () async {
+                    final dir = await service.getPluginsDir();
+                    if (Platform.isWindows) {
+                      launchUrlString(dir.path);
+                    } else if (Platform.isAndroid) {
+                    }
+                  },
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Column(
+          children: [
+            _buildSettingItem(
+              "Hot Reload (Dev)".tl,
+              "Automatically reload plugins when files change".tl,
+              Icons.bolt,
+              switchValue: service.isHotReloadEnabled,
+              onSwitchChanged: (v) => service.setHotReload(v),
+            ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                crossAxisAlignment: .start,
+                children: [
+                  Text(
+                    "Installed Plugins".tl,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              )
+            ),
+            ...plugins.map((plugin) => _buildPluginItem(plugin)),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildPluginItem(BloretPlugin plugin) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: FluentCard(
+        padding: EdgeInsets.zero,
+        child: Column(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.extension, size: 32),
+              title: Text(plugin.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text("${plugin.version} | ${plugin.author}"),
+              trailing: Switch(
+                value: plugin.isEnabled,
+                onChanged: (v) => PluginService.instance.togglePlugin(plugin.id, v),
+              ),
+            ),
+            if (plugin.description.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    plugin.description,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: _buildSettingItem(
+                "Permissions".tl,
+                "${"Granted".tl}: ${plugin.grantedPermissions.length}/${plugin.requestedPermissions.length}",
+                Icons.security,
+                itemKey: "plugin_perms_${plugin.id}",
+                expandedChild: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...plugin.requestedPermissions.map((permId) {
+                      final bool isGranted = plugin.grantedPermissions.contains(permId);
+                      final risk = PluginPermissions.getRisk(permId);
+                      return CheckboxListTile(
+                        title: Text(PluginPermissions.getLabel(permId)),
+                        subtitle: Text(
+                          permId,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: risk == PermissionRisk.high ? Colors.redAccent : Colors.grey,
+                          ),
+                        ),
+                        value: isGranted,
+                        dense: true,
+                        onChanged: (v) {
+                          List<String> newPerms = List.from(plugin.grantedPermissions);
+                          if (v == true) {
+                            newPerms.add(permId);
+                          } else {
+                            newPerms.remove(permId);
+                          }
+                          PluginService.instance.updatePermissions(plugin.id, newPerms);
+                        },
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSettingItem(
     String title,
     String desc,
@@ -2204,6 +2375,7 @@ class _SettingsPageState extends State<SettingsPage> {
     Widget? dropdown,
     Widget? expandedChild,
     String? itemKey,
+    bool? hoshivetw,
   }) {
     final bool isExpanded = itemKey != null && _expandedItems.contains(itemKey);
     final theme = Theme.of(context);
@@ -2212,115 +2384,257 @@ class _SettingsPageState extends State<SettingsPage> {
       padding: const EdgeInsets.only(bottom: 8.0),
       child: FluentCard(
         padding: EdgeInsets.zero,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            InkWell(
-              onTap: expandedChild != null
-                  ? () {
-                      setState(() {
-                        if (isExpanded) {
-                          _expandedItems.remove(itemKey);
-                        } else {
-                          _expandedItems.add(itemKey!);
-                        }
-                      });
-                    }
-                  : null,
-              borderRadius: BorderRadius.circular(8),
-              splashColor: theme.colorScheme.primary.withValues(alpha: 0.03),
-              highlightColor: theme.colorScheme.primary.withValues(alpha: 0.01),
-              hoverColor: theme.colorScheme.onSurface.withValues(alpha: 0.02),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    Icon(
-                      icon,
-                      size: 20,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+        child: hoshivetw == true
+            ? Stack(
+                children: [
+                  Align(
+                    alignment: .centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 6, top: 4),
+                      child: HoshivetwIcon(noShade: true, size: 64, noAnim: true, color: Colors.white.withOpacityEx(0.25),),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      InkWell(
+                        onTap: expandedChild != null
+                            ? () {
+                                setState(() {
+                                  if (isExpanded) {
+                                    _expandedItems.remove(itemKey);
+                                  } else {
+                                    _expandedItems.add(itemKey!);
+                                  }
+                                });
+                              }
+                            : null,
+                        borderRadius: BorderRadius.circular(8),
+                        splashColor: theme.colorScheme.primary.withValues(
+                          alpha: 0.03,
+                        ),
+                        highlightColor: theme.colorScheme.primary.withValues(
+                          alpha: 0.01,
+                        ),
+                        hoverColor: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.02,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Row(
+                            children: [
+                              Icon(
+                                icon,
+                                size: 20,
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.8,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      title,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    Text(
+                                      desc,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: theme.colorScheme.onSurface
+                                            .withValues(alpha: 0.5),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (switchValue != null)
+                                Switch(
+                                  value: switchValue,
+                                  onChanged: onSwitchChanged,
+                                ),
+                              if (sliderValue != null)
+                                SizedBox(
+                                  width: 150,
+                                  child: Slider(
+                                    value: sliderValue,
+                                    onChanged: onSliderChanged ?? (_) {},
+                                  ),
+                                ),
+                              if (dropdown != null)
+                                SizedBox(width: 120, child: dropdown),
+                              if (trailing != null &&
+                                  switchValue == null &&
+                                  sliderValue == null &&
+                                  dropdown == null)
+                                trailing,
+                              if (expandedChild != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 8),
+                                  child: AnimatedRotation(
+                                    turns: isExpanded ? 0.5 : 0,
+                                    duration: const Duration(milliseconds: 200),
+                                    child: Icon(
+                                      Icons.expand_more,
+                                      size: 20,
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.4),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      AnimatedCrossFade(
+                        firstChild: const SizedBox(width: double.infinity),
+                        secondChild: Column(
+                          children: [
+                            Divider(
+                              height: 1,
+                              color: theme.dividerColor.withValues(alpha: 0.05),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: expandedChild ?? const SizedBox.shrink(),
+                            ),
+                          ],
+                        ),
+                        crossFadeState: isExpanded
+                            ? CrossFadeState.showSecond
+                            : CrossFadeState.showFirst,
+                        duration: const Duration(milliseconds: 300),
+                        sizeCurve: Curves.easeInOutCubic,
+                      ),
+                    ],
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: expandedChild != null
+                        ? () {
+                            setState(() {
+                              if (isExpanded) {
+                                _expandedItems.remove(itemKey);
+                              } else {
+                                _expandedItems.add(itemKey!);
+                              }
+                            });
+                          }
+                        : null,
+                    borderRadius: BorderRadius.circular(8),
+                    splashColor: theme.colorScheme.primary.withValues(
+                      alpha: 0.03,
+                    ),
+                    highlightColor: theme.colorScheme.primary.withValues(
+                      alpha: 0.01,
+                    ),
+                    hoverColor: theme.colorScheme.onSurface.withValues(
+                      alpha: 0.02,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
                         children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
+                          Icon(
+                            icon,
+                            size: 20,
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.8,
                             ),
                           ),
-                          Text(
-                            desc,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.5,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Text(
+                                  desc,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.5),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (switchValue != null)
+                            Switch(
+                              value: switchValue,
+                              onChanged: onSwitchChanged,
+                            ),
+                          if (sliderValue != null)
+                            SizedBox(
+                              width: 150,
+                              child: Slider(
+                                value: sliderValue,
+                                onChanged: onSliderChanged ?? (_) {},
                               ),
                             ),
-                          ),
+                          if (dropdown != null)
+                            SizedBox(width: 120, child: dropdown),
+                          if (trailing != null &&
+                              switchValue == null &&
+                              sliderValue == null &&
+                              dropdown == null)
+                            trailing,
+                          if (expandedChild != null)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: AnimatedRotation(
+                                turns: isExpanded ? 0.5 : 0,
+                                duration: const Duration(milliseconds: 200),
+                                child: Icon(
+                                  Icons.expand_more,
+                                  size: 20,
+                                  color: theme.colorScheme.onSurface.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),
-                    if (switchValue != null)
-                      Switch(value: switchValue, onChanged: onSwitchChanged),
-                    if (sliderValue != null)
-                      SizedBox(
-                        width: 150,
-                        child: Slider(
-                          value: sliderValue,
-                          onChanged: onSliderChanged ?? (_) {},
-                        ),
-                      ),
-                    if (dropdown != null) SizedBox(width: 120, child: dropdown),
-                    if (trailing != null &&
-                        switchValue == null &&
-                        sliderValue == null &&
-                        dropdown == null)
-                      trailing,
-                    if (expandedChild != null)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8),
-                        child: AnimatedRotation(
-                          turns: isExpanded ? 0.5 : 0,
-                          duration: const Duration(milliseconds: 200),
-                          child: Icon(
-                            Icons.expand_more,
-                            size: 20,
-                            color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.4,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            AnimatedCrossFade(
-              firstChild: const SizedBox(width: double.infinity),
-              secondChild: Column(
-                children: [
-                  Divider(
-                    height: 1,
-                    color: theme.dividerColor.withValues(alpha: 0.05),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: expandedChild ?? const SizedBox.shrink(),
+                  AnimatedCrossFade(
+                    firstChild: const SizedBox(width: double.infinity),
+                    secondChild: Column(
+                      children: [
+                        Divider(
+                          height: 1,
+                          color: theme.dividerColor.withValues(alpha: 0.05),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: expandedChild ?? const SizedBox.shrink(),
+                        ),
+                      ],
+                    ),
+                    crossFadeState: isExpanded
+                        ? CrossFadeState.showSecond
+                        : CrossFadeState.showFirst,
+                    duration: const Duration(milliseconds: 300),
+                    sizeCurve: Curves.easeInOutCubic,
                   ),
                 ],
               ),
-              crossFadeState: isExpanded
-                  ? CrossFadeState.showSecond
-                  : CrossFadeState.showFirst,
-              duration: const Duration(milliseconds: 300),
-              sizeCurve: Curves.easeInOutCubic,
-            ),
-          ],
-        ),
       ),
     );
   }

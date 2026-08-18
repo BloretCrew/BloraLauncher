@@ -18,7 +18,6 @@ import '../core/window_bridge.dart';
 import '../main.dart';
 import '../services/config_service.dart';
 import '../services/passport_service.dart';
-import '../services/win32_icon_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/google_widgets.dart';
 import '../widgets/windows_widgets.dart';
@@ -560,10 +559,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
   }
 
   void _updateAppIcon() {
-    final isDark =
-        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-        Brightness.dark;
-    Win32IconService.switchIcon(isDark);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    WinWindow.setIconTheme(isDark);
   }
 
   Future<void> _checkTokenValidity() async {

@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../widgets/notice.dart';
 
-final noticeManager = NoticeManager.instance;
-
 class NoticeManager {
 
   NoticeManager._private();

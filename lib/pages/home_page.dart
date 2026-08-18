@@ -1349,7 +1349,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          // 背景淡淡的装饰图标
           IgnorePointer(
             child: Center(
               child: CustomPaint(
@@ -3190,15 +3189,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
           ),
           AnimatedCrossFade(
-            firstChild: const SizedBox(width: double.infinity),
+            alignment: .centerLeft,
+            firstChild: const SizedBox(width: .infinity),
             secondChild: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: .start,
               children: [
                 const Divider(height: 1),
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: .start,
                     children: [
                       Text(
                         "$agentName ${"Recommended Time".tl}",
@@ -3227,8 +3227,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           return FadeTransition(
                             opacity: fadeAnimation,
                             child: SizeTransition(
+                              axis: .vertical,
                               sizeFactor: sizeAnimation,
-                              alignment: Alignment.centerLeft,
+                              alignment: .centerLeft,
                               child: child,
                             ),
                           );
@@ -3273,8 +3274,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ],
             ),
             crossFadeState: (!isPortrait || _isInfoExpanded)
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
+                ? .showSecond
+                : .showFirst,
             duration: const Duration(milliseconds: 250),
             sizeCurve: Curves.easeInOutCubic,
           ),
@@ -3710,36 +3711,44 @@ class _BottomActionRail extends StatelessWidget {
                         ],
                       ),
                     ),
-                    const Spacer(),
-                    BloretIconButton(
-                      icon: Icons.folder_open,
-                      tooltip: isExternal
-                          ? "Program Directory".tl
-                          : "Game Directory".tl,
-                      onPressed: onOpenFolder,
-                    ),
-                    const SizedBox(width: 12),
-                    BloretIconButton(
-                      icon: Icons.bug_report_outlined,
-                      tooltip: "Debug / Attach".tl,
-                      onPressed: onDebug,
-                    ),
-                    const SizedBox(width: 12),
-                    BloretButton(
-                      onPressed: onSwitchCore,
-                      icon: Icons.swap_horiz,
-                      text: "Switch Core".tl,
-                      height: 48,
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      height: 44,
-                      width: 140,
-                      child: BloretButton(
-                        onPressed: onLaunch,
-                        icon: Icons.play_arrow,
-                        text: "Launch".tl,
-                      ),
+                    LayoutBuilder(
+                      builder: (_, box) {
+                        return Row(
+                          mainAxisSize: .min,
+                          children: [
+                            BloretIconButton(
+                              icon: Icons.folder_open,
+                              tooltip: isExternal
+                                  ? "Program Directory".tl
+                                  : "Game Directory".tl,
+                              onPressed: onOpenFolder,
+                            ),
+                            const SizedBox(width: 12),
+                            BloretIconButton(
+                              icon: Icons.bug_report_outlined,
+                              tooltip: "Debug / Attach".tl,
+                              onPressed: onDebug,
+                            ),
+                            const SizedBox(width: 12),
+                            BloretButton(
+                              onPressed: onSwitchCore,
+                              icon: Icons.swap_horiz,
+                              text: "Switch Core".tl,
+                              height: 48,
+                            ),
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              height: 44,
+                              width: 140,
+                              child: BloretButton(
+                                onPressed: onLaunch,
+                                icon: Icons.play_arrow,
+                                text: "Launch".tl,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
