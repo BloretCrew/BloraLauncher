@@ -22,6 +22,7 @@ import '../services/config_service.dart';
 import '../services/external_app_service.dart';
 import '../services/launch_service.dart';
 import '../services/passport_service.dart';
+import '../services/plugin_service.dart';
 import '../services/stats_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/button.dart';
@@ -77,6 +78,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   String _launchStatus = "";
   String? _launchError;
   final ScrollController _logScrollController = ScrollController();
+
+  List<Map<String, dynamic>> _homePluginCards = [];
 
   bool get _anyCrashed => CoreManager.instance.runningCores.any(
     (c) => (c.exitCode ?? 0) != 0 && !c.isManuallyTerminated,
@@ -320,6 +323,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _checkApi();
     _loadSelectedVersion();
     I18n.instance.addListener(_onLanguageChanged);
+    PluginService.instance.addListener(_onPluginsChanged);
+    _loadHomePluginCards();
 
     // Resume selected core if any exists in manager
     if (CoreManager.instance.runningCores.isNotEmpty) {
@@ -359,6 +364,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void dispose() {
     I18n.instance.removeListener(_onLanguageChanged);
+    PluginService.instance.removeListener(_onPluginsChanged);
     _listController.dispose();
     _chartAnimationController.dispose();
     _cleanRamAnimController.dispose();
@@ -384,12 +390,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             if (pid == 0) continue;
 
             final isAlive = WinProcess.isAlive(pid);
-            if (!isAlive || core.exitCode != null || core.isSuspended) {
+            if (!isAlive || core.exitCode != null) {
               if (!isAlive && core.exitCode == null) {
-                core.exitCode = 0;
+                _handleCoreExit(core, 0);
               }
               continue;
             }
+            
+            if (core.isSuspended) continue;
 
             final currentCpuTime = WinProcess.getCpuTime(pid);
             if (currentCpuTime == 0 && core.lastCpuTime != 0) {}
@@ -451,7 +459,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       return;
     }
 
-    // Group versions by type
     final Map<String, List<Map<String, String>>> grouped = {};
     for (var v in versions) {
       final type = v['type'] ?? "minecraft";
@@ -750,6 +757,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           killOnExit: app.killOnExit,
         );
 
+        // 基准：没有设置强依附性进程，或者无法获取 process 对象（如 Admin 模式），即为脱依附状态
+        if (!app.killOnExit || process == null) {
+          runningCore.isDetached = true;
+        }
+
         setState(() {
           CoreManager.instance.addCore(runningCore);
           _selectedCore = runningCore;
@@ -758,51 +770,48 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         });
 
         if (process != null) {
-          try {
-            process.stdout
-                .transform(utf8.decoder)
-                .transform(const LineSplitter())
-                .listen((line) {
-                  _addLogToCore(runningCore, line);
-                });
-            process.stderr
-                .transform(utf8.decoder)
-                .transform(const LineSplitter())
-                .listen((line) {
-                  _addLogToCore(runningCore, line);
-                });
-          } catch (e) {
+          // 只有非脱依附状态才尝试监听日志
+          if (!runningCore.isDetached) {
+            try {
+              final sub1 = process.stdout
+                  .transform(utf8.decoder)
+                  .transform(const LineSplitter())
+                  .listen((line) {
+                    _addLogToCore(runningCore, line);
+                  });
+              final sub2 = process.stderr
+                  .transform(utf8.decoder)
+                  .transform(const LineSplitter())
+                  .listen((line) {
+                    _addLogToCore(runningCore, line);
+                  });
+              runningCore.subscriptions = [sub1, sub2];
+            } catch (e) {
+              _addLogToCore(
+                runningCore,
+                "Process output capture unavailable.".tl,
+              );
+            }
+          } else {
             _addLogToCore(
               runningCore,
-              "Process output capture unavailable (Detached mode).".tl,
+              "Log capture disabled for detached application.".tl,
             );
           }
 
           process.exitCode.then((code) {
-            runningCore.exitCode = code;
-            if (mounted) {
-              final isActualCrash =
-                  code != 0 &&
-                  !runningCore.isManuallyTerminated &&
-                  app.killOnExit;
-              if (isActualCrash) {
-                // If it crashed, stay in the running layout to show logs
-                setState(() {
-                  _showLogsInRunning = true;
-                  _selectedCore = runningCore;
-                  _showRunningHandle = true;
-                });
-              } else {
-                CoreManager.instance.removeCore(runningCore);
-                _checkEmptyCores();
-              }
+            _handleCoreExit(runningCore, code, app: app);
+          }).catchError((e) {
+            // 忽略脱依附相关的退出监听异常
+            if (!runningCore.isDetached) {
+              logger.error("Process exit tracking error: $e");
             }
           });
         } else {
           _addLogToCore(
             runningCore,
-            "Elevated process tracking active (PID: $pid). Log capture disabled."
-                .tl,
+            "Application running in independent mode (PID: %s). Log capture disabled."
+                .tl.format(pid),
           );
         }
 
@@ -817,27 +826,76 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         _launchError = e.toString();
         _homeState = HomeState.normal;
       });
-      _pageController.animateToPage(
-        0,
-        duration: const Duration(milliseconds: 700),
-        curve: Curves.easeOutExpo,
-      );
-      showError("Failed to launch application: $e".tl);
+      if (_pageController.hasClients) {
+        _pageController.animateToPage(
+          0,
+          duration: const Duration(milliseconds: 700),
+          curve: Curves.easeOutExpo,
+        );
+      }
+      showError("Failed to launch application - %s".tl.format(e));
     }
   }
 
-  void _checkEmptyCores() {
-    if (CoreManager.instance.runningCores.isEmpty) {
-      setState(() {
-        _showRunningHandle = false;
-        _homeState = HomeState.normal;
-      });
-      _pageController.animateToPage(
-        0,
-        duration: const Duration(milliseconds: 700),
-        curve: Curves.easeOutExpo,
-      );
-    }
+  void _handleCoreExit(RunningCore core, int code, {CustomApp? app}) {
+    if (!mounted || core.exitCode != null) return;
+    
+    debugPrint("Core ${core.id} exited with code $code");
+    core.exitCode = code;
+    
+    // 记录游玩统计
+    final endTime = DateTime.now();
+    final duration = endTime.difference(core.startTime).inSeconds;
+    StatsService.instance.addSession(
+      SessionRecord(
+        version: core.version,
+        startTime: core.startTime,
+        endTime: endTime,
+        total: duration,
+      ),
+    );
+
+    final bool killOnExit = app?.killOnExit ?? core.killOnExit;
+    // 脱依附状态永远不触发崩溃分析
+    final bool isActualCrash = code != 0 && !core.isManuallyTerminated && killOnExit && !core.isDetached;
+
+    setState(() {
+      if (isActualCrash) {
+        _showLogsInRunning = true;
+        _selectedCore = core;
+        _showRunningHandle = true;
+        
+        if (_homeState == HomeState.normal && _pageController.hasClients) {
+          _homeState = HomeState.running;
+          _pageController.animateToPage(
+            1,
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.easeOutExpo,
+          );
+        }
+      } else {
+        // 正常退出：从核心管理列表中正式移除
+        CoreManager.instance.removeCore(core);
+        
+        if (_selectedCore == core) {
+          _selectedCore = CoreManager.instance.runningCores.isNotEmpty
+              ? CoreManager.instance.runningCores.last
+              : null;
+        }
+        
+        if (CoreManager.instance.runningCores.isEmpty) {
+          _showRunningHandle = false;
+          _homeState = HomeState.normal;
+          if (_pageController.hasClients) {
+            _pageController.animateToPage(
+              0,
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeOutExpo,
+            );
+          }
+        }
+      }
+    });
   }
 
   Future<void> _showAttachProcessDialog() async {
@@ -856,7 +914,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             accountType: "External",
             identityName: "User",
             pid: pid,
-            killOnExit: false,
+            killOnExit: true, // 进程依附的话默认强依附
           );
 
           setState(() {
@@ -909,11 +967,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _isTransitioningToRunning = false;
     });
 
-    _pageController.animateToPage(
-      1,
-      duration: const Duration(milliseconds: 700),
-      curve: Curves.easeOutExpo,
-    );
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        1,
+        duration: const Duration(milliseconds: 700),
+        curve: Curves.easeOutExpo,
+      );
+    }
 
     try {
       if (_isLaunchCancelled) return;
@@ -1025,13 +1085,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ? "https://mc-heads.net/avatar/$mcUuid/100"
           : "https://mc-heads.net/avatar/$mcUsername/100";
 
-      final bool killOnExit =
-          ConfigService.get("minecraft_kill_on_exit") ?? false;
-
       final process = await LaunchService.instance.launch(
         version: _selectedVersion!,
         minecraftDir: _selectedVersionDir!,
-        killOnExit: killOnExit,
+        killOnExit: true, // MC启动期一律强依附以获取日志
         onStatus: (status, progress) {
           if (mounted) {
             setState(() {
@@ -1055,7 +1112,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ? "Little Sister".tl
           : "Brother".tl;
 
-      // Parse version and loader from selected version string
       String displayVersion = _selectedVersion!;
       String displayLoader = "Vanilla".tl;
 
@@ -1075,7 +1131,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         identityName: identityName,
         process: process,
         pid: process.pid,
-        killOnExit: killOnExit,
+        killOnExit: true, // 初始设定为强依附
       );
 
       setState(() {
@@ -1131,116 +1187,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       }
 
       process.exitCode.then((code) {
-        debugPrint("Minecraft exited with code $code");
-        logger.info("Minecraft exited with code $code", LogSource.tool);
-        newCore.exitCode = code;
         if (_isLaunchCancelled && _activeLaunchingProcess == process) {
           newCore.isManuallyTerminated = true;
         }
-
-        final endTime = DateTime.now();
-        final duration = endTime.difference(newCore.startTime).inSeconds;
-        StatsService.instance.addSession(
-          SessionRecord(
-            version: newCore.version,
-            startTime: newCore.startTime,
-            endTime: endTime,
-            total: duration,
-          ),
-        );
-
-        if (mounted) {
-          final isActualCrash =
-              code != 0 &&
-              !newCore.isManuallyTerminated &&
-              newCore.killOnExit &&
-              !newCore.isDetached;
-
-          if (isActualCrash && !_isTransitioningToRunning) {
-            _isTransitioningToRunning = true;
-            setState(() {
-              _showLogsInRunning = true;
-              _selectedCore = newCore;
-              _showRunningHandle = true;
-            });
-
-            if (_homeState == HomeState.normal) {
-              setState(() => _homeState = HomeState.running);
-              _pageController
-                  .animateToPage(
-                    1,
-                    duration: const Duration(milliseconds: 800),
-                    curve: Curves.easeOutExpo,
-                  )
-                  .then((_) {
-                    _isTransitioningToRunning = false;
-                  });
-            } else if (_homeState == HomeState.launching) {
-              _pageController
-                  .animateToPage(
-                    2,
-                    duration: const Duration(milliseconds: 800),
-                    curve: Curves.easeOutExpo,
-                  )
-                  .then((_) {
-                    if (mounted) {
-                      setState(() {
-                        _homeState = HomeState.running;
-                        _isTransitioningToRunning = false;
-                      });
-                      _pageController.jumpToPage(1);
-                    }
-                  });
-            }
-          }
-
-          // Transition logic for launching state
-          if (_homeState == HomeState.launching &&
-              _selectedCore == newCore &&
-              !_isTransitioningToRunning) {
-            _isTransitioningToRunning = true;
-            _pageController
-                .animateToPage(
-                  2,
-                  duration: const Duration(milliseconds: 800),
-                  curve: Curves.easeOutExpo,
-                )
-                .then((_) {
-                  if (mounted) {
-                    setState(() {
-                      _homeState = HomeState.running;
-                      _showRunningHandle = true;
-                      _isTransitioningToRunning = false;
-                    });
-                    _pageController.jumpToPage(1);
-                  }
-                });
-          }
-
-          setState(() {
-            if (!isActualCrash) {
-              // Normal exit or manual kill: always remove to close running layout
-              CoreManager.instance.removeCore(newCore);
-              if (_selectedCore == newCore) {
-                _selectedCore = CoreManager.instance.runningCores.isNotEmpty
-                    ? CoreManager.instance.runningCores.last
-                    : null;
-              }
-            }
-
-            if (CoreManager.instance.runningCores.isEmpty) {
-              _showRunningHandle = false;
-              if (_homeState == HomeState.running) {
-                _pageController.animateToPage(
-                  0,
-                  duration: const Duration(milliseconds: 700),
-                  curve: Curves.easeOutExpo,
-                );
-                _homeState = HomeState.normal;
-              }
-            }
-          });
-        }
+        _handleCoreExit(newCore, code);
       });
     } catch (e) {
       if (mounted) {
@@ -1281,16 +1231,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (!mounted || _isTransitioningToRunning) return;
 
     final core = _selectedCore;
-    if (core != null && !core.killOnExit) {
-      core.isDetached = true;
-      if (core.subscriptions != null) {
-        for (var s in core.subscriptions!) {
-          s.cancel();
+    if (core != null) {
+      // 特殊逻辑：MC 成功启动后，如果没设强依附则 Detach
+      final bool killOnExitConfig = ConfigService.get("minecraft_kill_on_exit") ?? false;
+      final bool isMC = core.loader != "External".tl && core.loader != "Attached".tl;
+      
+      if (isMC && !killOnExitConfig) {
+        try {
+          core.killOnExit = false;
+          core.isDetached = true;
+          if (core.subscriptions != null) {
+            for (var s in core.subscriptions!) {
+              s.cancel();
+            }
+            core.subscriptions = null;
+          }
+          core.logs.clear();
+          debugPrint("MC Core ${core.id} detached automatically after window creation.");
+        } catch (e) {
+          debugPrint("Ignore MC detach error: $e");
         }
-        core.subscriptions = null;
       }
-      core.logs.clear();
-      debugPrint("Core ${core.id} detached after window creation.");
     }
 
     if (_homeState == HomeState.launching) {
@@ -1448,72 +1409,301 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  void _onPluginsChanged() {
+    if (mounted) {
+      _loadHomePluginCards();
+    }
+  }
+
+  void _loadHomePluginCards() {
+    setState(() {
+      _homePluginCards = PluginService.instance.getHomeCards();
+    });
+  }
+
+  Widget _buildPluginHomeCard(Map<String, dynamic> card, ThemeData theme) {
+    try {
+      final String? pluginId = card['_pluginId'];
+      if (pluginId == null) return const SizedBox.shrink();
+      
+      final pluginList = PluginService.instance.plugins;
+      final pluginIndex = pluginList.indexWhere((p) => p.id == pluginId);
+      if (pluginIndex == -1) return const SizedBox.shrink();
+      final plugin = pluginList[pluginIndex];
+
+      dynamic subtitleValue = card['subtitle'];
+      if (subtitleValue is String && subtitleValue.startsWith(r'$')) {
+        final key = subtitleValue.substring(1);
+        if (plugin.runtimeValues.containsKey(key)) {
+          subtitleValue = plugin.runtimeValues[key];
+        }
+      }
+      
+      if (subtitleValue is List) {
+        // 逻辑注入：如果变量池没有 is_collapsed，则从插件设置 "Auto Expand" 初始化
+        if (!plugin.runtimeValues.containsKey('is_collapsed')) {
+          final autoExpand = plugin.pluginSettingsValues['Auto Expand'];
+          if (autoExpand is bool) {
+            plugin.runtimeValues['is_collapsed'] = !autoExpand;
+          }
+        }
+        
+        final bool isCollapsed = plugin.runtimeValues['is_collapsed'] == true;
+        final int displayCount = isCollapsed ? 1 : subtitleValue.length;
+
+        // 获取当前页码信息（从变量池读取 cursor 和原始数据长度）
+        final cursor = double.tryParse(plugin.runtimeValues['cursor']?.toString() ?? "0")?.toInt() ?? 0;
+        final total = subtitleValue.length;
+
+        return FluentCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Text(
+                            plugin.resolve(card['title'] ?? "List"),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          const SizedBox(width: 8),
+                          if (total > 0)
+                            Text(
+                              "[${cursor + 1}-${(cursor + total).clamp(0, 999)}]",
+                              style: const TextStyle(fontSize: 10, color: Colors.grey, fontFamily: 'monospace'),
+                            ),
+                          if (plugin.isBusy)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 8),
+                              child: SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(isCollapsed ? Icons.expand_more : Icons.expand_less, size: 18),
+                      onPressed: () {
+                        plugin.runtimeValues['is_collapsed'] = !isCollapsed;
+                        setState(() {});
+                      },
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    if (card['actions']?['refresh'] != null)
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 18),
+                        onPressed: plugin.isBusy ? null : () => PluginService.instance.runToolAction({...card, 'action': card['actions']?['refresh']}),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    if (card['actions']?['prev'] != null)
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back_ios, size: 14),
+                        onPressed: plugin.isBusy ? null : () => PluginService.instance.runToolAction({...card, 'action': card['actions']?['prev']}),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    if (card['actions']?['next'] != null)
+                      IconButton(
+                        icon: const Icon(Icons.arrow_forward_ios, size: 14),
+                        onPressed: plugin.isBusy ? null : () => PluginService.instance.runToolAction({...card, 'action': card['actions']?['next']}),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                transitionBuilder: (Widget child, Animation<double> animation) {
+                  return FadeTransition(opacity: animation, child: child);
+                },
+                child: Column(
+                  key: ValueKey("${pluginId}_${plugin.isBusy}_${subtitleValue.hashCode}_$isCollapsed"),
+                  children: subtitleValue.take(displayCount).map((item) {
+                    if (item is! Map) return const SizedBox.shrink();
+                    final title = (item['title'] ?? "").toString();
+                    final desc = (item['desc'] ?? "").toString();
+                    final image = (item['image'] ?? "").toString();
+                    final link = (item['link'] ?? "").toString();
+
+                    return InkWell(
+                      onTap: () => launchUrlString(link),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (image.isNotEmpty)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: CachedNetworkImage(
+                                  imageUrl: image.startsWith('/') ? "https://launchercontent.mojang.com$image" : image,
+                                  width: 80,
+                                  height: 60,
+                                  fit: BoxFit.cover,
+                                  errorWidget: (_, __, ___) => Container(width: 80, height: 60, color: Colors.grey.withValues(alpha: 0.1), child: const Icon(Icons.image_not_supported, size: 20)),
+                                ),
+                              ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    title,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    desc,
+                                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
+      return FluentCard(
+        onTap: () => PluginService.instance.runToolAction(card),
+        child: Row(
+          children: [
+            if (card['icon'] != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Image.asset(card['icon'], width: 32, height: 32),
+              ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    plugin.resolve(card['title'] ?? "Plugin Card"),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                  if (card['subtitle'] != null)
+                    Text(
+                      plugin.resolve(card['subtitle']),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                ],
+              ),
+            ),
+            if (card['button'] != null)
+              BloretButton(
+                text: plugin.resolve(card['button']),
+                onPressed: () => PluginService.instance.runToolAction(card),
+              ),
+          ],
+        ),
+      );
+    } catch (e) {
+      logger.error("[HomePage] Error building plugin card: $e", LogSource.system);
+      return const SizedBox.shrink();
+    }
+  }
+
   Widget _buildNormalLayout(ThemeData theme, bool isPortrait) {
+    final List<String> layoutOrder = List<String>.from(ConfigService.get("home_layout_order") ?? [
+      'header',
+      'agent_input',
+      'disclaimer',
+      'section_info',
+      'server_card',
+      'plugin_cards',
+      'data_provider_info',
+    ]);
+
     return Column(
       key: const ValueKey("normal_home"),
       children: [
         Expanded(
-          child: ListView(
+          child: ListView.builder(
             padding: EdgeInsets.only(
               left: Platform.isAndroid ? 24 : 36,
               top: 24,
               bottom: 24,
               right: 24,
             ),
-            children: [
-              SlideFadeIn(
-                controller: _listController,
-                delay: 0,
-                child: Hero(
-                  tag: "header_title",
-                  child: Material(
-                    color: Colors.transparent,
-                    child: isPortrait
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Stack(
-                                clipBehavior: Clip.none,
+            itemCount: layoutOrder.length,
+            itemBuilder: (context, index) {
+              final item = layoutOrder[index];
+              
+              switch (item) {
+                case 'header':
+                  return SlideFadeIn(
+                    controller: _listController,
+                    delay: 0,
+                    child: Hero(
+                      tag: "header_title",
+                      child: Material(
+                        color: Colors.transparent,
+                        child: isPortrait
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
+                                  Stack(
+                                    clipBehavior: Clip.none,
                                     children: [
-                                      Text(
-                                        "$name Launcher",
-                                        style: theme.textTheme.headlineLarge
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.bold,
+                                      Row(
+                                        children: [
+                                          Text(
+                                            "$name Launcher",
+                                            style: theme.textTheme.headlineLarge
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                          ),
+                                          const Spacer(),
+                                          if (!_isChinese && _apiAvailable)
+                                            _buildTranslateButton(
+                                              isTranslating: _isTranslating,
+                                              onPressed: _toggleTranslation,
+                                              isTranslated: _showTranslatedTips,
                                             ),
+                                          const SizedBox(width: 48),
+                                        ],
                                       ),
-                                      const Spacer(),
-                                      if (!_isChinese && _apiAvailable)
-                                        _buildTranslateButton(
-                                          isTranslating: _isTranslating,
-                                          onPressed: _toggleTranslation,
-                                          isTranslated: _showTranslatedTips,
-                                        ),
-                                      const SizedBox(width: 48),
-                                    ],
-                                  ),
-                                  Positioned(
-                                    top: 0,
-                                    right: 0,
-                                    child: AnimatedSlide(
-                                      duration: const Duration(
-                                        milliseconds: 300,
-                                      ),
-                                      offset: _agentAnimStage == 0
-                                          ? Offset.zero
-                                          : const Offset(2.0, 0),
-                                      curve: Curves.easeInCubic,
-                                      child: GestureDetector(
-                                        onTap: _agentAnimStage == 0
-                                            ? () async {
-                                                setState(
-                                                  () => _agentAnimStage = 1,
-                                                );
-                                                await Future.delayed(
-                                                  const Duration(
-                                                    milliseconds: 150,
+                                      Positioned(
+                                        top: 0,
+                                        right: 0,
+                                        child: AnimatedSlide(
+                                          duration: const Duration(
+                                            milliseconds: 300,
+                                          ),
+                                          offset: _agentAnimStage == 0
+                                              ? Offset.zero
+                                              : const Offset(2.0, 0),
+                                          curve: Curves.easeInCubic,
+                                          child: GestureDetector(
+                                            onTap: _agentAnimStage == 0
+                                                ? () async {
+                                                    setState(
+                                                      () => _agentAnimStage = 1,
+                                                    );
+                                                    await Future.delayed(
+                                                      const Duration(
+                                                        milliseconds: 150,
                                                   ),
                                                 );
                                                 if (mounted) {
@@ -1607,62 +1797,92 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ),
                   ),
                 ),
-              ),
-              if (!isPortrait) ...[
-                const SizedBox(height: 24),
-                SlideFadeIn(
-                  controller: _listController,
-                  delay: 0.4,
-                  child: Hero(
-                    tag: "bloriko_agent",
-                    child: _buildAgentInput(theme),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SlideFadeIn(
-                  controller: _listController,
-                  delay: 0.5,
-                  child: _buildDisclaimer(theme),
-                ),
-              ],
-              const SizedBox(height: 32),
-              SlideFadeIn(
-                controller: _listController,
-                delay: 0.6,
-                child: Text(
-                  "Information".tl,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SlideFadeIn(
-                controller: _listController,
-                delay: 0.7,
-                child: Hero(
-                  tag: "server_card",
-                  child: _buildServerCard(theme, isPortrait),
-                ),
-              ),
-              SlideFadeIn(
-                controller: _listController,
-                delay: 0.8,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 12),
-                    Text(
-                      "Bloret Server data provided by Bloret Server Check".tl,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline,
+              );
+                case 'agent_input':
+                  if (isPortrait) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 24),
+                    child: SlideFadeIn(
+                      controller: _listController,
+                      delay: 0.4,
+                      child: Hero(
+                        tag: "bloriko_agent",
+                        child: _buildAgentInput(theme),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ],
+                  );
+                case 'disclaimer':
+                  if (isPortrait && _agentAnimStage < 2) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: SlideFadeIn(
+                      controller: _listController,
+                      delay: 0.5,
+                      child: _buildDisclaimer(theme),
+                    ),
+                  );
+                case 'section_info':
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 32),
+                    child: SlideFadeIn(
+                      controller: _listController,
+                      delay: 0.6,
+                      child: Text(
+                        "Information".tl,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  );
+                case 'server_card':
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: SlideFadeIn(
+                      controller: _listController,
+                      delay: 0.7,
+                      child: Hero(
+                        tag: "server_card",
+                        child: _buildServerCard(theme, isPortrait),
+                      ),
+                    ),
+                  );
+                case 'plugin_cards':
+                  if (_homePluginCards.isEmpty) return const SizedBox.shrink();
+                  return Column(
+                    children: _homePluginCards.map((card) {
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: SlideFadeIn(
+                          controller: _listController,
+                          delay: 0.75,
+                          child: _buildPluginHomeCard(card, theme),
+                        ),
+                      );
+                    }).toList(),
+                  );
+                case 'data_provider_info':
+                  return SlideFadeIn(
+                    controller: _listController,
+                    delay: 0.8,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 12),
+                        Text(
+                          "Bloret Server data provided by Bloret Server Check".tl,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                default:
+                  return const SizedBox.shrink();
+              }
+            },
           ),
         ),
         _BottomActionRail(
@@ -2103,33 +2323,37 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               Positioned(
                                 right: 20,
                                 top: 20,
-                                child: AnimatedOpacity(
-                                  duration: const Duration(milliseconds: 500),
-                                  opacity: isCrashed ? 0.1 : 0.0,
-                                  child: Icon(
-                                    Icons.warning_amber_outlined,
-                                    size: 100,
-                                    color: Colors.redAccent,
+                                child: IgnorePointer(
+                                  child: AnimatedOpacity(
+                                    duration: const Duration(milliseconds: 500),
+                                    opacity: isCrashed ? 0.1 : 0.0,
+                                    child: Icon(
+                                      Icons.warning_amber_outlined,
+                                      size: 100,
+                                      color: Colors.redAccent,
+                                    ),
                                   ),
                                 ),
                               ),
                               Positioned(
                                 right: 15,
                                 top: 15,
-                                child: AnimatedOpacity(
-                                  duration: const Duration(milliseconds: 500),
-                                  opacity: (isEfficiency && !isCrashed)
-                                      ? 0.08
-                                      : 0.0,
-                                  child: AnimatedSwitcher(
+                                child: IgnorePointer(
+                                  child: AnimatedOpacity(
                                     duration: const Duration(milliseconds: 500),
-                                    child: Icon(
-                                      Icons.energy_savings_leaf,
-                                      key: ValueKey("leaf_$isSuspended"),
-                                      size: 110,
-                                      color: isSuspended
-                                          ? Colors.grey
-                                          : Colors.green,
+                                    opacity: (isEfficiency && !isCrashed)
+                                        ? 0.08
+                                        : 0.0,
+                                    child: AnimatedSwitcher(
+                                      duration: const Duration(milliseconds: 500),
+                                      child: Icon(
+                                        Icons.energy_savings_leaf,
+                                        key: ValueKey("leaf_$isSuspended"),
+                                        size: 110,
+                                        color: isSuspended
+                                            ? Colors.grey
+                                            : Colors.green,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -2288,6 +2512,36 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         color: isSuspended ? Colors.grey : null,
                       ),
                     ),
+                    const Spacer(),
+                    if (!isExited && core.process != null && core.killOnExit)
+                      Tooltip(
+                        message: "Disconnect from the process. It will keep running after launcher exits.".tl,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              core.killOnExit = false;
+                              core.isDetached = true;
+                              if (core.subscriptions != null) {
+                                for (var s in core.subscriptions!) {
+                                  s.cancel();
+                                }
+                                core.subscriptions = null;
+                              }
+                              core.logs.clear();
+                              showInfo("Process detached.".tl);
+                            });
+                          },
+                          icon: const Icon(Icons.link_off, size: 16, color: Colors.orangeAccent),
+                          label: Text(
+                            "Detach".tl,
+                            style: const TextStyle(fontSize: 12, color: Colors.orangeAccent),
+                          ),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -2308,11 +2562,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                 return;
                               }
                               core.isManuallyTerminated = true;
-                              if (core.process != null) {
-                                core.process!.kill();
-                              } else {
-                                Process.run('taskkill', ['/F', '/PID', '$pid']);
-                              }
+                              // 统一使用缓存的 PID 进行系统级强杀
+                              Process.run('taskkill', ['/F', '/PID', '$pid']);
                               showSuccess(
                                 "${"Terminating game process...".tl} (PID: $pid)",
                               );
@@ -2450,26 +2701,30 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         Positioned(
           right: 20,
           top: 10,
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 500),
-            opacity: isCrashed ? 0.1 : 0.0,
-            child: Icon(
-              Icons.warning_amber_outlined,
-              size: 80,
-              color: Colors.redAccent,
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 500),
+              opacity: isCrashed ? 0.1 : 0.0,
+              child: Icon(
+                Icons.warning_amber_outlined,
+                size: 80,
+                color: Colors.redAccent,
+              ),
             ),
           ),
         ),
         Positioned(
           right: 20,
           top: 10,
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 500),
-            opacity: isSuspended ? 0.1 : 0.0,
-            child: const Icon(
-              Icons.pause_circle_outline,
-              size: 80,
-              color: Colors.grey,
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 500),
+              opacity: isSuspended ? 0.1 : 0.0,
+              child: const Icon(
+                Icons.pause_circle_outline,
+                size: 80,
+                color: Colors.grey,
+              ),
             ),
           ),
         ),
@@ -2544,6 +2799,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         isExited && core.exitCode != 0 && !core.isManuallyTerminated;
     final bool hasStatus =
         isExited || core.isSuspended || core.isEfficiencyMode;
+    final bool isDetached = core.process == null || core.isDetached;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -2552,7 +2808,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 300),
           margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(12),
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: isSelected
                 ? (isCrashed
@@ -2573,125 +2829,149 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   )
                 : null,
           ),
-          child: Row(
+          child: Stack(
             children: [
-              Stack(
-                alignment: Alignment.bottomRight,
-                children: [
-                  ClipPath(
-                    clipper: hasStatus
-                        ? const _BottomRightCircleClipper(radius: 6)
-                        : null,
+              if (isDetached)
+                Positioned(
+                  right: -10,
+                  bottom: -10,
+                  child: IgnorePointer(
                     child: Opacity(
-                      opacity: (isExited && !isCrashed) ? 0.4 : 1.0,
+                      opacity: 0.05,
                       child: Icon(
-                        CupertinoIcons.cube,
-                        color: isCrashed
-                            ? Colors.redAccent
-                            : (core.isSuspended
-                                  ? theme.colorScheme.outline
-                                  : theme.colorScheme.primary),
-                        size: 24,
+                        Icons.link_off,
+                        size: 64,
+                        color: theme.colorScheme.onSurface,
                       ),
                     ),
                   ),
-                  if (isExited)
-                    Icon(
-                      isCrashed ? Icons.close : Icons.check,
-                      size: 10,
-                      color: isCrashed ? Colors.redAccent : Colors.grey,
-                    )
-                  else if (core.isSuspended)
-                    const Icon(
-                      Icons.pause,
-                      size: 10,
-                      color: Colors.orangeAccent,
-                    )
-                  else if (core.isEfficiencyMode)
-                    const Icon(
-                      Icons.energy_savings_leaf,
-                      size: 10,
-                      color: Colors.greenAccent,
+                ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Stack(
+                      alignment: Alignment.bottomRight,
+                      children: [
+                        ClipPath(
+                          clipper: hasStatus
+                              ? const _BottomRightCircleClipper(radius: 6)
+                              : null,
+                          child: Opacity(
+                            opacity: (isExited && !isCrashed) ? 0.4 : 1.0,
+                            child: Icon(
+                              CupertinoIcons.cube,
+                              color: isCrashed
+                                  ? Colors.redAccent
+                                  : (core.isSuspended
+                                        ? theme.colorScheme.outline
+                                        : theme.colorScheme.primary),
+                              size: 24,
+                            ),
+                          ),
+                        ),
+                        if (isExited)
+                          Icon(
+                            isCrashed ? Icons.close : Icons.check,
+                            size: 10,
+                            color: isCrashed ? Colors.redAccent : Colors.grey,
+                          )
+                        else if (core.isSuspended)
+                          const Icon(
+                            Icons.pause,
+                            size: 10,
+                            color: Colors.orangeAccent,
+                          )
+                        else if (core.isEfficiencyMode)
+                          const Icon(
+                            Icons.energy_savings_leaf,
+                            size: 10,
+                            color: Colors.greenAccent,
+                          ),
+                      ],
                     ),
-                ],
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Opacity(
-                  opacity: (isExited && !isCrashed) ? 0.5 : 1.0,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        core.version,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Opacity(
+                        opacity: (isExited && !isCrashed) ? 0.5 : 1.0,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              core.version,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(core.loader, style: const TextStyle(fontSize: 10)),
+                          ],
                         ),
                       ),
-                      Text(core.loader, style: const TextStyle(fontSize: 10)),
-                    ],
-                  ),
+                    ),
+                    if (isExited)
+                      IconButton(
+                        icon: Icon(
+                          Icons.delete_outline,
+                          size: 16,
+                          color: isCrashed ? Colors.redAccent : Colors.grey,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            CoreManager.instance.removeCore(core);
+                            if (_selectedCore == core) {
+                              _selectedCore =
+                                  CoreManager.instance.runningCores.isNotEmpty
+                                  ? CoreManager.instance.runningCores.last
+                                  : null;
+                            }
+
+                            if (CoreManager.instance.runningCores.isEmpty) {
+                              _showRunningHandle = false;
+                              if (_homeState == HomeState.running) {
+                                if (_pageController.hasClients) {
+                                  _pageController.animateToPage(
+                                    0,
+                                    duration: const Duration(milliseconds: 700),
+                                    curve: Curves.easeOutExpo,
+                                  );
+                                }
+                                _homeState = HomeState.normal;
+                              }
+                            }
+                          });
+                        },
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      )
+                    else if (isSelected)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              (isDetached
+                                      ? Colors.orangeAccent
+                                      : Colors.greenAccent)
+                                  .withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          isDetached ? "DETACHED" : "ACTIVE",
+                          style: TextStyle(
+                            color: isDetached
+                                ? Colors.orangeAccent
+                                : Colors.greenAccent,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              if (isExited)
-                IconButton(
-                  icon: Icon(
-                    Icons.delete_outline,
-                    size: 16,
-                    color: isCrashed ? Colors.redAccent : Colors.grey,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      CoreManager.instance.removeCore(core);
-                      if (_selectedCore == core) {
-                        _selectedCore =
-                            CoreManager.instance.runningCores.isNotEmpty
-                            ? CoreManager.instance.runningCores.last
-                            : null;
-                      }
-
-                      if (CoreManager.instance.runningCores.isEmpty) {
-                        _showRunningHandle = false;
-                        if (_homeState == HomeState.running) {
-                          _pageController.animateToPage(
-                            0,
-                            duration: const Duration(milliseconds: 700),
-                            curve: Curves.easeOutExpo,
-                          );
-                          _homeState = HomeState.normal;
-                        }
-                      }
-                    });
-                  },
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                )
-              else if (isSelected)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color:
-                        (core.isDetached
-                                ? Colors.orangeAccent
-                                : Colors.greenAccent)
-                            .withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    core.isDetached ? "DETACHED" : "ACTIVE",
-                    style: TextStyle(
-                      color: core.isDetached
-                          ? Colors.orangeAccent
-                          : Colors.greenAccent,
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
             ],
           ),
         ),
@@ -2707,7 +2987,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final isCrashed = isExited && exitCode != 0 && !core!.isManuallyTerminated;
     final isSuspended = core?.isSuspended ?? false;
 
-    // Detect if log capture is unavailable (e.g. detached or elevated process)
     final bool isLogUnavailable =
         (core?.process == null && core?.pid != null && logs.isEmpty);
 
@@ -2973,7 +3252,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildPortraitAgentBar(ThemeData theme) {
     return Row(
       children: [
-        // 分块滑入 1: 头像
         AnimatedSlide(
           duration: const Duration(milliseconds: 400),
           offset: _agentAnimStage >= 2 ? Offset.zero : const Offset(1.2, 0),
@@ -2985,7 +3263,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
         ),
         const SizedBox(width: 12),
-        // 分块滑入 2: 输入框
         Expanded(
           child: AnimatedSlide(
             duration: const Duration(milliseconds: 550),
@@ -2999,7 +3276,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
         ),
         const SizedBox(width: 12),
-        // 分块滑入 3: 发送按钮
         AnimatedSlide(
           duration: const Duration(milliseconds: 700),
           offset: _agentAnimStage >= 2 ? Offset.zero : const Offset(2.0, 0),
@@ -3311,11 +3587,9 @@ class _CoreStatsChart extends StatelessWidget {
     return AnimatedBuilder(
       animation: Listenable.merge([animation, ?cleanAnim]),
       builder: (context, child) {
-        // Dynamic range: Find the max value in current data to adjust Y-axis scale
         double currentMax = data.isEmpty
             ? 0.1
             : data.reduce((a, b) => a > b ? a : b);
-        // Ensure a minimum scale so it doesn't look empty when usage is low
         double yRange = (currentMax * 1.2).clamp(0.1, 1.0);
 
         return CustomPaint(

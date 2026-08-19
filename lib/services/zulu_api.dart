@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:bloret_launcher/main.dart';
 import 'package:http/http.dart' as http;
 
 class AzulApi {
@@ -27,7 +28,16 @@ class AzulApi {
 
   Stream<List<ZuluPackage>> getAllPackages({int pageSize = 1000}) async* {
     for (var page = 1;; page++) {
-      final packages = await getPackages(page: page, pageSize: pageSize);
+      List<ZuluPackage>? packages;
+      for (int i = 0; i < 3 && packages == null; i++) {
+        try {
+          packages = await getPackages(page: page, pageSize: pageSize);
+        } catch (e) {
+          logger.warning('Failed to get packages from Azul API',);
+          packages = null;
+        }
+      }
+      if (packages == null) continue;
       if (packages.isEmpty) break;
       yield packages;
     }

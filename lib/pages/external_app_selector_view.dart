@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:bloret_launcher/core/ffi_proxy.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -67,6 +68,11 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
 
     if (result != null && result.files.single.path != null) {
       final path = result.files.single.path!;
+
+      if (WinSystem.isBloraLauncher(path) != 0) {
+        showInfo(r'ᗜ_ᗜ');
+        return;
+      }
       setState(() {
         _pathController.text = path;
         if (_nameController.text.isEmpty) {
@@ -95,17 +101,27 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
           final name = proc['Name'];
           final exePath = proc['ExecutablePath'];
 
+          if (exePath != null) {
+            if (WinSystem.isBloraLauncher(exePath) != 0) {
+              showInfo("ᗜ˰ᗜ");
+              return;
+            }
+          }
+
           setState(() {
             _pathController.text = pid.toString();
             _nameController.text = name;
-            _workingDirController.text = exePath != null
-                ? p.dirname(exePath)
-                : "";
+            _workingDirController.text =
+            exePath != null ? p.dirname(exePath) : "";
           });
 
           if (exePath != null) {
-            final icon = await ExternalAppService.instance.extractIcon(exePath);
-            if (mounted) setState(() => _currentIconPath = icon);
+            final icon =
+            await ExternalAppService.instance.extractIcon(exePath);
+
+            if (mounted) {
+              setState(() => _currentIconPath = icon);
+            }
           }
         },
       ),
@@ -118,9 +134,13 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
       return;
     }
 
+    if (WinSystem.isBloraLauncher(_pathController.text) != 0) {
+      showError("ᗜ˰ᗜ💢");
+      return;
+    }
+
     final apps = ExternalAppService.instance.getCustomApps();
     if (widget.app == null) {
-      // Check for duplicate name only when adding new
       if (apps.any((e) => e.name == _nameController.text)) {
         showWarning("An application with this name already exists".tl);
         return;
@@ -153,7 +173,6 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
     }
 
     widget.onSaved();
-    showSuccess("Application saved".tl);
   }
 
   @override

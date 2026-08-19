@@ -61,6 +61,73 @@ typedef struct {
 
 #include "notification_manager.h"
 
+bool IsBloraLauncher(const wchar_t* path) {
+    DWORD handle = 0;
+    DWORD size = GetFileVersionInfoSizeW(path, &handle);
+
+    if (size == 0) {
+        return false;
+    }
+
+    std::vector<BYTE> buffer(size);
+
+    if (!GetFileVersionInfoW(
+            path,
+            0,
+            size,
+            buffer.data())) {
+        return false;
+    }
+
+    LPWSTR productName = nullptr;
+    UINT length = 0;
+
+    if (!VerQueryValueW(
+            buffer.data(),
+            L"\\StringFileInfo\\040904e4\\ProductName",
+            reinterpret_cast<LPVOID*>(&productName),
+            &length)) {
+        return false;
+    }
+
+    if (productName == nullptr) {
+        return false;
+    }
+
+    return _wcsicmp(productName, L"Blora Launcher") == 0;
+}
+
+extern "C" __declspec(dllexport)
+bool IsBloraLauncherUtf8(const char* path) {
+    if (path == nullptr) {
+        return false;
+    }
+
+    int size = MultiByteToWideChar(
+            CP_UTF8,
+            0,
+            path,
+            -1,
+            nullptr,
+            0);
+
+    if (size <= 0) {
+        return false;
+    }
+
+    std::wstring widePath(size - 1, L'\0');
+
+    MultiByteToWideChar(
+            CP_UTF8,
+            0,
+            path,
+            -1,
+            widePath.data(),
+            size);
+
+    return IsBloraLauncher(widePath.c_str());
+}
+
 extern "C" __declspec(dllexport)
 bool ShowWindowsNotification(
         const wchar_t* title,

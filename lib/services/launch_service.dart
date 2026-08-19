@@ -28,7 +28,7 @@ class RunningCore {
   final List<double> memUsage = List.generate(30, (_) => 0.0);
   final Process? process;
   final int? pid;
-  final bool killOnExit;
+  bool killOnExit;
   final DateTime startTime = DateTime.now();
   int? exitCode;
   bool isManuallyTerminated = false;

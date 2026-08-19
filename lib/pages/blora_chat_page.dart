@@ -1082,8 +1082,9 @@ class _BloraChatPageState extends State<BloraChatPage>
     if (!_speechEnabled) {
       await _initSpeech();
       if (!_speechEnabled) {
-        if (mounted)
+        if (mounted) {
           showWarning("Voice permissions not granted or unavailable".tl);
+        }
         return;
       }
     }

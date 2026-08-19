@@ -175,7 +175,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    "Bloret BBS".tl,
+                                    "Bloret BBS",
                                     style: const TextStyle(
                                       fontSize: 11,
                                       color: Colors.green,
@@ -734,132 +734,131 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: borderColor),
       ),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => BbbsDetailPage(post: item),
-              ),
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundImage: item.authorAvatar != null && item.authorAvatar!.isNotEmpty
-                          ? CachedNetworkImageProvider(item.authorAvatar!)
-                          : null,
-                      child: (item.authorAvatar == null || item.authorAvatar!.isEmpty)
-                          ? Text(
-                              author.isEmpty ? '?' : author.substring(0, 1).toUpperCase(),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            )
-                          : null,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            author,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: textColor,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        mouseCursor: SystemMouseCursors.click,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => BbbsDetailPage(post: item),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundImage: item.authorAvatar != null && item.authorAvatar!.isNotEmpty
+                        ? CachedNetworkImageProvider(item.authorAvatar!)
+                        : null,
+                    child: (item.authorAvatar == null || item.authorAvatar!.isEmpty)
+                        ? Text(
+                      author.isEmpty ? '?' : author.substring(0, 1).toUpperCase(),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    )
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          author,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
                           ),
-                          Row(
-                            children: [
-                              Icon(Icons.schedule, size: 12, color: secondaryColor),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  _formatTime(item.time),
-                                  style: TextStyle(fontSize: 11, color: secondaryColor),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Spacer(),
-                    if (item.board.isNotEmpty)
-                      Container(
-                        margin: const EdgeInsets.only(left: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: tagColor,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          item.board,
-                          style: TextStyle(fontSize: 11, color: secondaryColor),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                    const SizedBox(width: 8),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  item.title,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
-                  ),
-                ),
-                if (item.recommendationReason != null && item.recommendationReason!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.auto_awesome, size: 12, color: Colors.blue),
-                        const SizedBox(width: 4),
-                        Text(
-                          item.recommendationReason!,
-                          style: const TextStyle(fontSize: 11, color: Colors.blue, fontStyle: FontStyle.italic),
+                        Row(
+                          children: [
+                            Icon(Icons.schedule, size: 12, color: secondaryColor),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                _formatTime(item.time),
+                                style: TextStyle(fontSize: 11, color: secondaryColor),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                if (item.content.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 100),
-                    child: ClipRect(
-                      child: Builder(
+                  const Spacer(),
+                  if (item.board.isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(left: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: tagColor,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        item.board,
+                        style: TextStyle(fontSize: 11, color: secondaryColor),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                item.title,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
+              if (item.recommendationReason != null && item.recommendationReason!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.auto_awesome, size: 12, color: Colors.blue),
+                      const SizedBox(width: 4),
+                      Text(
+                        item.recommendationReason!,
+                        style: const TextStyle(fontSize: 11, color: Colors.blue, fontStyle: FontStyle.italic),
+                      ),
+                    ],
+                  ),
+                ),
+              if (item.content.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 100),
+                  child: ClipRect(
+                    child: Builder(
                         builder: (context) {
                           String displayContent = item.content.trim();
                           final lines = displayContent.split('\n');
-                          
+
                           if (lines.isNotEmpty) {
                             final String firstLine = lines.first.trim();
                             final String cleanFirstLine = firstLine.replaceFirst(RegExp(r'^#+\s*'), '').trim();
-                            
+
                             if (cleanFirstLine == item.title.trim()) {
                               displayContent = lines.skip(1).join('\n').trim();
                             } else if (displayContent.startsWith(item.title)) {
                               displayContent = displayContent.substring(item.title.length).trim();
                             }
                           }
-                          
+
                           if (displayContent.isEmpty) return const SizedBox.shrink();
 
                           return GptMarkdown(
@@ -867,34 +866,33 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                             style: TextStyle(fontSize: 13, color: secondaryColor.withValues(alpha: 0.8)),
                           );
                         }
-                      ),
                     ),
                   ),
-                ],
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    _statItemIconOnly(
-                      Icons.favorite_outline,
-                      _formatCount(item.likes),
-                      secondaryColor,
-                    ),
-                    const SizedBox(width: 15),
-                    _statItemIconOnly(
-                      Icons.chat_bubble_outline,
-                      _formatCount(item.commentsCount),
-                      secondaryColor,
-                    ),
-                    const SizedBox(width: 15),
-                    _statItemIconOnly(
-                      Icons.visibility_outlined,
-                      "${item.views}",
-                      secondaryColor,
-                    ),
-                  ],
                 ),
               ],
-            ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _statItemIconOnly(
+                    Icons.favorite_outline,
+                    _formatCount(item.likes),
+                    secondaryColor,
+                  ),
+                  const SizedBox(width: 15),
+                  _statItemIconOnly(
+                    Icons.chat_bubble_outline,
+                    _formatCount(item.commentsCount),
+                    secondaryColor,
+                  ),
+                  const SizedBox(width: 15),
+                  _statItemIconOnly(
+                    Icons.visibility_outlined,
+                    "${item.views}",
+                    secondaryColor,
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),

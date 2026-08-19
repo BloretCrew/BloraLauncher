@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:bloret_launcher/services/config_service.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
@@ -132,7 +132,7 @@ class I18n extends ChangeNotifier {
     _calledKeys.add(key);
     final value = _localizedValues[key];
 
-    if (value == null && ConfigService.get("develop_mode")) {
+    if (value == null && kDebugMode) {
       if (!_missingValues.containsKey(key)) {
         _missingValues[key] = "";
         _saveMissingKeys();

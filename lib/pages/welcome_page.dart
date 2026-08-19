@@ -582,8 +582,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
   Future<void> _startAuthServer() async {
     await _authServer?.close(force: true);
     try {
-      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25252);
-      _actualPort = 25252;
+      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25253);
+      _actualPort = 25253;
     } catch (_) {
       _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       _actualPort = _authServer!.port;
@@ -778,7 +778,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
   Future<void> _loginBloretPassPort() async {
     await _startAuthServer();
     final url = Uri.parse(
-      'https://passport.bloret.net/app/oauth?app_id=BloretLauncher&redirect_uri=http://localhost:$_actualPort/login/Bloret-PassPort',
+      'https://passport.bloret.net/app/oauth?app_id=${PassportService.appId}&redirect_uri=http://localhost:$_actualPort/login/Bloret-PassPort',
     );
     if (await canLaunchUrl(url)) {
       await launchUrl(

@@ -36,7 +36,7 @@ class WindowBridge {
                   children: [
                     const Icon(Icons.exit_to_app,),
                     const SizedBox(width: 12),
-                    Text("Close Bloret Launcher".tl),
+                    Text("Close Blora Launcher".tl),
                   ],
                 ),
                 content: Column(

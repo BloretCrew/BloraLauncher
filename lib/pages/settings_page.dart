@@ -2233,37 +2233,11 @@ class _SettingsPageState extends State<SettingsPage> {
       listenable: service,
       builder: (context, _) {
         final plugins = service.plugins;
-        if (plugins.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.extension_off, size: 64, color: Colors.grey),
-                const SizedBox(height: 16),
-                Text("No plugins installed".tl, style: const TextStyle(color: Colors.grey)),
-                const SizedBox(height: 8),
-                Text(
-                  "Place plugin folders in your data/plugins directory".tl,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                BloretButton(
-                  text: "Open Plugins Folder".tl,
-                  onPressed: () async {
-                    final dir = await service.getPluginsDir();
-                    if (Platform.isWindows) {
-                      launchUrlString(dir.path);
-                    } else if (Platform.isAndroid) {
-                    }
-                  },
-                ),
-              ],
-            ),
-          );
-        }
 
         return Column(
           children: [
+            _buildPluginActionBar(),
+            const SizedBox(height: 12),
             _buildSettingItem(
               "Hot Reload (Dev)".tl,
               "Automatically reload plugins when files change".tl,
@@ -2272,35 +2246,130 @@ class _SettingsPageState extends State<SettingsPage> {
               onSwitchChanged: (v) => service.setHotReload(v),
             ),
             const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                crossAxisAlignment: .start,
-                children: [
-                  Text(
-                    "Installed Plugins".tl,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+            if (plugins.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.extension_off, size: 64, color: Colors.grey),
+                      const SizedBox(height: 16),
+                      Text("No plugins installed".tl, style: const TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 8),
+                      Text(
+                        "Place plugin folders in your data/plugins directory".tl,
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               )
-            ),
-            ...plugins.map((plugin) => _buildPluginItem(plugin)),
+            else ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Text(
+                      "Installed Plugins".tl,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...plugins.map((plugin) => _buildPluginItem(plugin)),
+            ],
           ],
         );
       },
     );
   }
 
+  Widget _buildPluginActionBar() {
+    final service = PluginService.instance;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 16, bottom: 8),
+          child: Text(
+            "Management".tl,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+        ),
+        SizedBox(
+          width: double.infinity,
+          child: FluentCard(
+            padding: const EdgeInsets.all(16),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                BloretButton(
+                  icon: Icons.folder_open,
+                  text: "Open Folder".tl,
+                  onPressed: () async {
+                    final dir = await service.getPluginsDir();
+                    launchUrlString(dir.path);
+                  },
+                ),
+                BloretButton(
+                  icon: Icons.refresh,
+                  text: "Rescan".tl,
+                  onPressed: () => service.scanPlugins(),
+                ),
+                BloretButton(
+                  icon: Icons.language,
+                  text: "Marketplace".tl,
+                  onPressed: () => launchUrlString("https://launcher.bloret.net/apps"),
+                ),
+                BloretButton(
+                  icon: Icons.delete_sweep,
+                  text: "Delete All".tl,
+                  onPressed: () => _showBatchDeleteConfirm(),
+                  color: Colors.redAccent,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showBatchDeleteConfirm() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Batch Delete".tl),
+        content: Text("Are you sure you want to delete all plugins? This action is irreversible.".tl),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
+          TextButton(
+            onPressed: () {
+              PluginService.instance.deleteAllPlugins();
+              Navigator.pop(context);
+              showSuccess("All plugins deleted".tl);
+            },
+            child: Text("Delete".tl, style: const TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPluginItem(BloretPlugin plugin) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
+      padding: const EdgeInsets.only(bottom: 4.0),
       child: FluentCard(
         padding: EdgeInsets.zero,
         child: Column(
           children: [
             ListTile(
               leading: const Icon(Icons.extension, size: 32),
-              title: Text(plugin.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              title: Text(plugin.translate(plugin.name), style: const TextStyle(fontWeight: FontWeight.bold)),
               subtitle: Text("${plugin.version} | ${plugin.author}"),
               trailing: Switch(
                 value: plugin.isEnabled,
@@ -2313,11 +2382,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    plugin.description,
+                    plugin.translate(plugin.description),
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ),
               ),
+            _buildPluginSettings(plugin),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: _buildSettingItem(
@@ -2363,6 +2433,83 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Widget _buildPluginSettings(BloretPlugin plugin) {
+    if (plugin.settingsSchema.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+      child: _buildSettingItem(
+        "Settings".tl,
+        "Configure plugin specific options".tl,
+        Icons.settings_applications,
+        itemKey: "plugin_settings_${plugin.id}",
+        expandedChild: Column(
+          children: plugin.settingsSchema.entries.map((e) {
+            final key = e.key;
+            final schema = e.value as Map<String, dynamic>;
+            final defaultValue = schema['default'];
+            final currentVal = plugin.pluginSettingsValues[key] ?? defaultValue;
+
+            return _buildPluginSettingControl(plugin, key, schema, currentVal);
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPluginSettingControl(BloretPlugin plugin, String key, Map<String, dynamic> schema, dynamic value) {
+    final title = plugin.translate(key);
+    final desc = plugin.translate(schema['description'] ?? "");
+    final iconStr = schema['icon']?.toString() ?? "";
+    final icon = _getIconData(iconStr);
+
+    if (value is bool) {
+      return _buildSettingItem(
+        title,
+        desc,
+        icon,
+        switchValue: value,
+        onSwitchChanged: (v) {
+          final newSettings = Map<String, dynamic>.from(plugin.pluginSettingsValues);
+          newSettings[key] = v;
+          PluginService.instance.updatePluginSettings(plugin.id, newSettings);
+        },
+      );
+    } else if (value is num) {
+      final double minVal = (schema['min'] ?? 0).toDouble();
+      final double maxVal = (schema['max'] ?? 100).toDouble();
+      return _buildSettingItem(
+        title,
+        desc.isEmpty ? value.toString() : "$desc (${value.toInt()})",
+        icon,
+        sliderValue: value.toDouble().clamp(minVal, maxVal),
+        sliderMin: minVal,
+        sliderMax: maxVal,
+        onSliderChanged: (v) {
+          final newSettings = Map<String, dynamic>.from(plugin.pluginSettingsValues);
+          newSettings[key] = v.toInt();
+          PluginService.instance.updatePluginSettings(plugin.id, newSettings);
+        },
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  IconData _getIconData(String key) {
+    switch (key.toLowerCase()) {
+      case "count": return Icons.numbers;
+      case "list": return Icons.list;
+      case "image": return Icons.image;
+      case "network": return Icons.network_check;
+      case "timer": return Icons.timer;
+      case "person": return Icons.person;
+      case "visibility": return Icons.visibility;
+      case "eye": return Icons.visibility;
+      default: return Icons.settings;
+    }
+  }
+
   Widget _buildSettingItem(
     String title,
     String desc,
@@ -2371,6 +2518,8 @@ class _SettingsPageState extends State<SettingsPage> {
     bool? switchValue,
     ValueChanged<bool>? onSwitchChanged,
     double? sliderValue,
+    double? sliderMin,
+    double? sliderMax,
     ValueChanged<double>? onSliderChanged,
     Widget? dropdown,
     Widget? expandedChild,
@@ -2463,6 +2612,8 @@ class _SettingsPageState extends State<SettingsPage> {
                                   width: 150,
                                   child: Slider(
                                     value: sliderValue,
+                                    min: sliderMin ?? 0.0,
+                                    max: sliderMax ?? 1.0,
                                     onChanged: onSliderChanged ?? (_) {},
                                   ),
                                 ),
@@ -2584,6 +2735,8 @@ class _SettingsPageState extends State<SettingsPage> {
                               width: 150,
                               child: Slider(
                                 value: sliderValue,
+                                min: sliderMin ?? 0.0,
+                                max: sliderMax ?? 1.0,
                                 onChanged: onSliderChanged ?? (_) {},
                               ),
                             ),

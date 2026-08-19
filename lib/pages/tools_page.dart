@@ -30,8 +30,6 @@ class ToolsPage extends StatefulWidget {
 enum ArmType { normal, thin }
 
 class _ToolsPageState extends State<ToolsPage> with TickerProviderStateMixin {
-  List<dynamic> pluginToolCards = [];
-
   final uuidController = TextEditingController();
   final nameController = TextEditingController();
   final skinController = TextEditingController();
@@ -53,7 +51,6 @@ class _ToolsPageState extends State<ToolsPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    loadPluginToolCards();
     _skinViewAnimController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -280,12 +277,6 @@ class _ToolsPageState extends State<ToolsPage> with TickerProviderStateMixin {
     );
   }
 
-  void loadPluginToolCards() {
-    setState(() {
-      pluginToolCards = PluginService.instance.getToolsContributions();
-    });
-  }
-
   Widget sectionTitle(String text) {
     return Padding(
       padding: const EdgeInsets.only(top: 10),
@@ -298,36 +289,44 @@ class _ToolsPageState extends State<ToolsPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: ListView(
-        padding: EdgeInsets.only(
-          left: Platform.isAndroid ? 16 : 32,
-          right: 16,
-          top: 16,
-          bottom: 16,
-        ),
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 8),
-            child: Text(
-              "Tools".tl,
-              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-            ),
-          ),
+    return ListenableBuilder(
+      listenable: PluginService.instance,
+      builder: (context, _) {
+        final pluginToolCards = PluginService.instance.getToolsContributions();
 
-          if (pluginToolCards.isNotEmpty) ...[
-            sectionTitle("Plugin Tools".tl),
-            const SizedBox(height: 4),
-            ...pluginToolCards.map((card) {
-              return ToolCard(
-                icon: card['icon'] ?? "assets/icons/default_plugin.png",
-                title: (card['title'] ?? "Plugin Tool").toString().tl,
-                subtitle: (card['subtitle'] ?? "").toString().tl,
-                button: (card['button'] ?? "Open").toString().tl,
-                onPressed: () => PluginService.instance.runToolAction(card),
-              );
-            }),
-          ],
+        return Scaffold(
+          body: ListView(
+            padding: EdgeInsets.only(
+              left: Platform.isAndroid ? 16 : 32,
+              right: 16,
+              top: 16,
+              bottom: 16,
+            ),
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 8),
+                child: Text(
+                  "Tools".tl,
+                  style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                ),
+              ),
+
+              if (pluginToolCards.isNotEmpty) ...[
+                sectionTitle("Plugin Tools".tl),
+                const SizedBox(height: 4),
+                ...pluginToolCards.map((card) {
+                  final String? pluginId = card['_pluginId'];
+                  final plugin = PluginService.instance.plugins.firstWhere((p) => p.id == pluginId);
+                  
+                  return ToolCard(
+                    icon: card['icon'] ?? "assets/icons/default_plugin.png",
+                    title: plugin.resolve(card['title'] ?? "Plugin Tool"),
+                    subtitle: plugin.resolve(card['subtitle'] ?? ""),
+                    button: plugin.resolve(card['button'] ?? "Open"),
+                    onPressed: () => PluginService.instance.runToolAction(card),
+                  );
+                }),
+              ],
 
           if (Platform.isWindows) ...[
             sectionTitle("Resource Pack Tools".tl),
@@ -573,6 +572,8 @@ class _ToolsPageState extends State<ToolsPage> with TickerProviderStateMixin {
           ),
         ],
       ),
+    );
+      },
     );
   }
 }

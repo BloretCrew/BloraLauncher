@@ -15,6 +15,8 @@ bool globalIsInfoExpanded = false;
 
 BuildContext? globalShellContext;
 
+final Map<String, dynamic> pluginRuntimeGlobalStore = {};
+
 class TranslationStore {
   static bool showTranslated = false;
   static List<String>? translatedTips;

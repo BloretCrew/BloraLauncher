@@ -61,12 +61,40 @@ class WinSystem {
     return {"total": 16.0, "free": 8.0};
   }
 
-  static bool showNotification(String title, String body) => _showNotificationNative(title.toNativeUtf16(), body.toNativeUtf16());
+  static bool showNotification(String title, String body) {
+    if (!Platform.isWindows) return false;
+    try {
+      final titlePtr = title.toNativeUtf16();
+      final bodyPtr = body.toNativeUtf16();
+      try {
+        return _showNotificationNative(titlePtr, bodyPtr);
+      } finally {
+        malloc.free(titlePtr);
+        malloc.free(bodyPtr);
+      }
+    } catch (e) {
+      debugPrint("FFI Error: $e");
+      return false;
+    }
+  }
 
   static final _showNotificationNative = _executable.lookupFunction<
       Bool Function(Pointer<Utf16>, Pointer<Utf16>),
       bool Function(Pointer<Utf16>, Pointer<Utf16>)
   >('ShowWindowsNotification');
+
+  static int isBloraLauncher(String path) {
+    final pathPtr = path.toNativeUtf8();
+    try {
+      return _isBloraLauncher(pathPtr);
+    } finally {
+      malloc.free(pathPtr);
+    }
+  }
+
+  static final _isBloraLauncher = _executable.lookupFunction<
+      Uint8 Function(Pointer<Utf8>),
+      int Function(Pointer<Utf8>)>('IsBloraLauncherUtf8');
 }
 
 typedef SetProgressNative = Void Function(Uint64 completed, Uint64 total);

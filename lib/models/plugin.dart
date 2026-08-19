@@ -1,5 +1,8 @@
 import 'package:bloret_launcher/core/i18n.dart';
 
+import '../core/global.dart';
+import '../services/config_service.dart';
+
 enum PermissionRisk { safe, high }
 
 class PermissionMeta {
@@ -90,8 +93,14 @@ class BloretPlugin {
   final String description;
   final Map<String, dynamic> contributions;
   final List<String> requestedPermissions;
+  final Map<String, dynamic> translations;
+  final Map<String, dynamic> settingsSchema;
+  final Map<String, dynamic> runtimeValues = {};
+  final Map<String, dynamic> persistentValues = {};
+  final Map<String, dynamic> pluginSettingsValues = {};
   List<String> grantedPermissions;
   bool isEnabled;
+  bool isBusy = false;
 
   BloretPlugin({
     required this.id,
@@ -100,6 +109,8 @@ class BloretPlugin {
     this.author = "Unknown",
     this.description = "",
     this.contributions = const {},
+    this.translations = const {},
+    this.settingsSchema = const {},
     required this.requestedPermissions,
     this.grantedPermissions = const [],
     this.isEnabled = true,
@@ -111,17 +122,66 @@ class BloretPlugin {
     return grantedPermissions.contains(prefix);
   }
 
+  String translate(String text) {
+    final lang = I18n.currentLang.toLowerCase();
+    if (translations.containsKey(lang)) {
+      final langMap = translations[lang] as Map<String, dynamic>;
+      if (langMap.containsKey(text)) {
+        return langMap[text].toString();
+      }
+    }
+    return text.tl;
+  }
+
+  String resolve(String text) {
+    String result = translate(text);
+
+    result = result.replaceAllMapped(RegExp(r'([*&$@%~>])([a-zA-Z0-9_\.\[\]]+)'), (match) {
+      final prefix = match.group(1);
+      final key = match.group(2)!;
+      
+      switch (prefix) {
+        case r'$': return runtimeValues[key]?.toString() ?? match.group(0)!;
+        case '%': return persistentValues[key]?.toString() ?? match.group(0)!;
+        case '~': return pluginRuntimeGlobalStore[key]?.toString() ?? match.group(0)!;
+        case '>': return pluginSettingsValues[key]?.toString() ?? match.group(0)!;
+        default: return match.group(0)!;
+      }
+    });
+    
+    return result;
+  }
+
   factory BloretPlugin.fromJson(Map<String, dynamic> json) {
-    return BloretPlugin(
+    final plugin = BloretPlugin(
       id: json['id'] ?? "",
       name: json['name'] ?? "",
       version: json['version'] ?? "1.0.0",
       author: json['author'] ?? "Unknown",
       description: json['description'] ?? "",
       contributions: json['contributions'] ?? {},
+      translations: json['translate'] ?? {},
+      settingsSchema: json['settings'] ?? {},
       requestedPermissions: List<String>.from(json['permissions'] ?? []),
       isEnabled: json['enabled'] ?? true,
     );
+    
+    final config = ConfigService.get("plugin_config_${plugin.id}") ?? {};
+    plugin.grantedPermissions = List<String>.from(config['granted_permissions'] ?? []);
+    plugin.isEnabled = config['enabled'] ?? true;
+    if (config['persistent_values'] != null) {
+      plugin.persistentValues.addAll(Map<String, dynamic>.from(config['persistent_values']));
+    }
+    
+    plugin.settingsSchema.forEach((key, schema) {
+      if (config['settings_values']?[key] != null) {
+        plugin.pluginSettingsValues[key] = config['settings_values'][key];
+      } else {
+        plugin.pluginSettingsValues[key] = (schema as Map)['default'];
+      }
+    });
+    
+    return plugin;
   }
 
   Map<String, dynamic> toJson() {
@@ -132,6 +192,7 @@ class BloretPlugin {
       'author': author,
       'description': description,
       'contributions': contributions,
+      'translate': translations,
       'permissions': requestedPermissions,
       'granted_permissions': grantedPermissions,
       'enabled': isEnabled,

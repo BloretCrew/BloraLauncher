@@ -74,12 +74,14 @@ class BloretIconButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
+  final Color? color;
 
   const BloretIconButton({
     super.key,
     required this.icon,
     required this.tooltip,
     this.onPressed,
+    this.color,
   });
 
   @override
@@ -101,7 +103,7 @@ class BloretIconButton extends StatelessWidget {
               color: theme.colorScheme.outline.withValues(alpha: 0.1),
               border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
             ),
-            child: Icon(icon, size: 20, color: theme.colorScheme.onSurface),
+            child: Icon(icon, size: 20, color: color ?? theme.colorScheme.onSurface),
           ),
         ),
       ),
