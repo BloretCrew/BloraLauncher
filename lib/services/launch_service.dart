@@ -215,15 +215,15 @@ class LaunchService {
 
       final defaultProfile = {
         "profiles": {
-          "BloretLauncher": {
-            "name": "BloretLauncher",
+          "BloraLauncher": {
+            "name": "BloraLauncher",
             "type": "custom",
-            "created": "1970-01-01T00:00:00.000Z",
-            "lastUsed": "1970-01-01T00:00:00.000Z",
+            "created": "1978-01-01T00:00:00.000Z",
+            "lastUsed": "1978-01-01T00:00:00.000Z",
             "gameDir": minecraftDir,
           },
         },
-        "selectedProfile": "BloretLauncher",
+        "selectedProfile": "BloraLauncher",
         "clientToken": "00000000000000000000000000000000",
       };
 
@@ -549,7 +549,6 @@ class LaunchService {
     final List<String> dirs = List<String>.from(dirsRaw);
     final List<Map<String, String>> allVersions = [];
 
-    // 1. Scan Minecraft versions
     for (var dir in dirs) {
       final versions = await getAvailableVersions(dir, query: query);
       for (var v in versions) {
@@ -557,7 +556,6 @@ class LaunchService {
       }
     }
 
-    // 2. Add Custom Apps
     final customApps = ExternalAppService.instance.getCustomApps();
     for (var app in customApps) {
       if (query == null ||
@@ -584,7 +582,40 @@ class LaunchService {
     final versionData = await loadMergedVersionJson(minecraftDir, versionId);
     final List<Map<String, dynamic>> missing = [];
 
-    // 1. Client JAR
+    final String downloadSource = ConfigService.get("download_source") ?? "bmclapi";
+
+    String rewriteUrl(String? original) {
+      if (original == null) return "";
+      if (downloadSource == "bmclapi") {
+        return original
+            .replaceAll(
+              "https://piston-meta.mojang.com",
+              "https://bmclapi2.bangbang93.com",
+            )
+            .replaceAll(
+              "https://launcher.mojang.com",
+              "https://bmclapi2.bangbang93.com",
+            )
+            .replaceAll(
+              "https://resources.download.minecraft.net",
+              "https://bmclapi2.bangbang93.com/assets",
+            )
+            .replaceAll(
+              "https://maven.fabricmc.net",
+              "https://bmclapi2.bangbang93.com/maven",
+            )
+            .replaceAll(
+              "https://maven.quiltmc.org/repository/release",
+              "https://bmclapi2.bangbang93.com/maven",
+            )
+            .replaceAll(
+              "https://libraries.minecraft.net",
+              "https://bmclapi2.bangbang93.com/maven",
+            );
+      }
+      return original;
+    }
+
     final clientJarName = versionData['jar'] ?? versionId;
     final relativeJarPath = p.join('versions', versionId, '$versionId.jar');
     final clientJar = p.join(minecraftDir, relativeJarPath);
@@ -598,13 +629,12 @@ class LaunchService {
         "id": clientJarName,
         "path": clientJar,
         "relativePath": relativeJarPath,
-        "url": clientInfo?['url'],
+        "url": rewriteUrl(clientInfo?['url']),
         "sha1": clientInfo?['sha1'],
         "size": clientInfo?['size'],
       });
     }
 
-    // 2. Libraries and Natives
     final libraries = versionData['libraries'] as List? ?? [];
     for (var lib in libraries) {
       final libData = lib as Map<String, dynamic>;
@@ -619,22 +649,27 @@ class LaunchService {
       final artifact = libDownloads?['artifact'] as Map<String, dynamic>?;
 
       if (!await File(libPath).exists()) {
+        String? libUrl = artifact?['url'];
+        
+        if (libUrl == null && libData['url'] != null) {
+          String mavenPath = relPath.replaceAll(p.separator, '/');
+          if (mavenPath.startsWith('libraries/')) {
+            mavenPath = mavenPath.substring(10);
+          }
+          libUrl = "${libData['url']}${libData['url'].endsWith('/') ? '' : '/'}$mavenPath";
+        }
+
         missing.add({
           "type": "library",
           "id": libName,
           "path": libPath,
           "relativePath": relPath,
-          "url":
-              artifact?['url'] ??
-              (libData['url'] != null
-                  ? "${libData['url']}${relPath.replaceAll(p.separator, '/')}"
-                  : null),
+          "url": rewriteUrl(libUrl),
           "sha1": artifact?['sha1'],
           "size": artifact?['size'],
         });
       }
 
-      // Natives Classifier
       final currentOs = Platform.isWindows
           ? "windows"
           : (Platform.isMacOS ? "osx" : "linux");
@@ -649,15 +684,24 @@ class LaunchService {
         if (nativeArtifact != null) {
           final nativeRelPath =
               nativeArtifact['path'] ??
-              _getMavenArtifactPath(libName, classifier: classifier);
+              p.join("libraries", _getMavenArtifactPath(libName, classifier: classifier));
           final nativePath = p.join(minecraftDir, nativeRelPath);
           if (!await File(nativePath).exists()) {
+            String? nativeUrl = nativeArtifact['url'];
+            if (nativeUrl == null && libData['url'] != null) {
+               String mavenPath = nativeRelPath.replaceAll(p.separator, '/');
+               if (mavenPath.startsWith('libraries/')) {
+                 mavenPath = mavenPath.substring(10);
+               }
+               nativeUrl = "${libData['url']}${libData['url'].endsWith('/') ? '' : '/'}$mavenPath";
+            }
+
             missing.add({
               "type": "library",
               "id": "$libName-$classifier",
               "path": nativePath,
               "relativePath": nativeRelPath,
-              "url": nativeArtifact['url'],
+              "url": rewriteUrl(nativeUrl),
               "sha1": nativeArtifact['sha1'],
               "size": nativeArtifact['size'],
               "isNative": true,
@@ -667,7 +711,6 @@ class LaunchService {
       }
     }
 
-    // 3. Asset Index
     final assetIndex = versionData['assetIndex'];
     if (assetIndex != null && assetIndex['id'] != null) {
       final assetIndexId = assetIndex['id'];
@@ -684,12 +727,11 @@ class LaunchService {
           "id": assetIndexId,
           "path": assetIndexPath,
           "relativePath": relativeIndexPath,
-          "url": assetIndex['url'],
+          "url": rewriteUrl(assetIndex['url']),
           "sha1": assetIndex['sha1'],
           "size": assetIndex['size'],
         });
       } else {
-        // 4. Asset Objects
         try {
           final indexContent = await File(assetIndexPath).readAsString();
           final indexData = jsonDecode(indexContent);
@@ -714,8 +756,9 @@ class LaunchService {
                 "id": entry.key,
                 "path": objPath,
                 "relativePath": relObjPath,
-                "url":
-                    "https://resources.download.minecraft.net/${hash.substring(0, 2)}/$hash",
+                "url": rewriteUrl(
+                  "https://resources.download.minecraft.net/${hash.substring(0, 2)}/$hash",
+                ),
                 "sha1": hash,
                 "size": assetMeta['size'],
               });
@@ -740,7 +783,7 @@ class LaunchService {
       return artifact['path'];
     }
 
-    return _getMavenArtifactPath(name);
+    return p.join("libraries", _getMavenArtifactPath(name));
   }
 
   String _getMavenArtifactPath(
@@ -750,12 +793,12 @@ class LaunchService {
   }) {
     final parts = name.split(":");
     if (parts.length < 3) return "";
-    final group = parts[0].replaceAll(".", p.separator);
+    final group = parts[0].replaceAll(".", "/");
     final artifact = parts[1];
     final version = parts[2];
     final filename =
         "$artifact-$version${classifier != null ? "-$classifier" : ""}.$extension";
-    return p.join("libraries", group, artifact, version, filename);
+    return "$group/$artifact/$version/$filename";
   }
 
   Future<void> downloadMissingFiles(
@@ -889,7 +932,6 @@ class LaunchService {
               javaPath.toLowerCase().endsWith("java"))) {
         javaExe = javaPath;
       } else {
-        // If selection failed in auto mode, clear invalid cache
         if (selectionMode == "auto") {
           ConfigService.set('detected_java_list', null);
           throw Exception(
@@ -1086,7 +1128,6 @@ class LaunchService {
         }
       }
     } else {
-      // Old version (1.12.2 and below) fallback
       args.add("-Djava.library.path=${variables['natives_directory']}");
       args.add("-Djna.tmpdir=${variables['natives_directory']}");
       args.add(
@@ -1097,7 +1138,6 @@ class LaunchService {
       args.add(variables['classpath']!);
     }
 
-    // 5. Fabric / Forge support
     final libraryNames = (versionData['libraries'] as List? ?? [])
         .map((e) => e['name'].toString().toLowerCase())
         .toList();
@@ -1113,12 +1153,10 @@ class LaunchService {
       }
     }
 
-    // 6. Main Class
     final mainClass =
         versionData['mainClass'] ?? "net.minecraft.client.main.Main";
     args.add(mainClass);
 
-    // 7. Game Args
     final gameArguments = versionData['arguments']?['game'] as List?;
     String templateText = jsonEncode(
       gameArguments ?? versionData['minecraftArguments'] ?? "",
@@ -1149,7 +1187,6 @@ class LaunchService {
       }
     }
 
-    // 8. Microsoft Account Extras
     if (isMicrosoft) {
       if (templateText.contains("\${clientid}") &&
           clientId.isNotEmpty &&
@@ -1185,7 +1222,6 @@ class LaunchService {
     required String version,
     required String minecraftDir,
   }) async {
-    // This is a simplified version of the launch logic to generate a .bat file
     final versionData = await loadMergedVersionJson(minecraftDir, version);
     final cp = await buildClasspath(minecraftDir, versionData);
     final clientJarName = versionData['jar'] ?? version;
@@ -1197,21 +1233,18 @@ class LaunchService {
     );
     final fullClasspath = '$clientJar${Platform.isWindows ? ';' : ':'}$cp';
 
-    // ... Simplified argument building for the script
     final StringBuffer sb = StringBuffer();
     sb.writeln("@echo off");
     sb.writeln("set MINECRAFT_DIR=$minecraftDir");
     sb.writeln("set VERSION=$version");
     sb.writeln("cd /d %MINECRAFT_DIR%\\versions\\%VERSION%");
 
-    // We would need the Java path here too
     String javaExe = ConfigService.get('java_path') ?? "java";
     if (!javaExe.endsWith(".exe") && !javaExe.endsWith("java")) {
       javaExe = p.join(javaExe, "bin", "java.exe");
     }
 
     sb.write("\"$javaExe\" ");
-    // Add some basic JVM args
     sb.write("-Xms512M -Xmx4096M ");
     sb.write("-Dfile.encoding=UTF-8 ");
     sb.write("-cp \"$fullClasspath\" ");
@@ -1220,7 +1253,6 @@ class LaunchService {
         versionData['mainClass'] ?? "net.minecraft.client.main.Main";
     sb.write("$mainClass ");
 
-    // Game args - simplified
     final gameArguments = versionData['arguments']?['game'] as List?;
     if (gameArguments != null) {
       for (var arg in gameArguments) {

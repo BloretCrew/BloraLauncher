@@ -733,5 +733,12 @@
   "Management": "管理",
   "Batch Delete": "批量删除",
   "Are you sure you want to delete all plugins? This action is irreversible.": "确定要删除所有插件吗？此操作无法撤销。",
-  "Delete": "删除"
+  "Delete": "删除",
+  "Please Add App First": "请先添加应用",
+  "Elevated process started (PID: %s). Console output capture limited.": "已启动提升权限的进程（PID：%s）。控制台输出捕获受限。",
+  "Application running in independent mode (PID: %s). Log capture disabled.": "应用正在独立模式下运行（PID：%s）。日志捕获已禁用。",
+  "Attached": "已附加",
+  "Attached to process": "已附加到进程",
+  "Disconnect from the process. It will keep running after launcher exits.": "与进程断开连接。启动器退出后该进程仍将继续运行。",
+  "Detach": "分离"
 }

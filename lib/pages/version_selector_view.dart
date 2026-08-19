@@ -463,6 +463,9 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                   setState(() {
                     _selectedLoader = LoaderType.vanilla;
                     _selectedLoaderVersion = null;
+                    if (_selectedVersion != null) {
+                      _customNameController.text = _selectedVersion!.id;
+                    }
                   });
                   return;
                 }
@@ -570,7 +573,7 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
               alignment: Alignment.topCenter,
               child: isExpanded && versions != null
                   ? Container(
-                      constraints: const BoxConstraints(maxHeight: 400),
+                      constraints: const BoxConstraints(maxHeight: 320),
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _buildLoaderVersionList(type, versions, theme),
                     )
@@ -598,7 +601,8 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
     final others = versions.where((v) => v != latestStable).toList();
 
     return ListView.builder(
-      shrinkWrap: false, // Virtualized
+      shrinkWrap: true,
+      physics: const ClampingScrollPhysics(),
       itemCount: others.length + 1,
       itemBuilder: (context, idx) {
         if (idx == 0) {
@@ -639,6 +643,10 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
             _selectedLoader = type;
             _selectedLoaderVersion = v;
             _expandedLoaders.remove(type);
+            if (_selectedVersion != null) {
+              _customNameController.text =
+                  "${_selectedVersion!.id}-${type.name}-$v";
+            }
           });
         },
         borderRadius: BorderRadius.circular(12),
@@ -777,17 +785,51 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
         _selectedTargetDir ?? LaunchService.instance.getPreferredDownloadDir();
     final targetDir = Directory(targetPath);
 
-    String finalVersionId = baseVersionId;
+    String finalVersionId = customName;
     if (_selectedLoader != null && _selectedLoader != LoaderType.vanilla) {
       if (_selectedLoaderVersion == null) {
         showWarning("Please select a loader version first".tl);
         return;
       }
-      finalVersionId =
-          "$baseVersionId-${_selectedLoader!.name}-$_selectedLoaderVersion";
     }
 
-    // Helper to copy icon
+    final versionPath = p.join(targetDir.path, "versions", finalVersionId);
+    final versionDir = Directory(versionPath);
+    if (await versionDir.exists()) {
+      bool isJunk = true;
+      try {
+        final entities = await versionDir.list().toList();
+        for (var entity in entities) {
+          final name = p.basename(entity.path).toLowerCase();
+          if (entity is File) {
+            if (name.endsWith(".json") || name.endsWith(".jar")) {
+              isJunk = false;
+              break;
+            }
+          } else if (entity is Directory) {
+            if (name == "saves" || name == "screenshots" || name == "resourcepacks") {
+              isJunk = false;
+              break;
+            }
+          }
+        }
+      } catch (_) {
+        isJunk = false;
+      }
+
+      if (!isJunk) {
+        showError("A valid version or user data already exists in this folder".tl);
+        return;
+      } else {
+        try {
+          await versionDir.delete(recursive: true);
+        } catch (e) {
+          showError("Failed to clear existing invalid folder: $e".tl);
+          return;
+        }
+      }
+    }
+
     Future<void> copyIcon(String vid) async {
       if (_customIconPath != null) {
         try {
@@ -807,14 +849,14 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
       final url =
           "https://raw.gitcode.com/Bloret/$baseVersionId/archive/refs/heads/main.zip";
       await DownloadService.instance.downloadFile(
-        "Minecraft_$baseVersionId",
+        "Install_$finalVersionId",
         url,
         "minecraft_source_$baseVersionId.zip",
         (path, updateStatus) async {
           updateStatus("Extracting...".tl);
           final success = await DownloadService.instance.extractZip(
             File(path),
-            targetDir,
+            Directory(p.join(targetDir.path, "versions", finalVersionId)),
             stripRoot: true,
           );
           if (success) {
@@ -833,7 +875,7 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
         _selectedLoader == LoaderType.vanilla) {
       await copyIcon(finalVersionId);
       await DownloadService.instance.installVanilla(
-        baseVersionId,
+        finalVersionId,
         _selectedVersion!.url,
         targetDir,
       );
@@ -844,6 +886,7 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
         _selectedLoaderVersion!,
         _selectedLoader!,
         targetDir,
+        customVersionId: finalVersionId,
       );
     }
     showSuccess("Installation task for %s submitted.".tl.format(customName));
@@ -1326,22 +1369,25 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
               curve: Curves.easeInOutCubic,
               alignment: Alignment.topCenter,
               child: isExpanded
-                  ? Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: useGrouping
-                          ? _buildGroupedVersionList(versions, theme)
-                          : Column(
-                              children: versions
-                                  .map(
-                                    (v) => Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
+                  ? Container(
+                      constraints: const BoxConstraints(maxHeight: 360),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: useGrouping
+                            ? _buildGroupedVersionList(versions, theme)
+                            : Column(
+                                children: versions
+                                    .map(
+                                      (v) => Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                        ),
+                                        child: _buildVersionTile(v, theme),
                                       ),
-                                      child: _buildVersionTile(v, theme),
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
+                                    )
+                                    .toList(),
+                              ),
+                      ),
                     )
                   : const SizedBox(width: double.infinity, height: 0),
             ),

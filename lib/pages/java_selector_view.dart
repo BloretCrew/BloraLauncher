@@ -44,6 +44,8 @@ enum JavaVersion {
   java23,
   java24,
   java25,
+  java26,
+  java27
 }
 
 extension JavaVersionExtension on JavaVersion {
@@ -62,6 +64,8 @@ extension JavaVersionExtension on JavaVersion {
     JavaVersion.java23 => 'Java 23',
     JavaVersion.java24 => 'Java 24',
     JavaVersion.java25 => 'Java 25',
+    JavaVersion.java26 => 'Java 26',
+    JavaVersion.java27 => 'Java 27',
   };
 }
 
@@ -695,12 +699,12 @@ class _JavaSelectorViewState extends State<JavaSelectorView> {
 
                         if (first is ZuluPackage) {
                           title = 'Java ${first.javaVersion.join('.')}';
-                          subtitle = first.os;
+                          subtitle = first.os.capitalize;
                           packageType = first.javaPackageType.toUpperCase();
                           archDisplay = '${first.arch} ${first.hwBitness}-bit';
                         } else if (first is GraalPackage) {
                           title = first.version.label;
-                          subtitle = first.platform.label;
+                          subtitle = first.platform.label.capitalize;
                           packageType = "JDK";
                           archDisplay = "";
                         } else {

@@ -275,7 +275,7 @@ class _Win11MenuContent extends StatelessWidget {
     
     return Container(
       width: width,
-      constraints: const BoxConstraints(maxHeight: 400, minWidth: 120),
+      constraints: const BoxConstraints(maxHeight: 300, minWidth: 120),
       decoration: decoration ?? BoxDecoration(
         color: isDarkMode ? const Color(0xFF191A1C) : Colors.white,
         border: Border.all(

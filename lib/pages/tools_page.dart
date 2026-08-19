@@ -756,11 +756,9 @@ class _MinecraftSkinViewerState extends State<MinecraftSkinViewer> {
       },
       onScaleUpdate: (details) {
         setState(() {
-          // 处理双指缩放
           if (details.scale != 1.0) {
             scale = (_baseScale * details.scale).clamp(4.0, 50.0);
           }
-          // 同时也兼容单指旋转
           rotationY += details.focalPointDelta.dx * 0.01;
           rotationX = (rotationX - details.focalPointDelta.dy * 0.01).clamp(
             -math.pi / 2.2,

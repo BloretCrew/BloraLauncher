@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:bloret_launcher/main.dart';
+import 'package:bloret_launcher/tools/isolate.dart';
 import 'package:http/http.dart' as http;
 
 class AzulApi {
@@ -21,23 +22,40 @@ class AzulApi {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AzulApiException('Azul API request failed', statusCode: response.statusCode, body: response.body);
     }
-    final decoded = jsonDecode(response.body);
-    if (decoded is! List) throw const AzulApiException('Unexpected response format: expected a List');
-    return decoded.whereType<Map<String, dynamic>>().map(ZuluPackage.fromJson).toList();
+    final String body = response.body;
+    return await runIsolate((String jsonStr) {
+      final decoded = jsonDecode(jsonStr);
+      if (decoded is! List) return <ZuluPackage>[];
+      return decoded
+          .whereType<Map<String, dynamic>>()
+          .map(ZuluPackage.fromJson)
+          .toList();
+    }, body);
   }
 
   Stream<List<ZuluPackage>> getAllPackages({int pageSize = 1000}) async* {
+    int errorCount = 0;
     for (var page = 1;; page++) {
       List<ZuluPackage>? packages;
       for (int i = 0; i < 3 && packages == null; i++) {
         try {
           packages = await getPackages(page: page, pageSize: pageSize);
+          errorCount = 0;
         } catch (e) {
-          logger.warning('Failed to get packages from Azul API',);
-          packages = null;
+          logger.warning('Failed to get packages from Azul API (page $page, attempt ${i + 1})');
+          await Future.delayed(const Duration(milliseconds: 500));
         }
       }
-      if (packages == null) continue;
+
+      if (packages == null) {
+        errorCount++;
+        if (errorCount > 5) {
+          logger.error('Azul API persistent failure. Stopping.');
+          break;
+        }
+        continue;
+      }
+
       if (packages.isEmpty) break;
       yield packages;
     }

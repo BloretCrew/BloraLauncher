@@ -13,6 +13,7 @@ import '../core/i18n.dart';
 import '../core/java_config.dart';
 import 'config_service.dart';
 import 'launch_service.dart';
+import '../tools/isolate.dart';
 
 class MavenArtifact {
   final String name;
@@ -183,9 +184,19 @@ class DownloadService extends ChangeNotifier {
 
     if (await file.exists()) {
       if (artifact.sha1 == null) return true;
-      final bytes = await file.readAsBytes();
-      final hash = sha1.convert(bytes).toString();
-      if (hash == artifact.sha1) return true;
+      
+      // Resource cache skip: use isolate for hash verification to keep UI responsive
+      final bool isCorrect = await runIsolate((Map<String, String> params) async {
+        final f = File(params['path']!);
+        if (!f.existsSync()) return false;
+        
+        final expected = params['sha1']!;
+        final stream = f.openRead();
+        final hash = await sha1.bind(stream).first;
+        return hash.toString() == expected;
+      }, {'path': savePath, 'sha1': artifact.sha1!});
+      
+      if (isCorrect) return true;
     }
 
     await file.parent.create(recursive: true);
@@ -559,37 +570,47 @@ class DownloadService extends ChangeNotifier {
           return <Map<String, dynamic>>[];
       }
 
-      final response = await _dio.get(url);
-      if (response.statusCode == 200) {
-        final List<dynamic> data = response.data is String
-            ? jsonDecode(response.data)
-            : response.data;
+      final response = await _dio.get(
+        url,
+        options: Options(responseType: ResponseType.plain),
+      );
 
-        if (type == LoaderType.fabric || type == LoaderType.quilt) {
-          return data.map<Map<String, dynamic>>((e) {
-            if (e is Map) {
-              final loader = e['loader'] ?? e;
-              return {
-                'version': loader['version'].toString(),
-                'stable': loader['stable'] ?? true,
-                'type': (loader['stable'] ?? true) ? 'Stable' : 'Snapshot',
-              };
-            }
-            return {'version': e.toString(), 'stable': true, 'type': 'Stable'};
-          }).toList();
-        } else if (type == LoaderType.forge || type == LoaderType.neoforge) {
-          return data.map<Map<String, dynamic>>((e) {
-            if (e is Map) {
-              return {
-                'version': e['version'].toString(),
-                'stable': true,
-                'type': 'Stable',
-                'time': e['time'],
-              };
-            }
-            return {'version': e.toString(), 'stable': true, 'type': 'Stable'};
-          }).toList();
-        }
+      if (response.statusCode == 200) {
+        final String rawJson = response.data.toString();
+
+        return await runIsolate((String jsonStr) {
+          final List<dynamic> data = jsonDecode(jsonStr);
+
+          if (type == LoaderType.fabric || type == LoaderType.quilt) {
+            return data.map<Map<String, dynamic>>((e) {
+              if (e is Map) {
+                final loader = e['loader'] ?? e;
+                final v = loader['version'].toString();
+                final bool isStable = loader['stable'] ?? (!v.toLowerCase().contains(RegExp(r'beta|alpha|rc|pre')));
+                return {
+                  'version': v,
+                  'stable': isStable,
+                  'type': isStable ? 'Stable'.tl : 'Snapshot'.tl,
+                };
+              }
+              return {'version': e.toString(), 'stable': true, 'type': 'Stable'.tl};
+            }).toList();
+          } else {
+            return data.map<Map<String, dynamic>>((e) {
+              if (e is Map) {
+                final v = e['version'].toString();
+                final bool isStable = !v.toLowerCase().contains(RegExp(r'beta|alpha|rc|pre'));
+                return {
+                  'version': v,
+                  'stable': isStable,
+                  'type': isStable ? 'Stable'.tl : 'Snapshot'.tl,
+                  'time': e['modified'] ?? e['time'],
+                };
+              }
+              return {'version': e.toString(), 'stable': true, 'type': 'Stable'.tl};
+            }).toList();
+          }
+        }, rawJson);
       }
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
@@ -615,9 +636,15 @@ class DownloadService extends ChangeNotifier {
     task.update(0.0, "Fetching metadata...".tl);
 
     try {
-      final response = await _dio.get(url);
+      final String downloadSource = ConfigService.get("download_source") ?? "bmclapi";
+      String finalUrl = url;
+      if (downloadSource == "bmclapi") {
+        finalUrl = url.replaceAll("https://piston-meta.mojang.com", "https://bmclapi2.bangbang93.com");
+      }
+
+      final response = await _dio.get(finalUrl);
       if (response.statusCode != 200) {
-        throw Exception("Failed to get version metadata");
+        throw Exception("Failed to get version metadata from $finalUrl");
       }
 
       final versionData = response.data;
@@ -658,6 +685,24 @@ class DownloadService extends ChangeNotifier {
     task.update(0.0, "Preparing installation...".tl);
 
     try {
+      final parentPath = p.join(targetDir.path, "versions", mcVersion, "$mcVersion.json");
+      if (!await File(parentPath).exists()) {
+        task.update(0.05, "Ensuring vanilla metadata...".tl);
+        final versions = await fetchAllVanillaVersions();
+        final vanilla = versions.firstWhere(
+          (v) => v.id == mcVersion,
+          orElse: () => throw Exception("Vanilla version $mcVersion not found in manifest"),
+        );
+        
+        final res = await _dio.get(vanilla.url);
+        if (res.statusCode == 200) {
+          await File(parentPath).parent.create(recursive: true);
+          await File(parentPath).writeAsString(jsonEncode(res.data));
+        } else {
+          throw Exception("Failed to download vanilla metadata for $mcVersion");
+        }
+      }
+
       final versionPath = p.join(targetDir.path, "versions", versionId);
       final jsonFile = File(p.join(versionPath, "$versionId.json"));
       await jsonFile.parent.create(recursive: true);
@@ -667,15 +712,25 @@ class DownloadService extends ChangeNotifier {
       if (type == LoaderType.fabric) {
         task.update(0.2, "Fetching Fabric JSON...".tl);
         final res = await _dio.get(
-          "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/$mcVersion/$loaderVersion/json",
+          "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/$mcVersion/$loaderVersion/profile/json",
         );
         loaderJson = res.data;
       } else if (type == LoaderType.forge) {
         task.update(0.2, "Fetching Forge JSON...".tl);
-        final res = await _dio.get(
-          "https://bmclapi2.bangbang93.com/forge/download/$mcVersion-$loaderVersion/json",
-        );
-        loaderJson = res.data;
+        final fullVersion = loaderVersion.contains(mcVersion) 
+            ? loaderVersion 
+            : "$mcVersion-$loaderVersion";
+        try {
+          final res = await _dio.get(
+            "https://bmclapi2.bangbang93.com/forge/download/$fullVersion/json",
+          );
+          loaderJson = res.data;
+        } catch (e) {
+          final res = await _dio.get(
+            "https://bmclapi2.bangbang93.com/forge/download/$loaderVersion/json",
+          );
+          loaderJson = res.data;
+        }
       } else if (type == LoaderType.neoforge) {
         task.update(0.2, "Fetching NeoForge JSON...".tl);
         final res = await _dio.get(
@@ -685,11 +740,12 @@ class DownloadService extends ChangeNotifier {
       } else if (type == LoaderType.quilt) {
         task.update(0.2, "Fetching Quilt JSON...".tl);
         final res = await _dio.get(
-          "https://meta.quiltmc.org/v3/versions/loader/$mcVersion/$loaderVersion/profile/json",
+          "https://bmclapi2.bangbang93.com/quilt-meta/v3/versions/loader/$mcVersion/$loaderVersion/profile/json",
         );
         loaderJson = res.data;
       }
 
+      loaderJson['id'] = versionId;
       await jsonFile.writeAsString(jsonEncode(loaderJson));
 
       task.update(0.5, "Completing dependencies...".tl);
@@ -701,9 +757,9 @@ class DownloadService extends ChangeNotifier {
         },
       );
 
-      task.update(1.0, "Installation Complete");
+      task.update(1.0, "Installation Complete".tl);
     } catch (e) {
-      task.update(0.0, "Installation Failed: $e");
+      task.update(0.0, "Installation Failed: $e".tl);
       debugPrint("Install Loader Error: $e");
     } finally {
       task.isDownloading = false;

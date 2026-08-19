@@ -216,14 +216,24 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      GestureDetector(
-                        onTap: () async {
-                          FilePickerResult? result = await FilePicker.platform
-                              .pickFiles(type: FileType.image);
-                          if (result != null) {
-                            setState(
-                              () => _currentIconPath = result.files.single.path,
-                            );
+                      InkWell(
+                        mouseCursor: _nameController.text.isEmpty ? null : SystemMouseCursors.click,
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: _nameController.text.isEmpty ? null : () async {
+                          FilePickerResult? result = await FilePicker.platform.pickFiles(
+                            type: FileType.custom,
+                            allowedExtensions: ['exe', 'png', 'jpg', 'jpeg'],
+                          );
+                          if (result != null && result.files.single.path != null) {
+                            final path = result.files.single.path!;
+                            if (path.toLowerCase().endsWith('.exe')) {
+                              final extractedIcon = await ExternalAppService.instance.extractIcon(path);
+                              if (extractedIcon != null) {
+                                setState(() => _currentIconPath = extractedIcon);
+                              }
+                            } else {
+                              setState(() => _currentIconPath = path);
+                            }
                           }
                         },
                         child: Container(
@@ -251,13 +261,15 @@ class _ExternalAppEditorViewState extends State<ExternalAppEditorView> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
-                                      Icons.add_a_photo_outlined,
+                                      _nameController.text.isEmpty ? Icons.info_outline : Icons.add_a_photo_outlined,
                                       size: 48,
                                       color: theme.colorScheme.outline,
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      "Change Icon".tl,
+                                      _nameController.text.isEmpty ?
+                                          "Please Add App First".tl
+                                      : "Change Icon".tl,
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: theme.colorScheme.outline,

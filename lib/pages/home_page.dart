@@ -705,8 +705,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           pid = int.tryParse(result.stdout.toString().trim());
           if (pid != null) {
             showInfo(
-              "Elevated process started (PID: $pid). Console output capture limited."
-                  .tl,
+              "Elevated process started (PID: %s). Console output capture limited."
+                  .tl.format(pid),
             );
           }
         } else {
@@ -716,11 +716,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         process = await Process.start(
           app.exePath,
           argsList,
-          workingDirectory: app.workingDir,
+          workingDirectory: (app.workingDir?.isEmpty ?? true) ? null : app.workingDir,
           environment: env,
           mode: app.killOnExit
               ? ProcessStartMode.normal
-              : ProcessStartMode.detachedWithStdio,
+              : ProcessStartMode.detached,
         );
         pid = process.pid;
 
@@ -757,7 +757,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           killOnExit: app.killOnExit,
         );
 
-        // 基准：没有设置强依附性进程，或者无法获取 process 对象（如 Admin 模式），即为脱依附状态
         if (!app.killOnExit || process == null) {
           runningCore.isDetached = true;
         }
@@ -770,7 +769,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         });
 
         if (process != null) {
-          // 只有非脱依附状态才尝试监听日志
           if (!runningCore.isDetached) {
             try {
               final sub1 = process.stdout
@@ -799,14 +797,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             );
           }
 
-          process.exitCode.then((code) {
-            _handleCoreExit(runningCore, code, app: app);
-          }).catchError((e) {
-            // 忽略脱依附相关的退出监听异常
-            if (!runningCore.isDetached) {
+          if (!runningCore.isDetached) {
+            process.exitCode.then((code) {
+              _handleCoreExit(runningCore, code, app: app);
+            }).catchError((e) {
               logger.error("Process exit tracking error: $e");
-            }
-          });
+            });
+          }
         } else {
           _addLogToCore(
             runningCore,
@@ -834,6 +831,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         );
       }
       showError("Failed to launch application - %s".tl.format(e));
+      rethrow;
     }
   }
 
@@ -842,8 +840,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     
     debugPrint("Core ${core.id} exited with code $code");
     core.exitCode = code;
-    
-    // 记录游玩统计
+
     final endTime = DateTime.now();
     final duration = endTime.difference(core.startTime).inSeconds;
     StatsService.instance.addSession(
@@ -856,7 +853,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
 
     final bool killOnExit = app?.killOnExit ?? core.killOnExit;
-    // 脱依附状态永远不触发崩溃分析
     final bool isActualCrash = code != 0 && !core.isManuallyTerminated && killOnExit && !core.isDetached;
 
     setState(() {
@@ -874,7 +870,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           );
         }
       } else {
-        // 正常退出：从核心管理列表中正式移除
         CoreManager.instance.removeCore(core);
         
         if (_selectedCore == core) {
@@ -914,7 +909,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             accountType: "External",
             identityName: "User",
             pid: pid,
-            killOnExit: true, // 进程依附的话默认强依附
+            killOnExit: true,
           );
 
           setState(() {
@@ -1088,7 +1083,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final process = await LaunchService.instance.launch(
         version: _selectedVersion!,
         minecraftDir: _selectedVersionDir!,
-        killOnExit: true, // MC启动期一律强依附以获取日志
+        killOnExit: true,
         onStatus: (status, progress) {
           if (mounted) {
             setState(() {
@@ -1131,7 +1126,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         identityName: identityName,
         process: process,
         pid: process.pid,
-        killOnExit: true, // 初始设定为强依附
+        killOnExit: true,
       );
 
       setState(() {
@@ -1191,6 +1186,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           newCore.isManuallyTerminated = true;
         }
         _handleCoreExit(newCore, code);
+      }).catchError((e) {
+        if (!newCore.isDetached) {
+          logger.error("Process exit tracking error: $e");
+        }
       });
     } catch (e) {
       if (mounted) {
@@ -1232,7 +1231,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     final core = _selectedCore;
     if (core != null) {
-      // 特殊逻辑：MC 成功启动后，如果没设强依附则 Detach
       final bool killOnExitConfig = ConfigService.get("minecraft_kill_on_exit") ?? false;
       final bool isMC = core.loader != "External".tl && core.loader != "Attached".tl;
       
@@ -1440,7 +1438,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       }
       
       if (subtitleValue is List) {
-        // 逻辑注入：如果变量池没有 is_collapsed，则从插件设置 "Auto Expand" 初始化
         if (!plugin.runtimeValues.containsKey('is_collapsed')) {
           final autoExpand = plugin.pluginSettingsValues['Auto Expand'];
           if (autoExpand is bool) {
@@ -1451,7 +1448,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final bool isCollapsed = plugin.runtimeValues['is_collapsed'] == true;
         final int displayCount = isCollapsed ? 1 : subtitleValue.length;
 
-        // 获取当前页码信息（从变量池读取 cursor 和原始数据长度）
         final cursor = double.tryParse(plugin.runtimeValues['cursor']?.toString() ?? "0")?.toInt() ?? 0;
         final total = subtitleValue.length;
 
@@ -1548,7 +1544,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                   width: 80,
                                   height: 60,
                                   fit: BoxFit.cover,
-                                  errorWidget: (_, __, ___) => Container(width: 80, height: 60, color: Colors.grey.withValues(alpha: 0.1), child: const Icon(Icons.image_not_supported, size: 20)),
+                                  errorWidget: (_, _, _) => Container(width: 80, height: 60, color: Colors.grey.withValues(alpha: 0.1), child: const Icon(Icons.image_not_supported, size: 20)),
                                 ),
                               ),
                             const SizedBox(width: 12),
@@ -1812,7 +1808,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     ),
                   );
                 case 'disclaimer':
-                  if (isPortrait && _agentAnimStage < 2) return const SizedBox.shrink();
+                  if (isPortrait) return const SizedBox.shrink();
                   return Padding(
                     padding: const EdgeInsets.only(top: 12),
                     child: SlideFadeIn(
@@ -2981,7 +2977,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Widget _buildLogPanel(ThemeData theme) {
     final core = _selectedCore;
-    final logs = core?.logs ?? [];
+    final logs = List<String>.from(core?.logs ?? []);
     final exitCode = core?.exitCode;
     final isExited = exitCode != null;
     final isCrashed = isExited && exitCode != 0 && !core!.isManuallyTerminated;
@@ -3645,7 +3641,8 @@ class _ChartPainter extends CustomPainter {
       )!;
     }
 
-    // --- Draw Grid and Labels ---
+    // emm...
+    // ---- Draw Grid and Labels ---
     final gridPaint = Paint()
       ..color = displayColor.withValues(alpha: 0.1)
       ..strokeWidth = 1;
@@ -3656,7 +3653,7 @@ class _ChartPainter extends CustomPainter {
       fontWeight: FontWeight.bold,
     );
 
-    // Draw 3 horizontal lines (0%, 50%, 100% of range)
+    // Draw 3 horizontal lines (0, 50%, 100% of range)
     for (int i = 0; i <= 2; i++) {
       double y = size.height - (i * size.height / 2);
       canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
@@ -3673,7 +3670,7 @@ class _ChartPainter extends CustomPainter {
       tp.paint(canvas, Offset(4, y - tp.height - 2));
     }
 
-    // --- Draw Chart Line ---
+    // --- Draw Chart Line -----
     final paint = Paint()
       ..color = displayColor
       ..strokeWidth = 2.5
@@ -3959,35 +3956,36 @@ class _BottomActionRail extends StatelessWidget {
                     ),
                   ],
                 )
-              : Row(
-                  children: [
-                    _buildCoreIconDesktop(theme),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            selectedVersion ?? "No Core Selected".tl,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          Text(
-                            isExternal
-                                ? "Ready to launch custom application".tl
-                                : "${"As".tl} $username ${"launch".tl} Minecraft",
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                    LayoutBuilder(
-                      builder: (_, box) {
-                        return Row(
+              : LayoutBuilder(
+                  builder: (_, box) {
+                    final needCollapse = box.maxWidth < 500;
+                    return Row(
+                      children: [
+                        _buildCoreIconDesktop(theme),
+                        const SizedBox(width: 16),
+                        Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  selectedVersion ?? "No Core Selected".tl,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  isExternal
+                                      ? "Ready to launch custom application".tl
+                                      : "${"As".tl} $username ${"launch".tl} Minecraft",
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ],
+                            )
+                        ),
+                        Row(
                           mainAxisSize: .min,
                           children: [
                             BloretIconButton(
@@ -4004,14 +4002,26 @@ class _BottomActionRail extends StatelessWidget {
                               onPressed: onDebug,
                             ),
                             const SizedBox(width: 12),
-                            BloretButton(
+                            needCollapse ? BloretIconButton(
+                              onPressed: onSwitchCore,
+                              icon: Icons.swap_horiz,
+                              tooltip: "Switch Core".tl,
+                            ) : BloretButton(
                               onPressed: onSwitchCore,
                               icon: Icons.swap_horiz,
                               text: "Switch Core".tl,
                               height: 48,
                             ),
                             const SizedBox(width: 12),
-                            SizedBox(
+                            needCollapse ? SizedBox(
+                              height: 44,
+                              width: 44,
+                              child: BloretIconButton(
+                                onPressed: onLaunch,
+                                icon: Icons.play_arrow,
+                                tooltip: "Launch".tl,
+                              ),
+                            ) : SizedBox(
                               height: 44,
                               width: 140,
                               child: BloretButton(
@@ -4021,11 +4031,11 @@ class _BottomActionRail extends StatelessWidget {
                               ),
                             ),
                           ],
-                        );
-                      },
-                    ),
-                  ],
-                ),
+                        )
+                      ],
+                    );
+                  },
+                )
         ),
       ),
     );

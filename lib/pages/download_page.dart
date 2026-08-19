@@ -4,7 +4,6 @@ import 'package:bloret_launcher/pages/version_selector_view.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/launch_service.dart';
 import 'package:bloret_launcher/shell/main_shell.dart';
-import 'package:bloret_launcher/widgets/windows_widgets.dart';
 import 'package:flutter/material.dart';
 
 import '../core/grammer_candy.dart';
@@ -146,8 +145,8 @@ class _DownloadPageState extends State<DownloadPage> {
           ),
           const SizedBox(height: 16),
           // _buildActiveTasks(context),
-          const SizedBox(height: 8),
-          _buildTargetDirSelector(),
+          // const SizedBox(height: 8),
+          // _buildTargetDirSelector(),
           const SizedBox(height: 16),
           DownloadCard(
             image: SizedBox(
@@ -281,42 +280,42 @@ class _DownloadPageState extends State<DownloadPage> {
     );
   }
 
-  Widget _buildTargetDirSelector() {
-    final List<dynamic> dirs = ConfigService.get('minecraft_dirs') ?? [];
-    if (dirs.isEmpty) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Download Target Directory".tl,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Win11Dropdown(
-            initialValue: selectedTargetDir,
-            items: dirs
-                .map(
-                  (d) => Win11DropdownItem(
-                    value: d.toString(),
-                    label: d.toString(),
-                  ),
-                )
-                .toList(),
-            onChanged: (v) {
-              setState(() => selectedTargetDir = v);
-            },
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _buildTargetDirSelector() {
+  //   final List<dynamic> dirs = ConfigService.get('minecraft_dirs') ?? [];
+  //   if (dirs.isEmpty) return const SizedBox.shrink();
+  //
+  //   return Padding(
+  //     padding: const EdgeInsets.symmetric(horizontal: 8),
+  //     child: Column(
+  //       crossAxisAlignment: CrossAxisAlignment.start,
+  //       children: [
+  //         Text(
+  //           "Download Target Directory".tl,
+  //           style: const TextStyle(
+  //             fontSize: 12,
+  //             fontWeight: FontWeight.bold,
+  //             color: Colors.grey,
+  //           ),
+  //         ),
+  //         const SizedBox(height: 4),
+  //         Win11Dropdown(
+  //           initialValue: selectedTargetDir,
+  //           items: dirs
+  //               .map(
+  //                 (d) => Win11DropdownItem(
+  //                   value: d.toString(),
+  //                   label: d.toString(),
+  //                 ),
+  //               )
+  //               .toList(),
+  //           onChanged: (v) {
+  //             setState(() => selectedTargetDir = v);
+  //           },
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 }
 
 class DownloadCard extends StatelessWidget {
