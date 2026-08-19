@@ -598,10 +598,14 @@ class DownloadService extends ChangeNotifier {
           } else {
             return data.map<Map<String, dynamic>>((e) {
               if (e is Map) {
-                final v = e['version'].toString();
+                final v = e['version']?.toString() ?? "";
+                final build = e['build'];
+                final rawVersion = e['rawVersion']?.toString();
                 final bool isStable = !v.toLowerCase().contains(RegExp(r'beta|alpha|rc|pre'));
                 return {
                   'version': v,
+                  'build': build,
+                  'rawVersion': rawVersion,
                   'stable': isStable,
                   'type': isStable ? 'Stable'.tl : 'Snapshot'.tl,
                   'time': e['modified'] ?? e['time'],
@@ -717,26 +721,37 @@ class DownloadService extends ChangeNotifier {
         loaderJson = res.data;
       } else if (type == LoaderType.forge) {
         task.update(0.2, "Fetching Forge JSON...".tl);
-        final fullVersion = loaderVersion.contains(mcVersion) 
-            ? loaderVersion 
-            : "$mcVersion-$loaderVersion";
+        String pureForgeVersion = loaderVersion;
+        if (loaderVersion.contains('-')) {
+          final parts = loaderVersion.split('-');
+          if (parts.length > 1) pureForgeVersion = parts.last;
+        }
+
+        final url = "https://bmclapi2.bangbang93.com/forge/download?"
+            "mcversion=$mcVersion&version=$pureForgeVersion&category=installer&format=json";
+
         try {
-          final res = await _dio.get(
-            "https://bmclapi2.bangbang93.com/forge/download/$fullVersion/json",
-          );
+          final res = await _dio.get(url);
           loaderJson = res.data;
         } catch (e) {
-          final res = await _dio.get(
-            "https://bmclapi2.bangbang93.com/forge/download/$loaderVersion/json",
-          );
+          final fallbackUrl = "https://bmclapi2.bangbang93.com/forge/download/$loaderVersion/json";
+          final res = await _dio.get(fallbackUrl);
           loaderJson = res.data;
         }
       } else if (type == LoaderType.neoforge) {
         task.update(0.2, "Fetching NeoForge JSON...".tl);
-        final res = await _dio.get(
-          "https://bmclapi2.bangbang93.com/neoforge/version/$loaderVersion/json",
-        );
-        loaderJson = res.data;
+        try {
+          final res = await _dio.get(
+            "https://bmclapi2.bangbang93.com/neoforge/version/$loaderVersion",
+          );
+          loaderJson = res.data;
+        } catch (e) {
+          final fullVersion = "$mcVersion-$loaderVersion";
+          final res = await _dio.get(
+            "https://bmclapi2.bangbang93.com/neoforge/version/$fullVersion",
+          );
+          loaderJson = res.data;
+        }
       } else if (type == LoaderType.quilt) {
         task.update(0.2, "Fetching Quilt JSON...".tl);
         final res = await _dio.get(

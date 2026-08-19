@@ -28,6 +28,7 @@ import '../models/plugin.dart';
 import '../core/theme.dart';
 import '../core/theme_manager.dart';
 import '../services/bloriko.dart';
+import 'fake_3d_editor_page.dart';
 
 enum SettingCategory {
   minecraft,
@@ -1113,6 +1114,20 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ],
         if (_selectedCategory == SettingCategory.system) ...[
+          _buildSettingItem(
+            "3D Model Editor".tl,
+            "Internal 3D scene preview and model editor".tl,
+            Icons.view_in_ar_rounded,
+            trailing: BloretButton(
+              text: "Open Editor".tl,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const Fake3DEditorPage()),
+                );
+              },
+            ),
+          ),
           _buildSettingItem(
             "Close Program".tl,
             "Completely exit Blora Launcher".tl,
