@@ -699,8 +699,6 @@ class _CoreDetailViewState extends State<CoreDetailView> {
 
   String _memoryMode = "Global";
   double _customMemory = 4096;
-  bool _defaultWindowTitle = false;
-  String _windowTitleMode = "Global";
   String _customWindowTitle = "";
   String _customInfo = "";
   String _javaSelection = "Global";
@@ -795,9 +793,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
 
     _memoryMode = getVal('memory_mode', "Global");
     _customMemory = (getVal('custom_memory', 4096)).toDouble();
-    _windowTitleMode = getVal('window_title_mode', "Global");
     _customWindowTitle = getVal('custom_window_title', "");
-    _defaultWindowTitle = getVal('default_window_title', false);
     _customInfo = getVal('custom_info', "");
     _javaSelection = getVal('java_selection', "Global");
     _restrictionMode = getVal('restriction_mode', "None");
@@ -821,9 +817,9 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     if (key == 'instance_icon') _selectedIcon = value;
     if (key == 'instance_category') _selectedCategory = value;
     if (key == 'memory_mode') _memoryMode = value;
-    if (key == 'window_title_mode') _windowTitleMode = value;
+    if (key == 'window_title_mode')
     if (key == 'custom_window_title') _customWindowTitle = value;
-    if (key == 'default_window_title') _defaultWindowTitle = value;
+    if (key == 'default_window_title')
     if (key == 'custom_info') _customInfo = value;
     if (key == 'java_selection') _javaSelection = value;
     if (key == 'restriction_mode') _restrictionMode = value;
