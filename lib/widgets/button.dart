@@ -10,7 +10,7 @@ class BloretButton extends StatelessWidget {
   const BloretButton({
     super.key,
     required this.text,
-    required this.onPressed,
+    this.onPressed,
     this.icon,
     this.height,
     this.color,
@@ -19,6 +19,7 @@ class BloretButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final bool isDisabled = onPressed == null;
     final style = ButtonStyle(
       padding: WidgetStateProperty.all(
         const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
@@ -30,11 +31,20 @@ class BloretButton extends StatelessWidget {
           side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
         ),
       ),
+      side: WidgetStateProperty.all(
+        BorderSide(
+          color: Colors.white.withValues(alpha: isDisabled ? 0.02 : 0.1),
+        ),
+      ),
       backgroundColor: WidgetStateProperty.all(
-        theme.colorScheme.outline.withValues(alpha: 0.1),
+        isDisabled
+            ? Colors.white.withValues(alpha: 0.04)
+            : theme.colorScheme.outline.withValues(alpha: 0.1),
       ),
       foregroundColor: WidgetStateProperty.all(
-        color ?? theme.colorScheme.onSurface,
+        isDisabled
+            ? Colors.white.withValues(alpha: 0.3)
+            : (color ?? theme.colorScheme.onSurface),
       ),
       elevation: WidgetStateProperty.all(0),
       textStyle: WidgetStateProperty.all(

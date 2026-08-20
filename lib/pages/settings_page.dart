@@ -269,7 +269,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {
       "id": SettingCategory.notification,
       "title": "Notifications".tl,
-      "desc": "Manage system notifications",
+      "desc": "Manage system notifications".tl,
       "icon": Icons.notifications,
     },
     {
@@ -1115,7 +1115,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
         if (_selectedCategory == SettingCategory.system) ...[
           _buildSettingItem(
-            "3D Model Editor".tl,
+            "${"3D Model Editor".tl} (WIP)",
             "Internal 3D scene preview and model editor".tl,
             Icons.view_in_ar_rounded,
             trailing: BloretButton(

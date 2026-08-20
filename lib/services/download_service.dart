@@ -669,7 +669,7 @@ class DownloadService extends ChangeNotifier {
 
       task.update(1.0, "Installation Complete".tl);
     } catch (e) {
-      task.update(0.0, "Installation Failed: $e".tl);
+      task.update(0.0, "Installation Failed: $e");
     } finally {
       task.isDownloading = false;
     }
@@ -774,7 +774,7 @@ class DownloadService extends ChangeNotifier {
 
       task.update(1.0, "Installation Complete".tl);
     } catch (e) {
-      task.update(0.0, "Installation Failed: $e".tl);
+      task.update(0.0, "Installation Failed: $e");
       debugPrint("Install Loader Error: $e");
     } finally {
       task.isDownloading = false;

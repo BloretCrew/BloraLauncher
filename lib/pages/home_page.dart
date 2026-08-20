@@ -1020,8 +1020,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             builder: (context) => AlertDialog(
               title: Text("Missing Files".tl),
               content: Text(
-                "Current core is missing ${missing.length} files. Download and complete them before launch?"
-                    .tl,
+                "Current core is missing %s files. Download and complete them before launch?"
+                    .tl.format(missing.length),
               ),
               actions: [
                 TextButton(
@@ -1165,7 +1165,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         );
       }
 
-      // Fallback for transition: if logs fail or window signal never comes
       Future.delayed(const Duration(seconds: 4), () {
         if (mounted &&
             _homeState == HomeState.launching &&
@@ -1254,7 +1253,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     if (_homeState == HomeState.launching) {
       _isTransitioningToRunning = true;
-      // We are at index 1 (launching). Animate to index 2 (running) while still in launching state.
       _pageController
           .animateToPage(
             2,
@@ -2989,7 +2987,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      height: _showLogsInRunning ? 400 : 64,
+      height: _showLogsInRunning ? 400 : isCrashed ? 72 : 60,
       child: FluentCard(
         padding: EdgeInsets.zero,
         child: ClipRRect(
@@ -3065,14 +3063,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         const Spacer(),
                         if (isCrashed)
                           BloretButton(
-                            height: 32,
+                            height: 40,
                             onPressed: () {
                               final lastLogs = logs.length > 30
                                   ? logs.sublist(logs.length - 30).join("\n")
                                   : logs.join("\n");
                               final prompt =
-                                  "My Minecraft game crashed with exit code $exitCode.\n\nHere are the last few lines of the log:\n```\n$lastLogs\n```\n\nCan you help me analyze why it crashed?"
-                                      .tl;
+                                  "My Minecraft game crashed with exit code %s.\n\nHere are the last few lines of the log:\n```\n%s\n```\n\nCan you help me analyze why it crashed?"
+                                      .tl.format(exitCode, lastLogs);
                               Bloriko.instance.startNewSession(prompt);
                               context
                                   .findAncestorStateOfType<MainShellState>()
@@ -3109,42 +3107,44 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 Expanded(
                   child: (isLogUnavailable || core?.isDetached == true)
                       ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.visibility_off_outlined,
-                                size: 80,
-                                color: theme.colorScheme.outline.withValues(
-                                  alpha: 0.2,
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              Text(
-                                "NO LOGS AVAILABLE".tl,
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 2,
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.visibility_off_outlined,
+                                  size: 80,
                                   color: theme.colorScheme.outline.withValues(
-                                    alpha: 0.4,
+                                    alpha: 0.2,
                                   ),
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                core?.isDetached == true
-                                    ? "Logs are disabled for detached processes"
-                                          .tl
-                                    : "Process is running in detached or elevated mode"
-                                          .tl,
-                                style: TextStyle(
-                                  color: theme.colorScheme.outline.withValues(
-                                    alpha: 0.5,
+                                const SizedBox(height: 24),
+                                Text(
+                                  "NO LOGS AVAILABLE".tl,
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 2,
+                                    color: theme.colorScheme.outline.withValues(
+                                      alpha: 0.4,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 8),
+                                Text(
+                                  core?.isDetached == true
+                                      ? "Logs are disabled for detached processes"
+                                      .tl
+                                      : "Process is running in detached or elevated mode"
+                                      .tl,
+                                  style: TextStyle(
+                                    color: theme.colorScheme.outline.withValues(
+                                      alpha: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       : ListView.builder(

@@ -480,7 +480,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
       if (mounted) {
         setState(() {
           _isInstallingJava = false;
-          _installStatus = "Operation failed: $e".tl;
+          _installStatus = "Operation failed: $e";
         });
         showError("Java installation failed".tl);
       }

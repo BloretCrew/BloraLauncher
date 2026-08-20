@@ -106,8 +106,9 @@ class LaunchService {
   Future<void> updateBlJson(
     String minecraftDir,
     String versionId, {
-    bool fabricLoader = false,
+    bool? fabricLoader,
     String? iconPath,
+    Map<String, dynamic>? extra,
   }) async {
     try {
       final blJsonPath = p.join(minecraftDir, "versions", ".BLF.json");
@@ -126,27 +127,48 @@ class LaunchService {
         blData["versions"] = {};
       }
 
-      final baseVersion = versionId.contains("-")
-          ? versionId.split("-")[0]
-          : versionId;
+      final Map<String, dynamic> versionsMap = Map<String, dynamic>.from(blData["versions"]);
+      final versionEntry = Map<String, dynamic>.from(versionsMap[versionId] ?? {});
 
-      final versionEntry = {
-        "Fabric": fabricLoader,
-        "client": true,
-        "version": baseVersion,
-        "setup_time": DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      };
-
-      if (iconPath != null) {
-        versionEntry["icon"] = iconPath;
+      if (fabricLoader != null) versionEntry["Fabric"] = fabricLoader;
+      if (iconPath != null) versionEntry["icon"] = iconPath;
+      
+      if (extra != null) {
+        versionEntry.addAll(extra);
       }
 
-      (blData["versions"] as Map<String, dynamic>)[versionId] = versionEntry;
+      if (versionEntry["setup_time"] == null) {
+        versionEntry["setup_time"] = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      }
+      
+      if (versionEntry["version"] == null) {
+        final baseVersion = versionId.contains("-")
+            ? versionId.split("-")[0]
+            : versionId;
+        versionEntry["version"] = baseVersion;
+      }
+
+      versionsMap[versionId] = versionEntry;
+      blData["versions"] = versionsMap;
 
       await Directory(p.dirname(blJsonPath)).create(recursive: true);
       await file.writeAsString(JsonEncoder.withIndent("    ").convert(blData));
     } catch (e) {
       stderr.writeln("Failed to update .BLF.json: $e");
+    }
+  }
+
+  Future<Map<String, dynamic>> getBlVersionData(String minecraftDir, String versionId) async {
+    try {
+      final blJsonPath = p.join(minecraftDir, "versions", ".BLF.json");
+      final file = File(blJsonPath);
+      if (!await file.exists()) return {};
+      
+      final data = jsonDecode(await file.readAsString());
+      final versions = data["versions"] as Map<String, dynamic>?;
+      return (versions?[versionId] as Map<String, dynamic>?) ?? {};
+    } catch (_) {
+      return {};
     }
   }
 
@@ -550,9 +572,31 @@ class LaunchService {
     final List<Map<String, String>> allVersions = [];
 
     for (var dir in dirs) {
+      final blJsonPath = p.join(dir, "versions", ".BLF.json");
+      Map<String, dynamic> blData = {};
+      try {
+        final file = File(blJsonPath);
+        if (await file.exists()) {
+          blData = jsonDecode(await file.readAsString())["versions"] ?? {};
+        }
+      } catch (_) {}
+
       final versions = await getAvailableVersions(dir, query: query);
       for (var v in versions) {
-        allVersions.add({"id": v, "directory": dir, "type": "minecraft"});
+        final Map<String, String> item = {
+          "id": v,
+          "directory": dir,
+          "type": "minecraft"
+        };
+        
+        final versionBl = blData[v] as Map<String, dynamic>?;
+        if (versionBl != null) {
+          versionBl.forEach((key, value) {
+            item["bl_$key"] = value.toString();
+          });
+        }
+        
+        allVersions.add(item);
       }
     }
 
@@ -876,13 +920,13 @@ class LaunchService {
 
     onStatus?.call("Loading version configuration...".tl, 0.05);
     final versionData = await loadMergedVersionJson(minecraftDir, version);
+    final blData = await getBlVersionData(minecraftDir, version);
 
     onStatus?.call("Verifying Java environment...".tl, 0.1);
     String? javaPath;
-    String javaVersionStr = ConfigService.get("java_version") ?? "8";
+    String javaVersionStr = blData['java_selection'] ?? ConfigService.get("java_version") ?? "8";
 
-    final String selectionMode =
-        ConfigService.get('java_selection_mode') ?? "auto";
+    final String selectionMode = blData['java_selection'] != null ? "custom" : (ConfigService.get('java_selection_mode') ?? "auto");
 
     if (selectionMode == "auto") {
       final String? cachedJava = ConfigService.get('detected_java_list');
@@ -908,11 +952,32 @@ class LaunchService {
           logger.error("Auto Java selection failed: $e", LogSource.system);
         }
       }
+    } else if (selectionMode == "custom" && blData['java_selection'] != null) {
+       // Check if it's a version string or a path
+       final selection = blData['java_selection'] as String;
+       if (selection.length <= 2 || int.tryParse(selection) != null) {
+         // It's a version
+         final String? cachedJava = ConfigService.get('detected_java_list');
+         if (cachedJava != null) {
+            final List<Map<String, String>> detectedJavas = (jsonDecode(cachedJava) as List).map((e) => Map<String, String>.from(e)).toList();
+            final match = detectedJavas.firstWhere((j) => j['version'] == selection, orElse: () => {});
+            if (match.isNotEmpty) {
+              javaPath = match['path'];
+              javaVersionStr = match['version']!;
+            }
+         }
+       } else {
+         // It's a path
+         javaPath = selection;
+         javaVersionStr = "?"; // We'll try to detect or just use as is
+       }
     }
 
     if (javaPath == null || javaPath.isEmpty) {
       javaPath = ConfigService.get('java_path');
-      javaVersionStr = ConfigService.get("java_version") ?? "8";
+      if (javaVersionStr == "8" || javaVersionStr == "?") {
+         javaVersionStr = ConfigService.get("java_version") ?? "8";
+      }
     }
 
     if (javaPath == null || javaPath.isEmpty) {
@@ -1050,9 +1115,15 @@ class LaunchService {
 
     final List<String> args = [];
 
-    final int minMem = ConfigService.get('java_min_memory') ?? 512;
-    final int maxMem = ConfigService.get('java_max_memory') ?? 4096;
+    final int minMem = blData['memory_mode'] == "Custom" ? 512 : (ConfigService.get('java_min_memory') ?? 512);
+    final int maxMem = blData['memory_mode'] == "Custom" 
+        ? (blData['custom_memory'] ?? 4096).toInt() 
+        : (ConfigService.get('java_max_memory') ?? 4096);
     args.addAll(["-Xms${minMem}M", "-Xmx${maxMem}M"]);
+
+    if (blData['jvm_args_header'] != null && blData['jvm_args_header'].toString().isNotEmpty) {
+      args.addAll(_splitArguments(blData['jvm_args_header']));
+    }
 
     if (Platform.isMacOS) {
       args.add("-XstartOnFirstThread");
@@ -1187,6 +1258,10 @@ class LaunchService {
       }
     }
 
+    if (blData['game_args_tail'] != null && blData['game_args_tail'].toString().isNotEmpty) {
+      args.addAll(_splitArguments(blData['game_args_tail']));
+    }
+
     if (isMicrosoft) {
       if (templateText.contains("\${clientid}") &&
           clientId.isNotEmpty &&
@@ -1200,7 +1275,7 @@ class LaunchService {
       }
     }
 
-    logger.info("Launch arguments: ${args.join(' ')}", LogSource.system);
+    // logger.info("Launch arguments: ${args.join(' ')}", LogSource.system);
 
     onStatus?.call("Launching Minecraft...".tl, 0.95);
     return await Process.start(

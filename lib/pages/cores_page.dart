@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:bloret_launcher/widgets/google_widgets.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
@@ -11,9 +13,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/ffi_proxy.dart';
 import '../core/grammer_candy.dart';
 import '../core/i18n.dart';
+import '../core/java_config.dart';
 import '../services/config_service.dart';
 import '../services/external_app_service.dart';
 import '../services/launch_service.dart';
+import '../services/stats_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/button.dart';
 import '../widgets/windows_widgets.dart';
@@ -96,8 +100,8 @@ class _CoresPageState extends State<CoresPage> {
     items.sort((a, b) {
       final idA = a['id']!;
       final idB = b['id']!;
-      final favA = ConfigService.get('favorite_$idA') == true ? 1 : 0;
-      final favB = ConfigService.get('favorite_$idB') == true ? 1 : 0;
+      final favA = (a['bl_favorite'] == 'true' || ConfigService.get('favorite_$idA') == true) ? 1 : 0;
+      final favB = (b['bl_favorite'] == 'true' || ConfigService.get('favorite_$idB') == true) ? 1 : 0;
       if (favA != favB) return favB.compareTo(favA);
       return idA.toLowerCase().compareTo(idB.toLowerCase());
     });
@@ -153,7 +157,7 @@ class _CoresPageState extends State<CoresPage> {
 
       String category = "Standard";
       if (type == "minecraft") {
-        category = ConfigService.get('instance_category_$id') ?? "Standard";
+        category = item['bl_instance_category'] ?? ConfigService.get('instance_category_$id') ?? "Standard";
       } else {
         category = item['category'] ?? "Standard";
       }
@@ -161,7 +165,6 @@ class _CoresPageState extends State<CoresPage> {
       groups.putIfAbsent(category, () => []).add(item);
     }
 
-    // Sort categories (Favorites first if we had a dedicated favorite group, but we use sorting inside groups)
     final sortedCategories = groups.keys.toList()
       ..sort((a, b) {
         if (a == "Exclusive") return -1;
@@ -354,11 +357,11 @@ class _CoresPageState extends State<CoresPage> {
     bool isFavorite = false;
 
     if (type == "minecraft") {
-      displayName = ConfigService.get('instance_name_$id') ?? id;
+      displayName = item['bl_instance_name'] ?? ConfigService.get('instance_name_$id') ?? id;
       displayDesc =
-          ConfigService.get('instance_desc_$id') ?? item['directory']!;
-      category = ConfigService.get('instance_category_$id') ?? "Standard";
-      isFavorite = ConfigService.get('favorite_$id') == true;
+          item['bl_instance_desc'] ?? ConfigService.get('instance_desc_$id') ?? item['directory']!;
+      category = item['bl_instance_category'] ?? ConfigService.get('instance_category_$id') ?? "Standard";
+      isFavorite = item['bl_favorite'] == 'true' || ConfigService.get('favorite_$id') == true;
     } else {
       displayName = id;
       displayDesc = item['directory']!;
@@ -485,9 +488,9 @@ class _CoresPageState extends State<CoresPage> {
     final type = item['type'] ?? "minecraft";
 
     final String selectedIcon =
-        ConfigService.get('instance_icon_$id') ?? "Auto";
+        item['bl_instance_icon'] ?? ConfigService.get('instance_icon_$id') ?? "Auto";
     final String category =
-        ConfigService.get('instance_category_$id') ?? "Standard";
+        item['bl_instance_category'] ?? ConfigService.get('instance_category_$id') ?? "Standard";
 
     if (selectedIcon != "Auto") {
       return _buildAssetIcon(selectedIcon, size);
@@ -684,6 +687,8 @@ class CoreDetailView extends StatefulWidget {
 class _CoreDetailViewState extends State<CoreDetailView> {
   int _activeTabIndex = 0;
   Map<String, dynamic>? _versionData;
+  Map<String, dynamic>? _mrpackMeta;
+  Map<String, dynamic>? _stats;
   int _launchCount = 0;
   bool _isFavorite = false;
 
@@ -695,6 +700,17 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   String _memoryMode = "Global";
   double _customMemory = 4096;
   bool _defaultWindowTitle = false;
+  String _windowTitleMode = "Global";
+  String _customWindowTitle = "";
+  String _customInfo = "";
+  String _javaSelection = "Global";
+  String _restrictionMode = "None";
+  String _autoJoinServer = "";
+  String _renderer = "Global";
+  String _jvmArgsHeader = "";
+  String _gameArgsTail = "";
+  String _classpathHeader = "";
+  String _preLaunchCommand = "";
 
   double _totalRamGb = 16.0;
   double _usedRamGb = 8.0;
@@ -736,31 +752,91 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   Future<void> _loadMetadata() async {
     final id = widget.item['id']!;
     final dir = widget.item['directory']!;
+    final versionDir = p.join(dir, "versions", id);
 
     try {
-      _versionData = await LaunchService.instance.loadMergedVersionJson(
-        dir,
-        id,
-      );
+      _versionData = await LaunchService.instance.loadMergedVersionJson(dir, id);
     } catch (_) {}
 
-    _launchCount = ConfigService.get('launch_count_$id') ?? 0;
-    _isFavorite = ConfigService.get('favorite_$id') ?? false;
+    try {
+      final metaFile = File(p.join(versionDir, "bloret-mrpack-meta.json"));
+      if (await metaFile.exists()) {
+        _mrpackMeta = jsonDecode(await metaFile.readAsString());
+      }
+    } catch (_) {}
 
-    _customName = ConfigService.get('instance_name_$id');
-    _customDescription = ConfigService.get('instance_desc_$id');
-    _selectedIcon = ConfigService.get('instance_icon_$id') ?? "Auto";
-    _selectedCategory =
-        ConfigService.get('instance_category_$id') ?? "Standard";
+    try {
+      final allStats = await StatsService.instance.getVersionStats();
+      _stats = allStats.firstWhere((s) => s['version'] == id, orElse: () => {});
+    } catch (_) {}
+
+    // Load from .BLF.json
+    final blData = await LaunchService.instance.getBlVersionData(dir, id);
+    
+    // Helper to get with migration from ConfigService
+    T getVal<T>(String key, T defaultValue) {
+      if (blData.containsKey(key)) return blData[key] as T;
+      final legacy = ConfigService.get('${key}_$id');
+      if (legacy != null) {
+        // Migrate immediately
+        _saveConfig(key, legacy);
+        return legacy as T;
+      }
+      return defaultValue;
+    }
+
+    _launchCount = _stats?['sessions'] ?? ConfigService.get('launch_count_$id') ?? 0;
+    _isFavorite = getVal('favorite', false);
+
+    _customName = getVal('instance_name', null);
+    _customDescription = getVal('instance_desc', null);
+    _selectedIcon = getVal('instance_icon', "Auto");
+    _selectedCategory = getVal('instance_category', "Standard");
+
+    _memoryMode = getVal('memory_mode', "Global");
+    _customMemory = (getVal('custom_memory', 4096)).toDouble();
+    _windowTitleMode = getVal('window_title_mode', "Global");
+    _customWindowTitle = getVal('custom_window_title', "");
+    _defaultWindowTitle = getVal('default_window_title', false);
+    _customInfo = getVal('custom_info', "");
+    _javaSelection = getVal('java_selection', "Global");
+    _restrictionMode = getVal('restriction_mode', "None");
+    _autoJoinServer = getVal('auto_join_server', "");
+    _renderer = getVal('renderer', "Global");
+    _jvmArgsHeader = getVal('jvm_args_header', "");
+    _gameArgsTail = getVal('game_args_tail', "");
+    _classpathHeader = getVal('classpath_header', "");
+    _preLaunchCommand = getVal('pre_launch_command', "");
 
     if (mounted) setState(() {});
   }
 
   void _saveConfig(String key, dynamic value) {
     final id = widget.item['id']!;
-    ConfigService.set('${key}_$id', value);
+    final dir = widget.item['directory']!;
+    
+    // Save to .BLF.json via LaunchService
+    LaunchService.instance.updateBlJson(dir, id, extra: {key: value});
+
     if (key == 'instance_icon') _selectedIcon = value;
     if (key == 'instance_category') _selectedCategory = value;
+    if (key == 'memory_mode') _memoryMode = value;
+    if (key == 'window_title_mode') _windowTitleMode = value;
+    if (key == 'custom_window_title') _customWindowTitle = value;
+    if (key == 'default_window_title') _defaultWindowTitle = value;
+    if (key == 'custom_info') _customInfo = value;
+    if (key == 'java_selection') _javaSelection = value;
+    if (key == 'restriction_mode') _restrictionMode = value;
+    if (key == 'auto_join_server') _autoJoinServer = value;
+    if (key == 'renderer') _renderer = value;
+    if (key == 'jvm_args_header') _jvmArgsHeader = value;
+    if (key == 'game_args_tail') _gameArgsTail = value;
+    if (key == 'classpath_header') _classpathHeader = value;
+    if (key == 'pre_launch_command') _preLaunchCommand = value;
+    if (key == 'favorite') _isFavorite = value;
+    if (key == 'instance_name') _customName = value;
+    if (key == 'instance_desc') _customDescription = value;
+    
     setState(() {});
     final coreState = context.findAncestorStateOfType<_CoresPageState>();
     coreState?.refreshLaunchItems();
@@ -1135,44 +1211,24 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 1. 启动选项区
         _buildSettingsSection(theme, "Launch Options".tl, [
           _buildConfigRow(
             theme: theme,
             icon: Icons.title_rounded,
             title: "Game Window Title".tl,
             subtitle: "Customize the title of the game window".tl,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Win11Dropdown(
-                  width: 200,
-                  initialValue: "Global",
-                  items: [
-                    Win11DropdownItem(
-                      label: "Follow Global".tl,
-                      value: "Global",
-                    ),
-                    Win11DropdownItem(label: "Custom".tl, value: "Custom"),
-                  ],
-                  onChanged: (v) {},
+            child: SizedBox(
+              width: 200,
+              child: TextField(
+                onChanged: (v) => _saveConfig('custom_window_title', v),
+                controller: TextEditingController(text: _customWindowTitle)..selection = TextSelection.fromPosition(TextPosition(offset: _customWindowTitle.length)),
+                decoration: InputDecoration(
+                  hintText: "Follow Global Settings".tl,
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
                 ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Checkbox(
-                      value: _defaultWindowTitle,
-                      onChanged: (v) =>
-                          setState(() => _defaultWindowTitle = v!),
-                    ),
-                    Text(
-                      "Default Window Title".tl,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
-              ],
+                style: const TextStyle(fontSize: 12),
+              ),
             ),
           ),
           _buildConfigRow(
@@ -1183,12 +1239,12 @@ class _CoreDetailViewState extends State<CoreDetailView> {
             child: SizedBox(
               width: 200,
               child: TextField(
+                onChanged: (v) => _saveConfig('custom_info', v),
+                controller: TextEditingController(text: _customInfo)..selection = TextSelection.fromPosition(TextPosition(offset: _customInfo.length)),
                 decoration: InputDecoration(
                   hintText: "Follow Global Settings".tl,
                   isDense: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
                 ),
                 style: const TextStyle(fontSize: 12),
               ),
@@ -1201,14 +1257,12 @@ class _CoreDetailViewState extends State<CoreDetailView> {
             subtitle: "Specify Java runtime for this instance".tl,
             child: Win11Dropdown(
               width: 200,
-              initialValue: "Global",
+              initialValue: _javaSelection,
               items: [
                 Win11DropdownItem(label: "Follow Global".tl, value: "Global"),
-                const Win11DropdownItem(label: "Java 8", value: "8"),
-                const Win11DropdownItem(label: "Java 17", value: "17"),
-                const Win11DropdownItem(label: "Java 21", value: "21"),
+                ...JavaConfig.versionList.map((v) => Win11DropdownItem(label: "Java $v", value: v)),
               ],
-              onChanged: (v) {},
+              onChanged: (v) => _saveConfig('java_selection', v),
             ),
           ),
         ]),
@@ -1237,16 +1291,16 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                           value: _customMemory,
                           max: _totalRamGb * 1024,
                           hasThumb: true,
-                          onChanged: (v) => setState(() => _customMemory = v),
+                          onChanged: (v) {
+                            setState(() => _customMemory = v);
+                            _saveConfig('custom_memory', v.toInt());
+                          },
                         ),
                       ),
                       const SizedBox(width: 12),
                       Text(
                         "${(_customMemory / 1024).toStringAsFixed(1)} GiB",
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -1255,11 +1309,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _AnimatedMemoryText(
-                      label: "Used RAM: ".tl,
-                      value: _usedRamGb,
-                      total: _totalRamGb,
-                    ),
+                    _AnimatedMemoryText(label: "Used RAM: ".tl, value: _usedRamGb, total: _totalRamGb),
                     Text(
                       "${"Allocated: ".tl}${(_customMemory / 1024).toStringAsFixed(1)} GiB",
                       style: const TextStyle(fontSize: 10, color: Colors.grey),
@@ -1276,8 +1326,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                       value: value,
                       minHeight: 6,
                       borderRadius: BorderRadius.circular(3),
-                      backgroundColor:
-                          theme.colorScheme.surfaceContainerHighest,
+                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
                     );
                   },
                 ),
@@ -1288,7 +1337,6 @@ class _CoreDetailViewState extends State<CoreDetailView> {
 
         const SizedBox(height: 20),
 
-        // 3. 服务器区
         _buildSettingsSection(theme, "Server Settings".tl, [
           _buildConfigRow(
             theme: theme,
@@ -1297,12 +1345,12 @@ class _CoreDetailViewState extends State<CoreDetailView> {
             subtitle: "Auth method restriction".tl,
             child: Win11Dropdown(
               width: 200,
-              initialValue: "None",
+              initialValue: _restrictionMode,
               items: [
                 Win11DropdownItem(label: "No Restriction".tl, value: "None"),
                 Win11DropdownItem(label: "Microsoft Only".tl, value: "MSA"),
               ],
-              onChanged: (v) {},
+              onChanged: (v) => _saveConfig('restriction_mode', v),
             ),
           ),
           _buildConfigRow(
@@ -1313,12 +1361,12 @@ class _CoreDetailViewState extends State<CoreDetailView> {
             child: SizedBox(
               width: 200,
               child: TextField(
+                onChanged: (v) => _saveConfig('auto_join_server', v),
+                controller: TextEditingController(text: _autoJoinServer)..selection = TextSelection.fromPosition(TextPosition(offset: _autoJoinServer.length)),
                 decoration: InputDecoration(
                   hintText: "Follow Global Settings".tl,
                   isDense: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
                 ),
                 style: const TextStyle(fontSize: 12),
               ),
@@ -1328,7 +1376,6 @@ class _CoreDetailViewState extends State<CoreDetailView> {
 
         const SizedBox(height: 20),
 
-        // 4. 高级启动选项区 (折叠面板)
         Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
@@ -1338,17 +1385,8 @@ class _CoreDetailViewState extends State<CoreDetailView> {
           child: Theme(
             data: theme.copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
-              leading: Icon(
-                Icons.settings_suggest_rounded,
-                color: theme.colorScheme.primary,
-              ),
-              title: Text(
-                "Advanced Launch Options".tl,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              leading: Icon(Icons.settings_suggest_rounded, color: theme.colorScheme.primary),
+              title: Text("Advanced Launch Options".tl, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
               children: [
                 _buildConfigRow(
                   theme: theme,
@@ -1357,35 +1395,17 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                   subtitle: "Graphics rendering engine".tl,
                   child: Win11Dropdown(
                     width: 200,
-                    initialValue: "Global",
+                    initialValue: _renderer,
                     items: [
-                      Win11DropdownItem(
-                        label: "Follow Global".tl,
-                        value: "Global",
-                      ),
+                      Win11DropdownItem(label: "Follow Global".tl, value: "Global"),
                     ],
-                    onChanged: (v) {},
+                    onChanged: (v) => _saveConfig('renderer', v),
                   ),
                 ),
-                _buildAdvancedTextRow(
-                  theme,
-                  "JVM Args Header".tl,
-                  "Follow Global Settings".tl,
-                  true,
-                ),
-                _buildAdvancedTextRow(
-                  theme,
-                  "Game Args Tail".tl,
-                  "Follow Global Settings".tl,
-                  false,
-                ),
-                _buildAdvancedTextRow(theme, "Classpath Header".tl, "", false),
-                _buildAdvancedTextRow(
-                  theme,
-                  "Pre-Launch Command".tl,
-                  "",
-                  false,
-                ),
+                _buildAdvancedTextRow(theme, "JVM Args Header".tl, "jvm_args_header", "Follow Global Settings".tl, true),
+                _buildAdvancedTextRow(theme, "Game Args Tail".tl, "game_args_tail", "Follow Global Settings".tl, false),
+                _buildAdvancedTextRow(theme, "Classpath Header".tl, "classpath_header", "", false),
+                _buildAdvancedTextRow(theme, "Pre-Launch Command".tl, "pre_launch_command", "", false),
                 const SizedBox(height: 12),
               ],
             ),
@@ -1416,27 +1436,31 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   Widget _buildAdvancedTextRow(
     ThemeData theme,
     String title,
+    String key,
     String hint,
     bool multiLine,
   ) {
+    String value = "";
+    if (key == "jvm_args_header") value = _jvmArgsHeader;
+    else if (key == "game_args_tail") value = _gameArgsTail;
+    else if (key == "classpath_header") value = _classpathHeader;
+    else if (key == "pre_launch_command") value = _preLaunchCommand;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-          ),
+          Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
           const SizedBox(height: 4),
           TextField(
             maxLines: multiLine ? 3 : 1,
+            onChanged: (v) => _saveConfig(key, v),
+            controller: TextEditingController(text: value)..selection = TextSelection.fromPosition(TextPosition(offset: value.length)),
             decoration: InputDecoration(
               hintText: hint,
               isDense: true,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-              ),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
             ),
             style: const TextStyle(fontSize: 11, fontFamily: "Consolas"),
           ),
@@ -1476,54 +1500,60 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     final id = widget.item['id']!;
     final directory = widget.item['directory']!;
 
-    // 精确提取版本号的工具函数
     String? extractVersion(String? input) {
       if (input == null) return null;
       final match = RegExp(r'\d+\.\d+(\.\d+)?').firstMatch(input);
       return match?.group(0);
     }
 
-    // 1. 精细化 Minecraft 版本检测逻辑
-    // 优先级：继承自(inheritsFrom) > ID(id) > 资源标识(assets)
     String mcVersion =
+        _mrpackMeta?['minecraft'] ??
         extractVersion(_versionData?['inheritsFrom']) ??
         extractVersion(_versionData?['id']) ??
         _versionData?['assets']?.toString() ??
         "Unknown".tl;
 
-    // 2. 精细化加载器版本解析
-    String loaderName = "Vanilla".tl;
-    String loaderVersion = "";
+    String loaderName = _mrpackMeta?['loader'] != null 
+        ? _mrpackMeta!['loader'].toString().capitalize
+        : "Vanilla".tl;
+    String loaderVersion = _mrpackMeta?['loader_version'] ?? "";
     final libs = _versionData?['libraries'] as List? ?? [];
 
-    for (var lib in libs) {
-      final String name = lib['name']?.toString() ?? "";
-      if (name.contains("fabric-loader")) {
-        loaderName = "Fabric";
-        loaderVersion = name.split(':').last;
-        break;
-      } else if (name.contains("net.minecraftforge:forge:")) {
-        loaderName = "Forge";
-        final fullVersion = name.split(':').last;
-        // 处理 1.20.1-47.3.0 这种情况，只取后面的 47.3.0
-        loaderVersion = fullVersion.contains('-')
-            ? fullVersion.split('-').last
-            : fullVersion;
-        break;
-      } else if (name.contains("net.neoforged:neoforge:")) {
-        loaderName = "NeoForge";
-        loaderVersion = name.split(':').last;
-        break;
-      } else if (name.contains("org.quiltmc:quilt-loader")) {
-        loaderName = "Quilt";
-        loaderVersion = name.split(':').last;
-        break;
+    if (loaderVersion.isEmpty) {
+      for (var lib in libs) {
+        final String name = lib['name']?.toString() ?? "";
+        if (name.contains("fabric-loader")) {
+          loaderName = "Fabric";
+          loaderVersion = name.split(':').last;
+          break;
+        } else if (name.contains("net.minecraftforge:forge:")) {
+          loaderName = "Forge";
+          final fullVersion = name.split(':').last;
+          loaderVersion = fullVersion.contains('-')
+              ? fullVersion.split('-').last
+              : fullVersion;
+          break;
+        } else if (name.contains("net.neoforged:neoforge:")) {
+          loaderName = "NeoForge";
+          loaderVersion = name.split(':').last;
+          break;
+        } else if (name.contains("org.quiltmc:quilt-loader")) {
+          loaderName = "Quilt";
+          loaderVersion = name.split(':').last;
+          break;
+        }
       }
     }
+
+    final String lastPlayedStr = ConfigService.get('last_played_$id') ?? "Never".tl;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (_mrpackMeta != null) ...[
+          _buildModpackBanner(theme),
+          const SizedBox(height: 16),
+        ],
         Row(
           children: [
             Expanded(
@@ -1531,19 +1561,43 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                 theme,
                 Icons.bolt_rounded,
                 "Launch Count".tl,
-                "Started %s times".tl.format(_launchCount),
+                _launchCount.toString(),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _buildInfoCard(theme, Icons.games, "Minecraft", mcVersion),
+              child: _buildInfoCard(
+                theme,
+                Icons.timer_outlined,
+                "Play Time".tl,
+                _stats != null && _stats!['total'] != null
+                    ? StatsService.instance.formatPlayTime(_stats!['total'] as int)
+                    : "0s",
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildInfoCard(
+                theme,
+                Icons.history_rounded,
+                "Last Played".tl,
+                lastPlayedStr,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildInfoCard(theme, CupertinoIcons.cube, "Minecraft", mcVersion),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: _buildInfoCard(
                 theme,
                 Icons.auto_awesome_outlined,
-                "Loader",
+                "Mod Loader".tl,
                 loaderVersion.isNotEmpty
                     ? "$loaderName $loaderVersion"
                     : loaderName,
@@ -1759,7 +1813,10 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                   ),
                 );
                 if (confirm == true) {
-                  LaunchService.instance.downloadMissingFiles(directory, id);
+                  showInfo("Downloading missing files...".tl);
+                  LaunchService.instance.downloadMissingFiles(directory, id).then((_) {
+                    showSuccess("Download complete".tl);
+                  });
                 }
               },
               text: "Complete Files".tl,
@@ -1914,6 +1971,50 @@ class _CoreDetailViewState extends State<CoreDetailView> {
             },
             child: Text("Save".tl),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModpackBanner(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.inventory_2_rounded, color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _mrpackMeta?['pack_name'] ?? "Modpack",
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                Text(
+                  "${"Version: ".tl}${_mrpackMeta?['pack_version'] ?? "N/A"}",
+                  style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          if (_mrpackMeta?['imported_at'] != null)
+            Text(
+              "${"Imported: ".tl}${DateTime.fromMillisecondsSinceEpoch((_mrpackMeta!['imported_at'] as int) * 1000).toString().split(' ').first}",
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
         ],
       ),
     );

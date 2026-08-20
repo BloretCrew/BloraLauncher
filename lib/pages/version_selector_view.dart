@@ -844,6 +844,28 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
       }
     }
 
+    showSuccess("Installation task for %s submitted.".tl.format(customName));
+    _pageController
+        .animateToPage(
+      0,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOutCubic,
+    )
+        .then((_) {
+      if (mounted) {
+        setState(() {
+          _selectedVersion = null;
+          _selectedLoader = null;
+          _selectedLoaderVersion = null;
+          _loaderVersionsMap.clear();
+          _isLoadingLoadersMap.clear();
+          _expandedLoaders.clear();
+          _isAccelerated = false;
+          _customIconPath = null;
+        });
+      }
+    });
+
     if (_isAccelerated &&
         (baseVersionId == "1.21.8" || baseVersionId == "1.21.7")) {
       final url =
@@ -889,27 +911,6 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
         customVersionId: finalVersionId,
       );
     }
-    showSuccess("Installation task for %s submitted.".tl.format(customName));
-    _pageController
-        .animateToPage(
-          0,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeInOutCubic,
-        )
-        .then((_) {
-          if (mounted) {
-            setState(() {
-              _selectedVersion = null;
-              _selectedLoader = null;
-              _selectedLoaderVersion = null;
-              _loaderVersionsMap.clear();
-              _isLoadingLoadersMap.clear();
-              _expandedLoaders.clear();
-              _isAccelerated = false;
-              _customIconPath = null;
-            });
-          }
-        });
   }
 
   Widget _buildUpdateProgress(ThemeData theme, DownloadService ds) {

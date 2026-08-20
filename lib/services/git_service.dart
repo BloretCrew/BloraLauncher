@@ -23,7 +23,7 @@ class GitService {
       
       return true;
     } catch (e) {
-      debugPrint("Git clone 失败: $e");
+      debugPrint("Git clone Failed: $e");
       return false;
     }
   }
@@ -36,7 +36,7 @@ class GitService {
       );
       return true;
     } catch (e) {
-      debugPrint("Archive 下载失败: $e");
+      debugPrint("Archive Download Failed: $e");
       return false;
     }
   }
