@@ -20,6 +20,8 @@ class BbbsPost {
   final int commentsCount;
   final List<BbbsComment> comments;
   final int heat;
+  final bool? userHasVoted;
+  final Map<String, dynamic>? votes;
   
   // Recommendation fields
   final int? recommendationScore;
@@ -48,6 +50,8 @@ class BbbsPost {
     required this.commentsCount,
     required this.comments,
     required this.heat,
+    this.userHasVoted,
+    this.votes,
     this.recommendationScore,
     this.recommendationReason,
     this.ipLocation,
@@ -74,10 +78,12 @@ class BbbsPost {
       views: json['views'] ?? 0,
       status: json['status'] ?? '',
       commentsCount: json['commentsCount'] ?? json['comments_count'] ?? 0,
-      comments: (json['comments'] as List? ?? [])
+      comments: (json['comments'] as List? ?? json['comment_list'] as List? ?? [])
           .map((e) => BbbsComment.fromJson(e))
           .toList(),
       heat: json['heat'] ?? 0,
+      userHasVoted: json['user_has_voted'],
+      votes: json['votes'] is Map ? Map<String, dynamic>.from(json['votes']) : null,
       recommendationScore: json['recommendationScore'],
       recommendationReason: json['reason'],
       ipLocation: json['ip_location'],
@@ -94,6 +100,7 @@ class BbbsComment {
   final List<dynamic> likes;
   final int? parentId;
   final int? replyToId;
+  final String? ipLocation;
 
   BbbsComment({
     required this.id,
@@ -104,6 +111,7 @@ class BbbsComment {
     required this.likes,
     this.parentId,
     this.replyToId,
+    this.ipLocation,
   });
 
   factory BbbsComment.fromJson(Map<String, dynamic> json) {
@@ -116,6 +124,7 @@ class BbbsComment {
       likes: List<dynamic>.from(json['likes'] ?? []),
       parentId: json['parent_id'] ?? json['parentId'],
       replyToId: json['reply_to_id'] ?? json['replyToId'],
+      ipLocation: json['ip_location'],
     );
   }
 }

@@ -32,6 +32,9 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
   bool _isSubmitting = false;
   BbbsComment? _replyTo;
   
+  bool _isMdEnabled = false;
+  bool _isPreviewMode = false;
+  
   String? _aiText;
   bool _isAiProcessing = false;
   String? _aiTargetId;
@@ -54,36 +57,78 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
   Future<void> _refreshPost() async {
     setState(() => _isLoading = true);
     try {
-      final data = await BbbsService.fetchPostDetail(_currentPost.filename);
-      if (data != null && mounted) {
+      final data = await BbbsService.fetchPostsByBoard(
+        _currentPost.board, 
+        _currentPost.section ?? ""
+      );
+      
+      if (mounted) {
         setState(() {
-          _currentPost = BbbsPost.fromJson(data);
+          dynamic postJson;
+          postJson = data.firstWhere(
+            (element) => element['filename'] == _currentPost.filename,
+            orElse: () => null,
+          );
+
+          if (postJson == null) {
+            _fetchSinglePost();
+            return;
+          }
+
+          _currentPost = BbbsPost.fromJson(Map<String, dynamic>.from(postJson));
           _isLoading = false;
         });
-        logger.info("[BBBS] Detail refreshed. Comments: ${_currentPost.comments.length}", LogSource.network);
+        logger.info("[BBBS] Detail refreshed via Board API. Comments: ${_currentPost.comments.length}", LogSource.network);
       } else {
-        if (mounted) setState(() => _isLoading = false);
+        _fetchSinglePost();
       }
     } catch (e) {
       logger.error("[BBBS] Refresh error: $e", LogSource.network);
+      _fetchSinglePost();
+    }
+  }
+
+  Future<void> _fetchSinglePost() async {
+    try {
+      final data = await BbbsService.fetchPostDetail(_currentPost.filename);
+      if (data != null && mounted) {
+        setState(() {
+          final postJson = data is Map && data.containsKey('post') ? data['post'] : data;
+          if (postJson != null) {
+            _currentPost = BbbsPost.fromJson(Map<String, dynamic>.from(postJson));
+          }
+          _isLoading = false;
+        });
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (_) {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _insertMd(String tag) {
+  void _insertMd(String tagStart, [String? tagEnd]) {
     final text = _commentController.text;
     final selection = _commentController.selection;
+    final actualTagEnd = tagEnd ?? tagStart;
     
-    String newText;
-    if (selection.isValid) {
-      newText = text.replaceRange(selection.start, selection.end, tag);
+    if (!selection.isValid) {
+      final newText = text + tagStart + actualTagEnd;
+      _commentController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: newText.length - actualTagEnd.length),
+      );
     } else {
-      newText = text + tag;
+      final selectedText = selection.textInside(text);
+      final newText = text.replaceRange(selection.start, selection.end, "$tagStart$selectedText$actualTagEnd");
+      _commentController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection(
+          baseOffset: selection.start + tagStart.length,
+          extentOffset: selection.end + tagStart.length,
+        ),
+      );
     }
-    _commentController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(offset: selection.baseOffset + tag.length),
-    );
     _focusNode.requestFocus();
   }
 
@@ -194,6 +239,15 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     });
   }
 
+  String? _getReplyAuthor(int? replyToId) {
+    if (replyToId == null) return null;
+    try {
+      return _currentPost.comments.firstWhere((c) => c.id == replyToId).author;
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -202,53 +256,57 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     final cardColor = theme.cardColor;
     final borderColor = theme.dividerColor.withValues(alpha: 0.1);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_currentPost.boardName),
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        foregroundColor: textColor,
-        actions: [
-          if (_isLoading)
-            const Center(child: Padding(padding: EdgeInsets.only(right: 16), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _refreshPost,
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(_currentPost.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    _buildAuthorInfo(secondaryColor),
-                    const SizedBox(height: 24),
-                    _buildContentSection(textColor, secondaryColor, cardColor, borderColor),
-                    const SizedBox(height: 32),
-                    const Divider(),
-                    const SizedBox(height: 16),
-                    _buildInteractionRow(secondaryColor),
-                    const SizedBox(height: 32),
-                    _buildCommentsHeader(secondaryColor),
-                    const SizedBox(height: 16),
-                    _buildCommentsList(textColor, secondaryColor, cardColor, borderColor),
-                    const SizedBox(height: 48),
-                  ],
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_currentPost.boardName),
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          foregroundColor: textColor,
+          actions: [
+            if (_isLoading)
+              const Center(child: Padding(padding: EdgeInsets.only(right: 16), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))),
+          ],
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _refreshPost,
+                child: SingleChildScrollView(
+                  controller: _scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_currentPost.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 16),
+                      _buildAuthorInfo(secondaryColor),
+                      const SizedBox(height: 24),
+                      _buildContentSection(textColor, secondaryColor, cardColor, borderColor),
+                      const SizedBox(height: 32),
+                      const Divider(),
+                      const SizedBox(height: 16),
+                      _buildInteractionRow(secondaryColor),
+                      const SizedBox(height: 32),
+                      _buildCommentsHeader(secondaryColor),
+                      const SizedBox(height: 16),
+                      _buildCommentsList(textColor, secondaryColor, cardColor, borderColor),
+                      const SizedBox(height: 48),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          _buildBottomInput(cardColor, borderColor, secondaryColor),
-        ],
+            _buildBottomInput(cardColor, borderColor, secondaryColor),
+          ],
+        ),
       ),
     );
   }
+
 
   Widget _buildAuthorInfo(Color secondaryColor) {
     return Row(
@@ -270,7 +328,14 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
             ],
           ),
         ),
-        Text(_formatTime(_currentPost.time), style: TextStyle(fontSize: 12, color: secondaryColor)),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(_formatTime(_currentPost.time), style: TextStyle(fontSize: 12, color: secondaryColor)),
+            if (_currentPost.ipLocation != null && _currentPost.ipLocation!.isNotEmpty)
+              Text("IP: ${_currentPost.ipLocation}", style: TextStyle(fontSize: 10, color: secondaryColor.withValues(alpha: 0.7))),
+          ],
+        ),
       ],
     );
   }
@@ -423,7 +488,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       itemBuilder: (context, index) {
         final comment = _currentPost.comments[index];
         return TweenAnimationBuilder<double>(
-          key: ValueKey(comment.id),
+          key: ValueKey("comment_${comment.id}"),
           duration: const Duration(milliseconds: 400),
           tween: Tween(begin: 0.0, end: 1.0),
           curve: Curves.easeOutCubic,
@@ -431,7 +496,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
             return Opacity(
               opacity: value,
               child: Transform.translate(
-                offset: Offset(0, 20 * (1 - value)),
+                offset: Offset(0, 10 * (1 - value)),
                 child: child,
               ),
             );
@@ -469,10 +534,31 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                     Row(
                       children: [
                         Text(comment.author, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        if (comment.replyToId != null) ...[
+                          const SizedBox(width: 6),
+                          Icon(Icons.play_arrow_rounded, size: 12, color: secondaryColor.withValues(alpha: 0.5)),
+                          const SizedBox(width: 4),
+                          Text(
+                            "@${_getReplyAuthor(comment.replyToId) ?? "User".tl}",
+                            style: TextStyle(
+                              fontSize: 13, 
+                              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.8),
+                              fontWeight: FontWeight.w500
+                            ),
+                          ),
+                        ],
                         const Spacer(),
-                        Text(_formatTime(comment.time), style: TextStyle(fontSize: 11, color: secondaryColor)),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(_formatTime(comment.time), style: TextStyle(fontSize: 11, color: secondaryColor)),
+                            if (comment.ipLocation != null && comment.ipLocation!.isNotEmpty)
+                              Text("IP: ${comment.ipLocation}", style: TextStyle(fontSize: 9, color: secondaryColor.withValues(alpha: 0.7))),
+                          ],
+                        ),
                       ],
                     ),
+
                     const SizedBox(height: 6),
                     GptMarkdown(
                       comment.content, 
@@ -524,121 +610,183 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     final theme = Theme.of(context);
     final altColor = theme.colorScheme.surfaceContainerHighest;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: cardColor,
-        border: Border(top: BorderSide(color: borderColor)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_replyTo != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: theme.colorScheme.primary.withValues(alpha: 0.05),
+    return GestureDetector(
+      onTap: () {}, // 防止点击输入框区域触发外部的失焦逻辑
+      child: Container(
+        decoration: BoxDecoration(
+          color: cardColor,
+          border: Border(top: BorderSide(color: borderColor)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_replyTo != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: theme.colorScheme.primary.withValues(alpha: 0.05),
+                child: Row(
+                  children: [
+                    Icon(Icons.reply_rounded, size: 16, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text("${"Reply".tl} @${_replyTo!.author}", style: TextStyle(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => setState(() => _replyTo = null),
+                      child: Icon(Icons.close_rounded, size: 16, color: theme.colorScheme.primary),
+                    ),
+                  ],
+                ),
+              ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(12, 12, 12, MediaQuery.of(context).viewInsets.bottom + 20),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Icon(Icons.reply_rounded, size: 16, color: theme.colorScheme.primary),
-                  const SizedBox(width: 8),
-                  Text("${"Reply".tl} @${_replyTo!.author}", style: TextStyle(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: () => setState(() => _replyTo = null),
-                    child: Icon(Icons.close_rounded, size: 16, color: theme.colorScheme.primary),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (!_isPreviewMode) {
+                          _focusNode.requestFocus();
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: altColor,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: _focusNode.hasFocus ? theme.colorScheme.primary : borderColor,
+                            width: _focusNode.hasFocus ? 2.0 : 1.0,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (_isPreviewMode)
+                              Container(
+                                constraints: const BoxConstraints(minHeight: 40, maxHeight: 200),
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                child: SingleChildScrollView(
+                                  child: GptMarkdown(
+                                    _commentController.text.isEmpty ? "*${"Preview Content".tl}*" : _commentController.text,
+                                    style: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface),
+                                  ),
+                                ),
+                              )
+                            else
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 150),
+                              child: TextField(
+                                controller: _commentController,
+                                focusNode: _focusNode,
+                                maxLines: null,
+                                minLines: 1,
+                                onChanged: (v) => setState(() {}),
+                                keyboardType: TextInputType.multiline,
+                                decoration: InputDecoration(
+                                  hintText: "Write your comment...".tl,
+                                  border: InputBorder.none,
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                                ),
+                                style: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface),
+                              ),
+                            ),
+
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                              child: _isMdEnabled
+                                  ? Column(
+                                      children: [
+                                        const Divider(height: 16),
+                                        Focus(
+                                          canRequestFocus: false,
+                                          child: SingleChildScrollView(
+                                            scrollDirection: Axis.horizontal,
+                                            child: Row(
+                                              mainAxisAlignment: MainAxisAlignment.start,
+                                              children: [
+                                                _mdBtn(Icons.format_bold, () => _insertMd("**")),
+                                                const SizedBox(width: 8),
+                                                _mdBtn(Icons.format_italic, () => _insertMd("*")),
+                                                const SizedBox(width: 8),
+                                                _mdBtn(Icons.link, () => _insertMd("[", "](url)")),
+                                                const SizedBox(width: 8),
+                                                _mdBtn(Icons.code, () => _insertMd("`")),
+                                                const SizedBox(width: 8),
+                                                _mdBtn(Icons.format_quote, () => _insertMd("> ")),
+                                                const SizedBox(width: 8),
+                                                _mdBtn(Icons.format_list_bulleted, () => _insertMd("- ")),
+                                                const SizedBox(width: 12),
+                                                Text(
+                                                  "${_commentController.text.length} ${"chars".tl}",
+                                                  style: TextStyle(fontSize: 11, color: secondaryColor.withValues(alpha: 0.6)),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOut,
+                    child: (_focusNode.hasFocus || _commentController.text.isNotEmpty)
+                        ? Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                BloretIconButton(
+                                  icon: _isMdEnabled ? Icons.edit : Icons.edit_note,
+                                  color: _isMdEnabled ? theme.colorScheme.primary : secondaryColor,
+                                  onPressed: () => setState(() => _isMdEnabled = !_isMdEnabled),
+                                  tooltip: "Markdown Tools".tl,
+                                ),
+                                const SizedBox(height: 4),
+                                BloretIconButton(
+                                  icon: _isPreviewMode ? Icons.visibility : Icons.visibility_off,
+                                  color: _isPreviewMode ? theme.colorScheme.primary : secondaryColor,
+                                  onPressed: () => setState(() => _isPreviewMode = !_isPreviewMode),
+                                  tooltip: "Preview".tl,
+                                ),
+                                const SizedBox(height: 4),
+                                _isSubmitting
+                                    ? const Padding(
+                                        padding: EdgeInsets.all(10.0),
+                                        child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
+                                      )
+                                    : BloretIconButton(
+                                        onPressed: _commentController.text.trim().isEmpty ? null : _submitComment,
+                                        icon: Icons.send,
+                                        tooltip: "Send".tl,
+                                      ),
+                              ],
+                            ),
+                          )
+                        : const SizedBox.shrink(),
                   ),
                 ],
               ),
             ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(12, 12, 12, MediaQuery.of(context).viewInsets.bottom + 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: altColor,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: _focusNode.hasFocus ? theme.colorScheme.primary : borderColor,
-                        width: _focusNode.hasFocus ? 2.0 : 1.0,
-                      ),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: TextField(
-                            controller: _commentController,
-                            focusNode: _focusNode,
-                            maxLines: null,
-                            minLines: 1,
-                            onChanged: (v) => setState(() {}),
-                            keyboardType: TextInputType.multiline,
-                            decoration: InputDecoration(
-                              hintText: "Write your comment...".tl,
-                              border: InputBorder.none,
-                              isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                            ),
-                            style: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface),
-                          ),
-                        ),
-                        if (_focusNode.hasFocus || _commentController.text.isNotEmpty) ...[
-                          const Divider(height: 24),
-                          Focus(
-                            canRequestFocus: false,
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: [
-                                  _mdBtn(Icons.format_bold, () => _insertMd("**")),
-                                  const SizedBox(width: 12),
-                                  _mdBtn(Icons.format_italic, () => _insertMd("*")),
-                                  const SizedBox(width: 12),
-                                  _mdBtn(Icons.link, () => _insertMd("[]()")),
-                                  const SizedBox(width: 12),
-                                  _mdBtn(Icons.code, () => _insertMd("`")),
-                                  const SizedBox(width: 12),
-                                  _mdBtn(Icons.format_quote, () => _insertMd("> ")),
-                                  const SizedBox(width: 16),
-                                  Text(
-                                    "${_commentController.text.length} ${"chars".tl}",
-                                    style: TextStyle(fontSize: 11, color: secondaryColor.withValues(alpha: 0.6)),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    _isSubmitting
-                        ? const Padding(
-                            padding: EdgeInsets.all(10.0),
-                            child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
-                          )
-                        : BloretIconButton(
-                            onPressed: _commentController.text.trim().isEmpty ? null : _submitComment,
-                            icon: Icons.send,
-                            tooltip: "Send".tl,
-                          ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
+
+
+
 
   Widget _mdBtn(IconData icon, VoidCallback onTap) {
     return BloretIconButton(

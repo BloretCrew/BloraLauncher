@@ -102,7 +102,7 @@ class UpdateManager {
         return latest;
       }
     } catch (e) {
-      noticeManager.show(null, message: "${"检查更新失败".tl}: $e", icon: Icons.error);
+      noticeManager.show(null, message: "${"Check Update Failed".tl}: $e", icon: Icons.error);
     }
     return null;
   }
@@ -150,7 +150,7 @@ class UpdateManager {
 
     if (context?.mounted == true) {
       noticeManager.show(context, 
-        message: "${"正在下载".tl}${isMajor ? "版本".tl : "补丁".tl}${"更新".tl} ${update.version}...",
+        message: "${"Downloading".tl}${isMajor ? "Version".tl : "Patch".tl}${"Update".tl} ${update.version}...",
         icon: Icons.download
       );
     }
@@ -161,7 +161,7 @@ class UpdateManager {
     try {
       final dynamic fileResult = await decoder.runFlow("file_parse");
       if (fileResult.toString() == "https://developer2.lanrar.com/file/0") {
-        if (context?.mounted == true) noticeManager.show(context, message: "无法获取下载链接".tl, icon: Icons.error);
+        if (context?.mounted == true) noticeManager.show(context, message: "Cannot get download link".tl, icon: Icons.error);
         return false;
       }
       String? downloadUrl;
@@ -173,7 +173,7 @@ class UpdateManager {
       }
 
       if (downloadUrl == null || downloadUrl.isEmpty) {
-        if (context?.mounted == true) noticeManager.show(context, message: "无法获取下载链接".tl, icon: Icons.error);
+        if (context?.mounted == true) noticeManager.show(context, message: "Cannot get download link".tl, icon: Icons.error);
         return false;
       }
 
@@ -209,9 +209,9 @@ class UpdateManager {
       if (!_verifyHash(bytes, update.hash)) {
         final header = String.fromCharCodes(bytes.take(20));
         if (header.contains("<!DOCTYPE") || header.contains("<html")) {
-          if (context?.mounted == true) noticeManager.show(context, message: "下载失败：网盘链路已失效或需要验证".tl, icon: Icons.error);
+          if (context?.mounted == true) noticeManager.show(context, message: "Download Failed: WebRTC link unavailable or need auth".tl, icon: Icons.error);
         } else {
-          if (context?.mounted == true) noticeManager.show(context, message: "文件校验失败：Hash 不匹配".tl, icon: Icons.error);
+          if (context?.mounted == true) noticeManager.show(context, message: "File check failed: Hash is not match".tl, icon: Icons.error);
         }
         return false;
       }
@@ -241,7 +241,7 @@ class UpdateManager {
             final soFile = archive.findFile('libapp.so') ?? archive.files.first;
             await file.writeAsBytes(soFile.content as List<int>);
           } catch (e) {
-            if (context?.mounted == true) noticeManager.show(context, message: "解压失败: $e", icon: Icons.error);
+            if (context?.mounted == true) noticeManager.show(context, message: "Unzip failed: $e", icon: Icons.error);
             return false;
           }
         } else {
@@ -260,7 +260,7 @@ class UpdateManager {
             final soFile = archive.findFile('app.so') ?? archive.files.first;
             await file.writeAsBytes(soFile.content as List<int>);
           } catch (e) {
-            if (context?.mounted == true) noticeManager.show(context, message: "解压失败: $e", icon: Icons.error);
+            if (context?.mounted == true) noticeManager.show(context, message: "Unzip failed: $e", icon: Icons.error);
             return false;
           }
         } else {
@@ -268,10 +268,10 @@ class UpdateManager {
         }
       }
       
-      if (context?.mounted == true) noticeManager.show(context, message: "${"热更新补丁".tl} ${update.version} ${"已应用，重启生效".tl}", icon: Icons.check_circle);
+      if (context?.mounted == true) noticeManager.show(context, message: "${"Hot Update Patch".tl} ${update.version} ${"Applied, restart to take effect".tl}", icon: Icons.check_circle);
       return true;
     } catch (e) {
-      if (context?.mounted == true) noticeManager.show(context, message: "${"执行更新失败".tl}: $e", icon: Icons.error);
+      if (context?.mounted == true) noticeManager.show(context, message: "${"Update failed".tl}: $e", icon: Icons.error);
       return false;
     }
   }
@@ -338,15 +338,15 @@ class UpdateManager {
           context: context!,
           barrierDismissible: false,
           builder: (context) => AlertDialog(
-            title: Text("更新就绪".tl),
-            content: Text("${"主程序更新".tl} ${update.version} ${"已准备好".tl}。\n${"点击“立即重启”将关闭程序并完成安装。".tl}"),
+            title: Text("Update ready".tl),
+            content: Text("${"Main app update".tl} ${update.version} ${"Ready".tl}。\n${"Click 'Restart Now' to close the app and completed installation".tl}"),
             actions: [
               TextButton(
                 onPressed: () {
                   Process.run('cmd', ['/c', 'start', '', batchFile.path], workingDirectory: appDir);
                   exit(0);
                 }, 
-                child: Text("立即重启".tl)
+                child: Text("Restart Now".tl)
               ),
             ],
           ),
@@ -354,7 +354,7 @@ class UpdateManager {
       }
       return true;
     } catch (e) {
-      if (context?.mounted == true) noticeManager.show(context, message: "${"准备大版本更新失败".tl}: $e", icon: Icons.error);
+      if (context?.mounted == true) noticeManager.show(context, message: "${"Main app update failed".tl}: $e", icon: Icons.error);
       return false;
     }
   }
@@ -417,15 +417,15 @@ class UpdateManager {
           context: context!,
           barrierDismissible: false,
           builder: (context) => AlertDialog(
-            title: Text("更新就绪".tl),
-            content: Text("${"Linux 主程序更新".tl} ${update.version} ${"已准备好".tl}。\n${"点击“立即重启”将关闭程序并完成安装。".tl}"),
+            title: Text("Update ready".tl),
+            content: Text("${"Linux Main app update".tl} ${update.version} ${"Ready".tl}。\n${"Click 'Restart Now' to close the app and completed installation".tl}"),
             actions: [
               TextButton(
                 onPressed: () {
                   Process.start('sh', [shellScript.path], workingDirectory: appDir, mode: ProcessStartMode.detached);
                   exit(0);
                 }, 
-                child: Text("立即重启".tl)
+                child: Text("Restart Now".tl)
               ),
             ],
           ),
@@ -433,7 +433,7 @@ class UpdateManager {
       }
       return true;
     } catch (e) {
-      if (context?.mounted == true) noticeManager.show(context, message: "${"准备 Linux 大版本更新失败".tl}: $e", icon: Icons.error);
+      if (context?.mounted == true) noticeManager.show(context, message: "${"Linux Main app update failed".tl}: $e", icon: Icons.error);
       return false;
     }
   }

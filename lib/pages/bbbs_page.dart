@@ -628,94 +628,111 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
   Widget _buildLeaderboardItem(int index, dynamic item, Color textColor, Color secondaryColor, Color cardColor, Color borderColor) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: borderColor),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: index == 0
-                  ? Colors.amber
-                  : index == 1
-                  ? Colors.grey.shade400
-                  : index == 2
-                  ? Colors.brown.shade300
-                  : Colors.grey.withValues(alpha: 0.2),
-            ),
-            child: Icon(
-              index == 0
-                  ? Icons.emoji_events
-                  : index == 1
-                  ? Icons.military_tech
-                  : index == 2
-                  ? Icons.workspace_premium
-                  : Icons.star_outline,
-              size: 20,
-              color: index < 3 ? Colors.white : textColor,
-            ),
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item['title'] ?? item['name'] ?? '',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${item['board'] ?? ''}${item['section'] != null ? ' / ${item['section']}' : ''}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: secondaryColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Row(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          // 确保 item 包含 filename 才能跳转
+          if (item['filename'] != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => BbbsDetailPage(post: BbbsPost.fromJson(item)),
+              ),
+            );
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
             children: [
-              _statItem(
-                Icons.favorite_outline,
-                item['likesCount'] ?? item['likes'] ?? 0,
-                "Likes".tl,
-                secondaryColor,
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: index == 0
+                      ? Colors.amber
+                      : index == 1
+                      ? Colors.grey.shade400
+                      : index == 2
+                      ? Colors.brown.shade300
+                      : Colors.grey.withValues(alpha: 0.2),
+                ),
+                child: Icon(
+                  index == 0
+                      ? Icons.emoji_events
+                      : index == 1
+                      ? Icons.military_tech
+                      : index == 2
+                      ? Icons.workspace_premium
+                      : Icons.star_outline,
+                  size: 20,
+                  color: index < 3 ? Colors.white : textColor,
+                ),
               ),
-              const SizedBox(width: 12),
-              _statItem(
-                Icons.chat_bubble_outline,
-                item['commentsCount'] ?? item['comments'] ?? 0,
-                "Comments".tl,
-                secondaryColor,
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item['title'] ?? item['name'] ?? '',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${item['board'] ?? ''}${item['section'] != null ? ' / ${item['section']}' : ''}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: secondaryColor,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(width: 12),
-              _statItem(
-                Icons.visibility_outlined,
-                item['views'] ?? 0,
-                "Views".tl,
-                secondaryColor,
+              const SizedBox(width: 8),
+              Row(
+                children: [
+                  _statItem(
+                    Icons.favorite_outline,
+                    item['likesCount'] ?? item['likes'] ?? 0,
+                    "Likes".tl,
+                    secondaryColor,
+                  ),
+                  const SizedBox(width: 12),
+                  _statItem(
+                    Icons.chat_bubble_outline,
+                    item['commentsCount'] ?? item['comments'] ?? 0,
+                    "Comments".tl,
+                    secondaryColor,
+                  ),
+                  const SizedBox(width: 12),
+                  _statItem(
+                    Icons.visibility_outlined,
+                    item['views'] ?? 0,
+                    "Views".tl,
+                    secondaryColor,
+                  ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
+
 
   Widget _buildPostCard(
       BbbsPost item,

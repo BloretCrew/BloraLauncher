@@ -110,7 +110,7 @@ class BbbsService {
     return null;
   }
 
-  static Future<Map<String, dynamic>?> fetchPostDetail(String filename) async {
+  static Future<dynamic> fetchPostDetail(String filename) async {
     final url = Uri.parse('${_getBaseUrl()}/api/post/$filename');
     try {
       final response = await http.get(

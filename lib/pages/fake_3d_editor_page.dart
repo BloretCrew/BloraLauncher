@@ -88,11 +88,18 @@ class _Fake3DEditorPageState extends State<Fake3DEditorPage> {
                 },
                 onPointerUp: (event) => _activeGizmoAxis = null,
                 onPointerMove: (event) {
-                  if (_activeGizmoAxis != null && _selectedCube != null) _handleGizmoDrag(event.delta, viewportSize);
-                  else setState(() {
-                    if (event.buttons == kPrimaryMouseButton) _cameraRot = Vector3((_cameraRot.x - event.delta.dy * 0.01).clamp(-1.5, 1.5), _cameraRot.y - event.delta.dx * 0.01, _cameraRot.z);
-                    else if (event.buttons == kSecondaryMouseButton) _cameraPan = Vector3(_cameraPan.x + event.delta.dx, _cameraPan.y + event.delta.dy, 0);
+                  if (_activeGizmoAxis != null && _selectedCube != null) {
+                    _handleGizmoDrag(event.delta, viewportSize);
+                  } else {
+                    setState(() {
+                    if (event.buttons == kPrimaryMouseButton) {
+                      _cameraRot = Vector3((_cameraRot.x - event.delta.dy * 0.01).clamp(-1.5, 1.5), _cameraRot.y - event.delta.dx * 0.01, _cameraRot.z);
+                    } else if (event.buttons == kSecondaryMouseButton) {
+                      _cameraPan = Vector3(_cameraPan.x + event.delta.dx,
+                          _cameraPan.y + event.delta.dy, 0);
+                    }
                   });
+                  }
                 },
                 child: Container(color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3), child: CustomPaint(painter: Fake3DScenePainter(model: _model, sceneRotation: _cameraRot, cameraPan: _cameraPan, viewerDistance: _viewerDistance, fov: 600, selectedCubeId: _selectedCube?.id, hoveredCubeId: _hoveredCubeId, hoveredGizmoAxis: _hoveredGizmoAxis, enableLighting: _enableLighting, themeColor: theme.colorScheme.primary, gizmoMode: _gizmoMode), size: Size.infinite)),
               ),
@@ -135,11 +142,29 @@ class _Fake3DEditorPageState extends State<Fake3DEditorPage> {
 
     Vector3 dPos = Vector3.zero(); Vector3 dSize = Vector3.zero(); Vector3 dRot = Vector3.zero();
     if (_activeGizmoAxis == 'x') {
-      if (_gizmoMode == GizmoMode.move) dPos = Vector3(moveVal, 0, 0); else if (_gizmoMode == GizmoMode.scale) dSize = Vector3(moveVal, 0, 0); else dRot = Vector3(moveVal * 0.1, 0, 0);
+      if (_gizmoMode == GizmoMode.move) {
+        dPos = Vector3(moveVal, 0, 0);
+      } else if (_gizmoMode == GizmoMode.scale) {
+        dSize = Vector3(moveVal, 0, 0);
+      } else {
+        dRot = Vector3(moveVal * 0.1, 0, 0);
+      }
     } else if (_activeGizmoAxis == 'y') {
-      if (_gizmoMode == GizmoMode.move) dPos = Vector3(0, -moveVal, 0); else if (_gizmoMode == GizmoMode.scale) dSize = Vector3(0, moveVal, 0); else dRot = Vector3(0, moveVal * 0.1, 0);
+      if (_gizmoMode == GizmoMode.move) {
+        dPos = Vector3(0, -moveVal, 0);
+      } else if (_gizmoMode == GizmoMode.scale) {
+        dSize = Vector3(0, moveVal, 0);
+      } else {
+        dRot = Vector3(0, moveVal * 0.1, 0);
+      }
     } else {
-      if (_gizmoMode == GizmoMode.move) dPos = Vector3(0, 0, moveVal); else if (_gizmoMode == GizmoMode.scale) dSize = Vector3(0, 0, moveVal); else dRot = Vector3(0, 0, moveVal * 0.1);
+      if (_gizmoMode == GizmoMode.move) {
+        dPos = Vector3(0, 0, moveVal);
+      } else if (_gizmoMode == GizmoMode.scale) {
+        dSize = Vector3(0, 0, moveVal);
+      } else {
+        dRot = Vector3(0, 0, moveVal * 0.1);
+      }
     }
     _updateSelectedCube(
       pos: Vector3(_selectedCube!.pos.x + dPos.x, _selectedCube!.pos.y + dPos.y, _selectedCube!.pos.z + dPos.z),

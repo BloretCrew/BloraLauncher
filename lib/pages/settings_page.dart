@@ -1060,11 +1060,10 @@ class _SettingsPageState extends State<SettingsPage> {
             Icons.cloud_download,
             dropdown: Win11Dropdown(
               items: [
-                Win11DropdownItem(label: "Bloret", value: "gitcode"),
-                Win11DropdownItem(label: "Mojang", value: "official"),
                 Win11DropdownItem(label: "BMCLAPI", value: "bmclapi"),
+                Win11DropdownItem(label: "Mojang", value: "official"),
               ],
-              initialValue: ConfigService.get("download_source") ?? "gitcode",
+              initialValue: ConfigService.get("download_source") ?? "bmclapi",
               onChanged: (v) => ConfigService.set("download_source", v),
             ),
           ),

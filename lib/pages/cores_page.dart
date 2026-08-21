@@ -20,9 +20,9 @@ import '../services/launch_service.dart';
 import '../services/stats_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/button.dart';
+import '../widgets/core_icon.dart';
 import '../widgets/windows_widgets.dart';
 import 'external_app_selector_view.dart';
-import 'mods_page.dart';
 
 class CoresPage extends StatefulWidget {
   const CoresPage({super.key});
@@ -50,6 +50,7 @@ class _CoresPageState extends State<CoresPage> {
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: 0);
+    LaunchService.instance.addListener(refreshLaunchItems);
     Future.delayed(const Duration(milliseconds: 100), () {
       refreshLaunchItems();
     });
@@ -57,6 +58,7 @@ class _CoresPageState extends State<CoresPage> {
 
   @override
   void dispose() {
+    LaunchService.instance.removeListener(refreshLaunchItems);
     _pageController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -100,8 +102,10 @@ class _CoresPageState extends State<CoresPage> {
     items.sort((a, b) {
       final idA = a['id']!;
       final idB = b['id']!;
-      final favA = (a['bl_favorite'] == 'true' || ConfigService.get('favorite_$idA') == true) ? 1 : 0;
-      final favB = (b['bl_favorite'] == 'true' || ConfigService.get('favorite_$idB') == true) ? 1 : 0;
+      final uidA = a['unique_id'] ?? idA;
+      final uidB = b['unique_id'] ?? idB;
+      final favA = (a['bl_favorite'] == 'true' || ConfigService.get('favorite_$uidA') == true) ? 1 : 0;
+      final favB = (b['bl_favorite'] == 'true' || ConfigService.get('favorite_$uidB') == true) ? 1 : 0;
       if (favA != favB) return favB.compareTo(favA);
       return idA.toLowerCase().compareTo(idB.toLowerCase());
     });
@@ -149,15 +153,16 @@ class _CoresPageState extends State<CoresPage> {
   Widget _buildListView(BuildContext context) {
     final theme = Theme.of(context);
 
-    // Grouping logic
+    // Grouping logic (using absolute path uniqueness)
     final Map<String, List<Map<String, String>>> groups = {};
     for (var item in launchItems) {
       final id = item['id']!;
+      final uniqueId = item['unique_id'] ?? id;
       final type = item['type'] ?? "minecraft";
 
       String category = "Standard";
       if (type == "minecraft") {
-        category = item['bl_instance_category'] ?? ConfigService.get('instance_category_$id') ?? "Standard";
+        category = item['bl_instance_category'] ?? ConfigService.get('instance_category_$uniqueId') ?? "Standard";
       } else {
         category = item['category'] ?? "Standard";
       }
@@ -348,6 +353,7 @@ class _CoresPageState extends State<CoresPage> {
 
   Widget _buildCoreItem(ThemeData theme, Map<String, String> item) {
     final id = item['id']!;
+    final uniqueId = item['unique_id'] ?? id;
     final type = item['type'] ?? "minecraft";
     final appId = item['appId'];
 
@@ -357,11 +363,11 @@ class _CoresPageState extends State<CoresPage> {
     bool isFavorite = false;
 
     if (type == "minecraft") {
-      displayName = item['bl_instance_name'] ?? ConfigService.get('instance_name_$id') ?? id;
+      displayName = item['bl_instance_name'] ?? ConfigService.get('instance_name_$uniqueId') ?? id;
       displayDesc =
-          item['bl_instance_desc'] ?? ConfigService.get('instance_desc_$id') ?? item['directory']!;
-      category = item['bl_instance_category'] ?? ConfigService.get('instance_category_$id') ?? "Standard";
-      isFavorite = item['bl_favorite'] == 'true' || ConfigService.get('favorite_$id') == true;
+          item['bl_instance_desc'] ?? ConfigService.get('instance_desc_$uniqueId') ?? item['directory']!;
+      category = item['bl_instance_category'] ?? ConfigService.get('instance_category_$uniqueId') ?? "Standard";
+      isFavorite = item['bl_favorite'] == 'true' || ConfigService.get('favorite_$uniqueId') == true;
     } else {
       displayName = id;
       displayDesc = item['directory']!;
@@ -397,7 +403,7 @@ class _CoresPageState extends State<CoresPage> {
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  _buildCoreIcon(theme, item),
+                  CoreIcon(item: item),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
@@ -475,158 +481,6 @@ class _CoresPageState extends State<CoresPage> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildCoreIcon(
-    ThemeData theme,
-    Map<String, String> item, {
-    double size = 48,
-  }) {
-    final id = item['id']!;
-    final directory = item['directory']!;
-    final type = item['type'] ?? "minecraft";
-
-    final String selectedIcon =
-        item['bl_instance_icon'] ?? ConfigService.get('instance_icon_$id') ?? "Auto";
-    final String category =
-        item['bl_instance_category'] ?? ConfigService.get('instance_category_$id') ?? "Standard";
-
-    if (selectedIcon != "Auto") {
-      return _buildAssetIcon(selectedIcon, size);
-    }
-
-    if (type == "minecraft") {
-      final iconPath = p.join(directory, "versions", id, "icon.png");
-      final iconFile = File(iconPath);
-      if (iconFile.existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(size * 0.2),
-          child: Image.file(
-            iconFile,
-            fit: BoxFit.cover,
-            width: size,
-            height: size,
-          ),
-        );
-      }
-    } else if (type == "custom_app") {
-      final icon = item['icon'];
-      if (icon != null && icon.isNotEmpty && File(icon).existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(size * 0.2),
-          child: Image.file(
-            File(icon),
-            fit: BoxFit.cover,
-            width: size,
-            height: size,
-          ),
-        );
-      }
-    }
-
-    final lowerId = id.toLowerCase();
-    if (lowerId.contains("fabric")) return _buildAssetIcon("fabric", size);
-    if (lowerId.contains("neoforge")) return _buildAssetIcon("neoforge", size);
-    if (lowerId.contains("forge")) return _buildAssetIcon("forge", size);
-    if (lowerId.contains("quilt")) {
-      return _buildGenericIcon(Icons.grid_view, Colors.purple, size);
-    }
-
-    return _buildCategoryIcon(theme, category, size);
-  }
-
-  Widget _buildGenericIcon(
-    IconData icon,
-    Color color,
-    double size, {
-    Key? key,
-  }) {
-    return Container(
-      key: key,
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(size * 0.2),
-      ),
-      child: Center(
-        child: Icon(icon, color: color, size: size * 0.6),
-      ),
-    );
-  }
-
-  Widget _buildAssetIcon(String iconKey, double size) {
-    String assetPath;
-    switch (iconKey) {
-      case "bloret_dark":
-        assetPath = "assets/bloret_dark.png";
-        break;
-      case "bloret_light":
-        assetPath = "assets/bloret_light.png";
-        break;
-      case "bloriko":
-        assetPath = "assets/bloriko.png";
-        break;
-      default:
-        assetPath = "assets/icons/$iconKey.png";
-    }
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.2),
-        image: DecorationImage(image: AssetImage(assetPath), fit: BoxFit.cover),
-      ),
-    );
-  }
-
-  Widget _buildCategoryIcon(ThemeData theme, String category, double size) {
-    Widget iconWidget;
-    switch (category) {
-      case "Exclusive":
-        iconWidget = CustomPaint(
-          size: Size(size * 0.7, size * 0.7),
-          painter: BloretIcon(color: theme.colorScheme.primary),
-        );
-        break;
-      case "Moddable":
-        iconWidget = Icon(
-          Icons.extension,
-          color: theme.colorScheme.primary,
-          size: size * 0.6,
-        );
-        break;
-      case "RarelyUsed":
-        iconWidget = Icon(
-          Icons.archive_outlined,
-          color: theme.colorScheme.primary,
-          size: size * 0.6,
-        );
-        break;
-      case "Hidden":
-        iconWidget = Icon(
-          Icons.visibility_off_outlined,
-          color: theme.colorScheme.primary,
-          size: size * 0.6,
-        );
-        break;
-      default:
-        iconWidget = Icon(
-          Icons.apps,
-          color: theme.colorScheme.primary,
-          size: size * 0.6,
-        );
-    }
-
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(size * 0.2),
-      ),
-      child: Center(child: iconWidget),
     );
   }
 
@@ -817,9 +671,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     if (key == 'instance_icon') _selectedIcon = value;
     if (key == 'instance_category') _selectedCategory = value;
     if (key == 'memory_mode') _memoryMode = value;
-    if (key == 'window_title_mode')
     if (key == 'custom_window_title') _customWindowTitle = value;
-    if (key == 'default_window_title')
     if (key == 'custom_info') _customInfo = value;
     if (key == 'java_selection') _javaSelection = value;
     if (key == 'restriction_mode') _restrictionMode = value;
@@ -898,7 +750,15 @@ class _CoreDetailViewState extends State<CoreDetailView> {
             transitionBuilder: (Widget child, Animation<double> animation) {
               return FadeTransition(opacity: animation, child: child);
             },
-            child: _buildDetailIcon(theme, widget.item, size: 80),
+            child: CoreIcon(
+              key: ValueKey("detail_icon_${_selectedIcon}_$_selectedCategory"),
+              item: {
+                ...widget.item,
+                'bl_instance_icon': _selectedIcon,
+                'bl_instance_category': _selectedCategory,
+              },
+              size: 80,
+            ),
           ),
           const SizedBox(width: 20),
           Expanded(
@@ -931,177 +791,6 @@ class _CoreDetailViewState extends State<CoreDetailView> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildDetailIcon(
-    ThemeData theme,
-    Map<String, String> item, {
-    double size = 48,
-  }) {
-    final id = item['id']!;
-    final directory = item['directory']!;
-    final type = item['type'] ?? "minecraft";
-
-    if (_selectedIcon != "Auto") {
-      return _buildAssetIcon(
-        _selectedIcon,
-        size,
-        key: ValueKey("custom_$_selectedIcon"),
-      );
-    }
-
-    if (type == "minecraft") {
-      final iconPath = p.join(directory, "versions", id, "icon.png");
-      final iconFile = File(iconPath);
-      if (iconFile.existsSync()) {
-        return ClipRRect(
-          key: ValueKey("local_$id"),
-          borderRadius: BorderRadius.circular(12),
-          child: Image.file(
-            iconFile,
-            fit: BoxFit.cover,
-            width: size,
-            height: size,
-          ),
-        );
-      }
-    }
-
-    final libs = _versionData?['libraries'] as List? ?? [];
-    if (libs.any((l) => l['name'].toString().contains("fabric-loader"))) {
-      return _buildAssetIcon(
-        "fabric",
-        size,
-        key: const ValueKey("loader_fabric"),
-      );
-    } else if (libs.any((l) => l['name'].toString().contains("neoforge"))) {
-      return _buildAssetIcon(
-        "neoforge",
-        size,
-        key: const ValueKey("loader_neoforge"),
-      );
-    } else if (libs.any((l) => l['name'].toString().contains("forge"))) {
-      return _buildAssetIcon(
-        "forge",
-        size,
-        key: const ValueKey("loader_forge"),
-      );
-    } else if (libs.any((l) => l['name'].toString().contains("quilt-loader"))) {
-      return _buildGenericIcon(
-        Icons.grid_view,
-        Colors.purple,
-        size,
-        key: const ValueKey("loader_quilt"),
-      );
-    }
-
-    return _buildCategoryIcon(
-      theme,
-      _selectedCategory,
-      size,
-      key: ValueKey("cat_$_selectedCategory"),
-    );
-  }
-
-  Widget _buildAssetIcon(String iconKey, double size, {Key? key}) {
-    String assetPath;
-    switch (iconKey) {
-      case "bloret_dark":
-        assetPath = "assets/bloret_dark.png";
-        break;
-      case "bloret_light":
-        assetPath = "assets/bloret_light.png";
-        break;
-      case "bloriko":
-        assetPath = "assets/bloriko.png";
-        break;
-      default:
-        assetPath = "assets/icons/$iconKey.png";
-    }
-    return Container(
-      key: key,
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.2),
-        image: DecorationImage(image: AssetImage(assetPath), fit: BoxFit.cover),
-      ),
-    );
-  }
-
-  Widget _buildCategoryIcon(
-    ThemeData theme,
-    String category,
-    double size, {
-    Key? key,
-  }) {
-    Widget iconWidget;
-    switch (category) {
-      case "Exclusive":
-        iconWidget = CustomPaint(
-          size: Size(size * 0.7, size * 0.7),
-          painter: BloretIcon(color: theme.colorScheme.primary),
-        );
-        break;
-      case "Moddable":
-        iconWidget = Icon(
-          Icons.extension,
-          color: theme.colorScheme.primary,
-          size: size * 0.6,
-        );
-        break;
-      case "RarelyUsed":
-        iconWidget = Icon(
-          Icons.archive_outlined,
-          color: theme.colorScheme.primary,
-          size: size * 0.6,
-        );
-        break;
-      case "Hidden":
-        iconWidget = Icon(
-          Icons.visibility_off_outlined,
-          color: theme.colorScheme.primary,
-          size: size * 0.6,
-        );
-        break;
-      default:
-        iconWidget = Icon(
-          Icons.apps,
-          color: theme.colorScheme.primary,
-          size: size * 0.6,
-        );
-    }
-
-    return Container(
-      key: key,
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(size * 0.2),
-      ),
-      child: Center(child: iconWidget),
-    );
-  }
-
-  Widget _buildGenericIcon(
-    IconData icon,
-    Color color,
-    double size, {
-    Key? key,
-  }) {
-    return Container(
-      key: key,
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(size * 0.2),
-      ),
-      child: Center(
-        child: Icon(icon, color: color, size: size * 0.6),
       ),
     );
   }
@@ -1437,10 +1126,17 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     bool multiLine,
   ) {
     String value = "";
-    if (key == "jvm_args_header") value = _jvmArgsHeader;
-    else if (key == "game_args_tail") value = _gameArgsTail;
-    else if (key == "classpath_header") value = _classpathHeader;
-    else if (key == "pre_launch_command") value = _preLaunchCommand;
+    if (key == "jvm_args_header") {
+      value = _jvmArgsHeader;
+    } else if (key == "game_args_tail") {
+      value = _gameArgsTail;
+    }
+    else if (key == "classpath_header") {
+      value = _classpathHeader;
+    }
+    else if (key == "pre_launch_command") {
+      value = _preLaunchCommand;
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -1494,6 +1190,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
 
   Widget _buildOverview(ThemeData theme) {
     final id = widget.item['id']!;
+    final uniqueId = widget.item['unique_id'] ?? id;
     final directory = widget.item['directory']!;
 
     String? extractVersion(String? input) {
@@ -1720,7 +1417,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                 onPressed: () {
                   setState(() {
                     _isFavorite = !_isFavorite;
-                    ConfigService.set('favorite_$id', _isFavorite);
+                    ConfigService.set('favorite_$uniqueId', _isFavorite);
                   });
                   final coreState = context
                       .findAncestorStateOfType<_CoresPageState>();
@@ -1910,10 +1607,11 @@ class _CoreDetailViewState extends State<CoreDetailView> {
 
   Future<void> _resetInstance() async {
     final id = widget.item['id']!;
-    ConfigService.set('instance_name_$id', null);
-    ConfigService.set('instance_desc_$id', null);
-    ConfigService.set('instance_icon_$id', "Auto");
-    ConfigService.set('instance_category_$id', "Standard");
+    final uniqueId = widget.item['unique_id'] ?? id;
+    ConfigService.set('instance_name_$uniqueId', null);
+    ConfigService.set('instance_desc_$uniqueId', null);
+    ConfigService.set('instance_icon_$uniqueId', "Auto");
+    ConfigService.set('instance_category_$uniqueId', "Standard");
     _loadMetadata();
     showSuccess("Instance reset complete".tl);
   }

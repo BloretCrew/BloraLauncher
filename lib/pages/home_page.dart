@@ -26,6 +26,7 @@ import '../services/plugin_service.dart';
 import '../services/stats_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/button.dart';
+import '../widgets/core_icon.dart';
 import '../widgets/process_picker_dialog.dart';
 import '../widgets/sliding_text.dart';
 import 'mods_page.dart';
@@ -324,6 +325,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _loadSelectedVersion();
     I18n.instance.addListener(_onLanguageChanged);
     PluginService.instance.addListener(_onPluginsChanged);
+    LaunchService.instance.addListener(_onCoresChanged);
+    LaunchService.instance.notifyCoresChanged();
     _loadHomePluginCards();
 
     // Resume selected core if any exists in manager
@@ -365,6 +368,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void dispose() {
     I18n.instance.removeListener(_onLanguageChanged);
     PluginService.instance.removeListener(_onPluginsChanged);
+    LaunchService.instance.removeListener(_onCoresChanged);
     _listController.dispose();
     _chartAnimationController.dispose();
     _cleanRamAnimController.dispose();
@@ -526,58 +530,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         final versionId = v['id']!;
                         final directory = v['directory']!;
                         final appId = v['appId'];
-                        final icon = v['icon'];
+                        final _ = v['icon'];
 
                         final isSelected = type == "minecraft"
                             ? (versionId == _selectedVersion &&
                                   directory == _selectedVersionDir)
                             : (appId == _selectedAppId);
 
-                        Widget? leading;
-                        if (type == "minecraft") {
-                          final iconPath = p.join(
-                            directory,
-                            "versions",
-                            versionId,
-                            "icon.png",
-                          );
-                          final iconFile = File(iconPath);
-                          if (iconFile.existsSync()) {
-                            leading = ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.file(
-                                iconFile,
-                                width: 32,
-                                height: 32,
-                                fit: BoxFit.cover,
-                              ),
-                            );
-                          }
-                        } else {
-                          if (icon != null &&
-                              icon.isNotEmpty &&
-                              File(icon).existsSync()) {
-                            leading = ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.file(
-                                File(icon),
-                                width: 32,
-                                height: 32,
-                                fit: BoxFit.cover,
-                              ),
-                            );
-                          }
-                        }
-
                         return ListTile(
-                          leading:
-                              leading ??
-                              Icon(
-                                type == "minecraft" ? Icons.layers : Icons.apps,
-                                color: isSelected
-                                    ? Theme.of(context).colorScheme.primary
-                                    : null,
-                              ),
+                          leading: CoreIcon(item: v, size: 32),
                           title: Text(
                             versionId,
                             style: TextStyle(
@@ -635,15 +596,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       showWarning("Please select a core first.".tl);
       return;
     }
-    final path = _selectedType == "custom_app"
-        ? p.dirname(_selectedVersionDir!)
-        : _selectedVersionDir!;
+    String path = _selectedVersionDir!;
+    if (_selectedType == "minecraft" && _selectedVersion != null) {
+      path = p.join(_selectedVersionDir!, "versions", _selectedVersion!);
+    } else if (_selectedType == "custom_app") {
+      path = p.dirname(_selectedVersionDir!);
+    }
+
     if (Platform.isWindows) {
-      Process.run("explorer.exe", [path]);
+      launchUrlString("file://$path");
     } else if (Platform.isMacOS) {
       Process.run("open", [path]);
     } else {
       launchUrlString("file://$path");
+    }
+
+    if (_selectedType == "minecraft") {
+      LaunchService.instance.repairBlJson(_selectedVersionDir!).then((_) {
+        LaunchService.instance.notifyCoresChanged();
+      });
+    } else {
+      LaunchService.instance.notifyCoresChanged();
     }
   }
 
@@ -1409,6 +1382,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (mounted) {
       _loadHomePluginCards();
     }
+  }
+
+  void _onCoresChanged() {
+    if (mounted) setState(() {});
   }
 
   void _loadHomePluginCards() {
@@ -3749,109 +3726,41 @@ class _BottomActionRail extends StatelessWidget {
   });
 
   Widget _buildCoreIcon(ThemeData theme) {
+    final Map<String, dynamic> item = {
+      'id': selectedVersion,
+      'directory': selectedVersionDir,
+      'type': selectedType,
+      'appId': selectedAppId,
+    };
+    
     if (selectedType == "custom_app" && selectedAppId != null) {
       final app = ExternalAppService.instance.getCustomApps().firstWhere(
         (e) => e.id == selectedAppId,
         orElse: () => CustomApp(id: "", name: "", exePath: ""),
       );
-      if (app.iconPath != null && File(app.iconPath!).existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.file(
-            File(app.iconPath!),
-            width: 40,
-            height: 40,
-            fit: BoxFit.cover,
-          ),
-        );
-      }
-      return Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: theme.colorScheme.primaryContainer,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Icon(Icons.apps, size: 20),
-      );
+      item['icon'] = app.iconPath;
     }
-    if (selectedVersion != null && selectedVersionDir != null) {
-      final iconPath = p.join(
-        selectedVersionDir!,
-        "versions",
-        selectedVersion!,
-        "icon.png",
-      );
-      final iconFile = File(iconPath);
-      if (iconFile.existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.file(iconFile, width: 40, height: 40, fit: BoxFit.cover),
-        );
-      }
-    }
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Icon(Icons.inventory_2, size: 20),
-    );
+
+    return CoreIcon(item: item, size: 40);
   }
 
   Widget _buildCoreIconDesktop(ThemeData theme) {
+    final Map<String, dynamic> item = {
+      'id': selectedVersion,
+      'directory': selectedVersionDir,
+      'type': selectedType,
+      'appId': selectedAppId,
+    };
+
     if (selectedType == "custom_app" && selectedAppId != null) {
       final app = ExternalAppService.instance.getCustomApps().firstWhere(
         (e) => e.id == selectedAppId,
         orElse: () => CustomApp(id: "", name: "", exePath: ""),
       );
-      if (app.iconPath != null && File(app.iconPath!).existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.file(
-            File(app.iconPath!),
-            width: 48,
-            height: 48,
-            fit: BoxFit.cover,
-          ),
-        );
-      }
-      return Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: theme.colorScheme.primaryContainer,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Icon(Icons.apps),
-      );
+      item['icon'] = app.iconPath;
     }
-    if (selectedVersion != null && selectedVersionDir != null) {
-      final iconPath = p.join(
-        selectedVersionDir!,
-        "versions",
-        selectedVersion!,
-        "icon.png",
-      );
-      final iconFile = File(iconPath);
-      if (iconFile.existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.file(iconFile, width: 48, height: 48, fit: BoxFit.cover),
-        );
-      }
-    }
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Icon(Icons.inventory_2),
-    );
+
+    return CoreIcon(item: item, size: 48);
   }
 
   @override
@@ -3941,7 +3850,7 @@ class _BottomActionRail extends StatelessWidget {
                           child: BloretButton(
                             onPressed: onSwitchCore,
                             icon: Icons.swap_horiz,
-                            text: "Switch Core".tl,
+                            text: "${"Switch Core".tl} (${LaunchService.instance.availableCoresCount})",
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -4005,11 +3914,11 @@ class _BottomActionRail extends StatelessWidget {
                             needCollapse ? BloretIconButton(
                               onPressed: onSwitchCore,
                               icon: Icons.swap_horiz,
-                              tooltip: "Switch Core".tl,
+                              tooltip: "${"Switch Core".tl} (${LaunchService.instance.availableCoresCount})",
                             ) : BloretButton(
                               onPressed: onSwitchCore,
                               icon: Icons.swap_horiz,
-                              text: "Switch Core".tl,
+                              text: "${"Switch Core".tl} (${LaunchService.instance.availableCoresCount})",
                               height: 48,
                             ),
                             const SizedBox(width: 12),

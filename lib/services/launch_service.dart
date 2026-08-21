@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:archive/archive.dart';
 import 'package:bloret_launcher/core/grammer_candy.dart';
 import 'package:bloret_launcher/core/i18n.dart';
@@ -99,9 +100,19 @@ class CoreManager {
   }
 }
 
-class LaunchService {
+class LaunchService extends ChangeNotifier {
   static final LaunchService instance = LaunchService._();
   LaunchService._();
+
+  int _availableCoresCount = 0;
+  int get availableCoresCount => _availableCoresCount;
+
+  void notifyCoresChanged() {
+    getAllAvailableVersions().then((versions) {
+      _availableCoresCount = versions.length;
+      notifyListeners();
+    });
+  }
 
   Future<void> updateBlJson(
     String minecraftDir,
@@ -586,8 +597,26 @@ class LaunchService {
         final Map<String, String> item = {
           "id": v,
           "directory": dir,
-          "type": "minecraft"
+          "type": "minecraft",
+          "unique_id": "${dir}_$v".hashCode.toString(),
         };
+        
+        // Loader auto-detection by analyzing JSON content (path-based)
+        try {
+          final jsonFile = File(p.join(dir, "versions", v, "$v.json"));
+          if (jsonFile.existsSync()) {
+            final content = jsonFile.readAsStringSync();
+            if (content.contains("fabric-loader")) {
+              item["loader_type"] = "fabric";
+            } else if (content.contains("net.neoforged:neoforge:")) {
+              item["loader_type"] = "neoforge";
+            } else if (content.contains("net.minecraftforge:forge:")) {
+              item["loader_type"] = "forge";
+            } else if (content.contains("org.quiltmc:quilt-loader")) {
+              item["loader_type"] = "quilt";
+            }
+          }
+        } catch (_) {}
         
         final versionBl = blData[v] as Map<String, dynamic>?;
         if (versionBl != null) {

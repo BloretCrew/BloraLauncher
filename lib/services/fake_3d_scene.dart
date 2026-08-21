@@ -333,7 +333,9 @@ class Fake3DScenePainter extends CustomPainter {
     if (img == null) {
       final fallbackPaint = Paint()..color = Colors.grey.withValues(alpha: 0.5 * shading);
       final path = Path()..moveTo(points[indices[0]].dx, points[indices[0]].dy);
-      for (int i = 1; i < indices.length; i++) path.lineTo(points[indices[i]].dx, points[indices[i]].dy);
+      for (int i = 1; i < indices.length; i++) {
+        path.lineTo(points[indices[i]].dx, points[indices[i]].dy);
+      }
       path.close();
       canvas.drawPath(path, fallbackPaint);
     } else {
@@ -357,7 +359,9 @@ class Fake3DScenePainter extends CustomPainter {
         ..color = themeColor.withValues(alpha: isSelected ? (isHovered ? 0.25 : 0.15) : 0.08)
         ..style = PaintingStyle.fill;
       final path = Path()..moveTo(points[indices[0]].dx, points[indices[0]].dy);
-      for (int i = 1; i < indices.length; i++) path.lineTo(points[indices[i]].dx, points[indices[i]].dy);
+      for (int i = 1; i < indices.length; i++) {
+        path.lineTo(points[indices[i]].dx, points[indices[i]].dy);
+      }
       path.close();
       canvas.drawPath(path, overlayPaint);
     }
@@ -378,8 +382,9 @@ class Fake3DScenePainter extends CustomPainter {
       if (pEnd == null) return;
       final paint = Paint()..color = c..strokeWidth = 3..strokeCap = StrokeCap.round;
       canvas.drawLine(pCenter, pEnd, paint);
-      if (gizmoMode == GizmoMode.move) canvas.drawCircle(pEnd, 4, paint..style = PaintingStyle.fill);
-      else if (gizmoMode == GizmoMode.scale) {
+      if (gizmoMode == GizmoMode.move) {
+        canvas.drawCircle(pEnd, 4, paint..style = PaintingStyle.fill);
+      } else if (gizmoMode == GizmoMode.scale) {
         canvas.drawRect(Rect.fromCenter(center: pEnd, width: 8, height: 8), paint..style = PaintingStyle.fill);
         final pOtherEnd = _project(center - worldDir * len);
         if (pOtherEnd != null) { canvas.drawLine(pCenter, pOtherEnd, paint); canvas.drawRect(Rect.fromCenter(center: pOtherEnd, width: 8, height: 8), paint); }
@@ -393,12 +398,20 @@ class Fake3DScenePainter extends CustomPainter {
         for (int i = 0; i <= 32; i++) {
           double angle = i * 2 * math.pi / 32;
           vmath.Vector3 p;
-          if (axis.x > 0) p = vmath.Vector3(0, math.cos(angle), math.sin(angle));
-          else if (axis.y > 0) p = vmath.Vector3(math.cos(angle), 0, math.sin(angle));
-          else p = vmath.Vector3(math.cos(angle), math.sin(angle), 0);
+          if (axis.x > 0) {
+            p = vmath.Vector3(0, math.cos(angle), math.sin(angle));
+          } else if (axis.y > 0) {
+            p = vmath.Vector3(math.cos(angle), 0, math.sin(angle));
+          } else {
+            p = vmath.Vector3(math.cos(angle), math.sin(angle), 0);
+          }
           final proj = _project(center + (rotation * p) * len);
           if (proj == null) continue;
-          if (i == 0) path.moveTo(proj.dx, proj.dy); else path.lineTo(proj.dx, proj.dy);
+          if (i == 0) {
+            path.moveTo(proj.dx, proj.dy);
+          } else {
+            path.lineTo(proj.dx, proj.dy);
+          }
         }
         canvas.drawPath(path, paint);
       }
