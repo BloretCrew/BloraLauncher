@@ -52,3 +52,4 @@ app.*.map.json
 symbol/
 # Widget Preview related
 .widget_preview/
+/.gitgoalbar/

@@ -11,6 +11,7 @@ import '../core/i18n.dart';
 import '../services/download_service.dart';
 import '../services/launch_service.dart';
 import '../widgets/button.dart';
+import '../widgets/core_icon.dart';
 import '../widgets/google_widgets.dart';
 import 'mods_page.dart';
 
@@ -239,12 +240,15 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                               fit: BoxFit.cover,
                             ),
                           )
-                        : Icon(
-                            _isAccelerated
-                                ? Icons.bolt_outlined
-                                : Icons.auto_awesome_outlined,
-                            size: 32,
-                            color: theme.colorScheme.primary,
+                        : CoreIcon(
+                            item: {
+                              'id': _selectedVersion!.id,
+                              'type': 'minecraft',
+                              'version_type': _selectedVersion!.type,
+                              'directory': '',
+                              'force_accelerated': _isAccelerated,
+                            },
+                            size: 64,
                           ),
                   ),
                 ),
@@ -1116,11 +1120,15 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
         (v) => v.type == "snapshot",
       );
 
+      final acceleratedVersions = allVanillaVersions
+          .where((v) => v.id == "1.21.8" || v.id == "1.21.7")
+          .toList();
+
       final aprilFools = allVanillaVersions
           .where((v) => _isAprilFools(v.id))
           .toList();
       final remaining = allVanillaVersions
-          .where((v) => !_isAprilFools(v.id))
+          .where((v) => !_isAprilFools(v.id) && v.id != "1.21.8" && v.id != "1.21.7")
           .toList();
 
       final releases = remaining.where((v) => v.type == "release").toList();
@@ -1158,7 +1166,6 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                         theme,
                         isLatest: true,
                         label: "Bloret Speed-up Version".tl,
-                        icon: Icons.double_arrow,
                         forceAccelerated: true,
                       ),
                     if (allVanillaVersions.any((v) => v.id == "1.21.8") &&
@@ -1175,7 +1182,6 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                         theme,
                         isLatest: true,
                         label: "Bloret Speed-up Version".tl,
-                        icon: Icons.double_arrow,
                         forceAccelerated: true,
                       ),
                   ],
@@ -1214,7 +1220,6 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                   theme,
                   isLatest: true,
                   label: "Latest Snapshot".tl,
-                  icon: Icons.bug_report_outlined,
                 ),
               ],
             ),
@@ -1291,13 +1296,19 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
   Widget _buildSection(
     String title,
     String subtitle,
-    IconData icon,
+    IconData? icon,
     String key,
     List<MinecraftVersion> versions,
     ThemeData theme, {
     bool useGrouping = false,
+    bool forceAccelerated = false,
+    bool isInitialExpanded = false,
+    Widget? customLeading,
   }) {
     if (versions.isEmpty) return const SizedBox.shrink();
+    if (isInitialExpanded && !_expandedKeys.contains(key)) {
+      _expandedKeys.add(key);
+    }
     final bool isExpanded = _expandedKeys.contains(key);
 
     return Container(
@@ -1328,7 +1339,10 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                 ),
                 child: Row(
                   children: [
-                    Icon(icon, color: theme.colorScheme.primary, size: 22),
+                    if (customLeading != null)
+                      customLeading
+                    else if (icon != null)
+                      Icon(icon, color: theme.colorScheme.primary, size: 22),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
@@ -1383,7 +1397,11 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 12,
                                         ),
-                                        child: _buildVersionTile(v, theme),
+                                        child: _buildVersionTile(
+                                          v,
+                                          theme,
+                                          forceAccelerated: forceAccelerated,
+                                        ),
                                       ),
                                     )
                                     .toList(),
@@ -1524,7 +1542,6 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
     ThemeData theme, {
     bool isLatest = false,
     String? label,
-    IconData? icon,
     bool forceAccelerated = false,
   }) {
     final dateStr = DateFormat('yyyy-MM-dd').format(version.releaseTime);
@@ -1559,24 +1576,15 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
           ),
           child: Row(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color:
-                      (isAprilFools ? Colors.purple : theme.colorScheme.primary)
-                          .withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  isAprilFools
-                      ? Icons.celebration_outlined
-                      : (icon ?? Icons.view_in_ar_outlined),
-                  size: 18,
-                  color: isAprilFools
-                      ? Colors.purple
-                      : theme.colorScheme.primary,
-                ),
+              CoreIcon(
+                item: {
+                  'id': version.id,
+                  'type': 'minecraft',
+                  'version_type': version.type,
+                  'directory': '',
+                  'force_accelerated': forceAccelerated,
+                },
+                size: 36,
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -1593,10 +1601,10 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                     Row(
                       children: [
                         Text(
-                          label ?? dateStr,
+                          label ?? (forceAccelerated ? "Bloret Speed-up".tl : dateStr),
                           style: TextStyle(
                             fontSize: 11,
-                            color: isLatest
+                            color: isLatest || forceAccelerated
                                 ? theme.colorScheme.primary.withValues(
                                     alpha: 0.7,
                                   )

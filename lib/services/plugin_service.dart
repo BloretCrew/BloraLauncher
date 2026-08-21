@@ -158,19 +158,17 @@ class PluginService extends ChangeNotifier {
       plugin.pluginSettingsValues.clear();
       plugin.pluginSettingsValues.addAll(settings);
       await _savePluginConfig(plugin);
-      
-      // 设置变更后，自动触发一次加载逻辑以同步 UI
+
       runOnLoad(plugin);
       notifyListeners();
     }
   }
 
+
   Future<void> deletePlugin(String id) async {
     final index = _plugins.indexWhere((p) => p.id == id);
     if (index != -1) {
       final pluginDir = await getPluginsDir();
-      // 假设文件夹名字和ID一致，或者从路径获取。实际开发中应该在加载时记录路径。
-      // 这里我们为了演示，通过扫描找到匹配的文件夹
       final List<FileSystemEntity> entities = pluginDir.listSync();
       for (var entity in entities) {
         if (entity is Directory) {
