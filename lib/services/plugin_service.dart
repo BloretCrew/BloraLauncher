@@ -163,8 +163,7 @@ class PluginService extends ChangeNotifier {
       notifyListeners();
     }
   }
-
-
+  
   Future<void> deletePlugin(String id) async {
     final index = _plugins.indexWhere((p) => p.id == id);
     if (index != -1) {

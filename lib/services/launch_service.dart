@@ -955,7 +955,9 @@ class LaunchService extends ChangeNotifier {
     String? javaPath;
     String javaVersionStr = blData['java_selection'] ?? ConfigService.get("java_version") ?? "8";
 
-    final String selectionMode = blData['java_selection'] != null ? "custom" : (ConfigService.get('java_selection_mode') ?? "auto");
+    final String selectionMode = (blData['java_selection'] != null && blData['java_selection'] != "Global") 
+        ? "custom" 
+        : (ConfigService.get('java_selection_mode') ?? "auto");
 
     if (selectionMode == "auto") {
       final String? cachedJava = ConfigService.get('detected_java_list');
@@ -1061,6 +1063,12 @@ class LaunchService extends ChangeNotifier {
     final String clientId = account['clientId'] ?? "";
     final bool isMicrosoft = account['type'] == "Microsoft";
 
+    // Restriction Mode Confirmation
+    final restrictionMode = blData['restriction_mode'] ?? "None";
+    if (restrictionMode == "MSA" && !isMicrosoft) {
+      throw Exception("This core is restricted to Microsoft accounts only.".tl);
+    }
+
     onStatus?.call("Scanning library files...".tl, 0.2);
     final cp = await buildClasspath(
       minecraftDir,
@@ -1086,7 +1094,10 @@ class LaunchService extends ChangeNotifier {
       );
     }
 
-    final fullClasspath = '$clientJar${Platform.isWindows ? ';' : ':'}$cp';
+    // Classpath Header Support
+    final cpHeader = blData['classpath_header']?.toString() ?? "";
+    final fullClasspath = '${cpHeader.isNotEmpty ? "$cpHeader${Platform.isWindows ? ';' : ':'}" : ""}$clientJar${Platform.isWindows ? ';' : ':'}$cp';
+    
     final nativesDir = p.join(
       minecraftDir,
       "versions",
@@ -1110,6 +1121,18 @@ class LaunchService extends ChangeNotifier {
           final excludes = lib['extract']?['exclude'] as List<dynamic>?;
           await _extractNatives(libPath, nativesDir, excludes);
         }
+      }
+    }
+
+    // Pre-launch Command Execution
+    final preLaunchCmd = blData['pre_launch_command']?.toString() ?? "";
+    if (preLaunchCmd.isNotEmpty) {
+      onStatus?.call("Executing pre-launch command...".tl, 0.6);
+      try {
+        final List<String> cmdParts = preLaunchCmd.split(" ");
+        await Process.run(cmdParts[0], cmdParts.sublist(1));
+      } catch (e) {
+        logger.warning("Pre-launch command failed: $e", LogSource.tool);
       }
     }
 
@@ -1144,6 +1167,20 @@ class LaunchService extends ChangeNotifier {
 
     final List<String> args = [];
 
+    // Window Title Logic
+    final String customTitle = blData['custom_window_title']?.toString() ?? "";
+    final String launcherBrand = customTitle.isNotEmpty ? customTitle : "BloraLauncher-Flutter";
+    
+    // Renderer Logic
+    final String renderer = blData['renderer']?.toString() ?? "Global";
+    if (renderer != "Global") {
+       if (renderer == "OpenGL") {
+          args.add("-Dsun.java2d.opengl=true");
+       } else if (renderer == "DirectX") {
+          args.add("-Dsun.java2d.d3d=true");
+       }
+    }
+
     final int minMem = blData['memory_mode'] == "Custom" ? 512 : (ConfigService.get('java_min_memory') ?? 512);
     final int maxMem = blData['memory_mode'] == "Custom" 
         ? (blData['custom_memory'] ?? 4096).toInt() 
@@ -1159,7 +1196,7 @@ class LaunchService extends ChangeNotifier {
     }
 
     args.addAll([
-      "-Dminecraft.launcher.brand=BloraLauncher-Flutter",
+      "-Dminecraft.launcher.brand=$launcherBrand",
       "-Dminecraft.launcher.version=361",
       "-Doolloo.jlw.tmpdir=$tempDir",
       "-Djava.io.tmpdir=$tempDir",
@@ -1289,6 +1326,17 @@ class LaunchService extends ChangeNotifier {
 
     if (blData['game_args_tail'] != null && blData['game_args_tail'].toString().isNotEmpty) {
       args.addAll(_splitArguments(blData['game_args_tail']));
+    }
+
+    // Auto-Join Server Logic
+    final String autoJoinServer = blData['auto_join_server']?.toString() ?? "";
+    if (autoJoinServer.isNotEmpty) {
+      if (autoJoinServer.contains(":")) {
+        final parts = autoJoinServer.split(":");
+        args.addAll(["--server", parts[0], "--port", parts[1]]);
+      } else {
+        args.addAll(["--server", autoJoinServer]);
+      }
     }
 
     if (isMicrosoft) {

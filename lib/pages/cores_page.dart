@@ -23,6 +23,8 @@ import '../widgets/button.dart';
 import '../widgets/core_icon.dart';
 import '../widgets/windows_widgets.dart';
 import 'external_app_selector_view.dart';
+import '../widgets/loader_selector.dart';
+import '../services/minecraft_server_service.dart';
 
 class CoresPage extends StatefulWidget {
   const CoresPage({super.key});
@@ -564,6 +566,17 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   String _classpathHeader = "";
   String _preLaunchCommand = "";
 
+  // Export State
+  String _exportPackName = "";
+  String _exportPackVersion = "1.0.0";
+  bool _exportCore = true;
+  bool _exportSettings = true;
+  bool _exportMods = true;
+  bool _exportModConfigs = true;
+  bool _exportSaves = false;
+  bool _exportServers = true;
+  bool _exportOthers = false;
+
   double _totalRamGb = 16.0;
   double _usedRamGb = 8.0;
   Timer? _memoryTimer;
@@ -603,6 +616,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
 
   Future<void> _loadMetadata() async {
     final id = widget.item['id']!;
+    final uniqueId = widget.item['unique_id'] ?? id;
     final dir = widget.item['directory']!;
     final versionDir = p.join(dir, "versions", id);
 
@@ -628,7 +642,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     // Helper to get with migration from ConfigService
     T getVal<T>(String key, T defaultValue) {
       if (blData.containsKey(key)) return blData[key] as T;
-      final legacy = ConfigService.get('${key}_$id');
+      final legacy = ConfigService.get('${key}_$uniqueId');
       if (legacy != null) {
         // Migrate immediately
         _saveConfig(key, legacy);
@@ -637,7 +651,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
       return defaultValue;
     }
 
-    _launchCount = _stats?['sessions'] ?? ConfigService.get('launch_count_$id') ?? 0;
+    _launchCount = _stats?['sessions'] ?? ConfigService.get('launch_count_$uniqueId') ?? 0;
     _isFavorite = getVal('favorite', false);
 
     _customName = getVal('instance_name', null);
@@ -657,6 +671,18 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     _gameArgsTail = getVal('game_args_tail', "");
     _classpathHeader = getVal('classpath_header', "");
     _preLaunchCommand = getVal('pre_launch_command', "");
+
+    _exportPackName = _customName ?? id;
+
+    // Load servers directly from game's servers.dat
+    MinecraftServerService.loadFromGame(dir, id).then((list) {
+      if (mounted) {
+        setState(() {
+          _servers = list;
+          _refreshAllServers();
+        });
+      }
+    });
 
     if (mounted) setState(() {});
   }
@@ -887,9 +913,953 @@ class _CoreDetailViewState extends State<CoreDetailView> {
         return _buildOverview(theme);
       case 1: // Settings
         return _buildSettings(theme);
+      case 2: // Modify
+        return _buildModify(theme);
+      case 3: // Export
+        return _buildExport(theme);
+      case 5: // Saves
+        return _buildFolderList(theme, "saves", Icons.landscape_rounded, isSave: true);
+      case 6: // Screenshots
+        return _buildFolderList(theme, "screenshots", Icons.photo_rounded, isImage: true);
+      case 7: // Mods
+        return _buildFolderList(theme, "mods", Icons.extension_rounded);
+      case 8: // Resource Packs
+        return _buildFolderList(theme, "resourcepacks", Icons.palette_rounded);
+      case 9: // Shader Packs
+        return _buildFolderList(theme, "shaderpacks", Icons.wb_sunny_rounded);
+      case 10: // Schematics
+        return _buildFolderList(theme, "schematics", Icons.architecture_rounded);
+      case 11: // Servers
+        return _buildServerList(theme);
       default:
         return _buildFolderAction(theme);
     }
+  }
+
+  List<MinecraftServer> _servers = [];
+  bool _isPingUpdating = false;
+  final Set<int> _selectedServerIndices = {};
+  bool _isServerMultiSelectMode = false;
+
+  Widget _buildServerList(ThemeData theme) {
+    final _ = widget.item['id']!;
+    final _ = widget.item['directory']!;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildServerToolbar(theme),
+        const SizedBox(height: 16),
+        if (_servers.isEmpty && !_isPingUpdating)
+           Center(
+             child: Padding(
+               padding: const EdgeInsets.symmetric(vertical: 40),
+               child: Column(
+                 children: [
+                   Icon(Icons.dns_rounded, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                   const SizedBox(height: 12),
+                   Text("No servers added".tl, style: TextStyle(color: theme.colorScheme.outline)),
+                   const SizedBox(height: 16),
+                   BloretButton(
+                     text: "Add Server".tl,
+                     icon: Icons.add,
+                     onPressed: _showAddServerDialog,
+                   ),
+                 ],
+               ),
+             ),
+           )
+        else
+           ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _servers.length,
+              itemBuilder: (context, index) {
+                final server = _servers[index];
+                final isSelected = _selectedServerIndices.contains(index);
+
+                return TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  duration: Duration(milliseconds: 300 + (index * 50).clamp(0, 300)),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, value, child) {
+                    return Opacity(
+                      opacity: value,
+                      child: Transform.translate(
+                        offset: Offset(0, 20 * (1 - value)),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected 
+                            ? theme.colorScheme.primary.withValues(alpha: 0.5) 
+                            : theme.dividerColor.withValues(alpha: 0.05),
+                        width: isSelected ? 2 : 1,
+                      ),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          if (_isServerMultiSelectMode) {
+                            setState(() {
+                              if (isSelected) {
+                                _selectedServerIndices.remove(index);
+                              } else {
+                                _selectedServerIndices.add(index);
+                              }
+                            });
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 300),
+                                    switchInCurve: Curves.easeOutCubic,
+                                    switchOutCurve: Curves.easeInCubic,
+                                    transitionBuilder: (child, animation) => FadeTransition(
+                                      opacity: animation,
+                                      child: SizeTransition(
+                                        sizeFactor: animation,
+                                        axis: Axis.horizontal,
+                                        alignment: .centerLeft,
+                                        child: child,
+                                      ),
+                                    ),
+                                    child: _isServerMultiSelectMode
+                                        ? Padding(
+                                            padding: const EdgeInsets.only(right: 12),
+                                            child: Checkbox(
+                                              value: isSelected,
+                                              visualDensity: VisualDensity.compact,
+                                              onChanged: (v) {
+                                                setState(() {
+                                                  if (v == true) {
+                                                    _selectedServerIndices.add(index);
+                                                  } else {
+                                                    _selectedServerIndices.remove(index);
+                                                  }
+                                                });
+                                              },
+                                            ),
+                                          )
+                                        : const SizedBox.shrink(),
+                                  ),
+                                  Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: server.iconBase64 != null 
+                                       ? ClipRRect(
+                                           borderRadius: BorderRadius.circular(8),
+                                           child: Image.memory(
+                                             base64Decode(server.iconBase64!.split(',').last),
+                                             fit: BoxFit.cover,
+                                           ),
+                                         )
+                                       : Icon(Icons.dns_rounded, color: theme.colorScheme.primary, size: 22),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    flex: 1,
+                                    child: Column(
+                                      mainAxisSize: .min,
+                                      crossAxisAlignment: .start,
+                                      children: [
+                                        Text(
+                                          server.name,
+                                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        Text(
+                                            server.ip,
+                                            style: TextStyle(
+                                                fontSize: 10,
+                                                color: theme.colorScheme.outline.withValues(alpha: 0.5),
+                                            )
+                                        ),
+                                      ],
+                                    )
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: (server.motdParts != null && server.motdParts!.isNotEmpty) ?
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        child: Center(
+                                          child: RichText(
+                                            textAlign: TextAlign.center,
+                                            text: TextSpan(
+                                              children: server.motdParts!.map((part) {
+                                                return TextSpan(
+                                                  text: part['text'],
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: (part['bold'] == true) ? FontWeight.bold : FontWeight.normal,
+                                                    color: _parseMcColor(part['color'], theme),
+                                                    fontFamily: 'monospace',
+                                                    height: 1.4,
+                                                  ),
+                                                );
+                                              }).toList(),
+                                            ),
+                                          ),
+                                        ),
+                                      ) : const SizedBox(height: 16),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (server.isOnline)
+                                        Row(
+                                          mainAxisSize: .min ,
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: (server.ping! < 100 ? Colors.green : (server.ping! < 250 ? Colors.orange : Colors.red)).withValues(alpha: 0.15),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              alignment: Alignment.center,
+                                              child: Text(
+                                                "${server.ping}ms",
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w900,
+                                                  height: 1.0,
+                                                  color: server.ping! < 100 ? Colors.green : (server.ping! < 250 ? Colors.orange : Colors.red),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              alignment: Alignment.center,
+                                              child: Text(
+                                                "${server.playersOnline ?? "--"}/${server.playersMax ?? "--"}",
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w900,
+                                                  height: 1.0,
+                                                ),
+                                              ),
+                                            )
+                                          ],
+                                        )
+                                      else if (_isPingUpdating)
+                                        const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2.5))
+                                      else
+                                        const Icon(Icons.signal_cellular_connected_no_internet_4_bar, size: 16, color: Colors.grey),
+
+                                      AnimatedSwitcher(
+                                          duration: const Duration(milliseconds: 300),
+                                          switchInCurve: Curves.easeOutCubic,
+                                          switchOutCurve: Curves.easeInCubic,
+                                          transitionBuilder: (child, animation) => FadeTransition(
+                                            opacity: animation,
+                                            child: SizeTransition(
+                                              sizeFactor: animation,
+                                              axis: Axis.horizontal,
+                                              alignment: .centerLeft,
+                                              child: child,
+                                            ),
+                                          ),
+                                          child: !_isServerMultiSelectMode ?
+                                            Padding(
+                                              padding: const EdgeInsets.only(left: 4),
+                                              child: IconButton(
+                                                icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                                                onPressed: () => _deleteServers([index]),
+                                                visualDensity: VisualDensity.compact,
+                                              ),
+                                            ) : const SizedBox.shrink(),
+                                      )
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+           ),
+      ],
+    );
+  }
+
+  Widget _buildServerToolbar(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        children: [
+          _toolbarBtn(
+            icon: Icons.refresh_rounded,
+            label: "Refresh".tl,
+            onPressed: _refreshAllServers,
+            isLoading: _isPingUpdating,
+          ),
+          const SizedBox(width: 8),
+          _toolbarBtn(
+            icon: Icons.add_rounded,
+            label: "Add".tl,
+            onPressed: _showAddServerDialog,
+          ),
+          const Spacer(),
+          if (_isServerMultiSelectMode) ...[
+            Text("${_selectedServerIndices.length} ${"Selected".tl}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 8),
+            _toolbarBtn(
+              icon: Icons.delete_sweep_rounded,
+              label: "Delete".tl,
+              onPressed: _selectedServerIndices.isEmpty ? null : () => _deleteServers(_selectedServerIndices.toList()),
+              color: Colors.redAccent,
+            ),
+            const SizedBox(width: 8),
+            _toolbarBtn(
+              icon: Icons.close_rounded,
+              label: "Cancel".tl,
+              onPressed: () => setState(() {
+                _isServerMultiSelectMode = false;
+                _selectedServerIndices.clear();
+              }),
+            ),
+          ] else
+            _toolbarBtn(
+              icon: Icons.checklist_rounded,
+              label: "Select".tl,
+              onPressed: _servers.isEmpty ? null : () => setState(() => _isServerMultiSelectMode = true),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _toolbarBtn({required IconData icon, required String label, required VoidCallback? onPressed, bool isLoading = false, Color? color}) {
+    return TextButton.icon(
+      onPressed: onPressed,
+      icon: isLoading 
+        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) 
+        : Icon(icon, size: 18, color: color),
+      label: Text(label, style: TextStyle(fontSize: 12, color: color)),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+
+  Future<void> _refreshAllServers() async {
+    if (_isPingUpdating) return;
+    setState(() => _isPingUpdating = true);
+    
+    // If list is empty, try to load from config (sidecar)
+    if (_servers.isEmpty) {
+      final String id = widget.item['id']!;
+      final List<dynamic> saved = ConfigService.get("server_list_$id") ?? [];
+      _servers = saved.map((e) => MinecraftServer(name: e['name'], ip: e['ip'])).toList();
+    }
+
+    final futures = _servers.map((s) => MinecraftServerService.pingServer(s)).toList();
+    await Future.wait(futures);
+    
+    if (mounted) {
+      setState(() => _isPingUpdating = false);
+    }
+  }
+
+  void _showAddServerDialog() {
+    final nameController = TextEditingController();
+    final ipController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Add Server".tl),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: InputDecoration(labelText: "Server Name".tl, hintText: "My Server".tl),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ipController,
+              decoration: InputDecoration(labelText: "Server Address".tl, hintText: "play.example.com"),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
+          TextButton(
+            onPressed: () {
+              if (ipController.text.trim().isEmpty) return;
+              setState(() {
+                final newServer = MinecraftServer(
+                  name: nameController.text.trim().isEmpty ? ipController.text.trim() : nameController.text.trim(),
+                  ip: ipController.text.trim(),
+                );
+                _servers.add(newServer);
+                _saveServerList();
+                MinecraftServerService.pingServer(newServer).then((_) => setState(() {}));
+              });
+              Navigator.pop(context);
+            },
+            child: Text("Add".tl),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteServers(List<int> indices) {
+    indices.sort((a, b) => b.compareTo(a));
+    setState(() {
+      for (var idx in indices) {
+        _servers.removeAt(idx);
+      }
+      _selectedServerIndices.clear();
+      _isServerMultiSelectMode = false;
+      _saveServerList();
+    });
+  }
+
+  void _saveServerList() {
+    final String id = widget.item['id']!;
+    final String dir = widget.item['directory']!;
+
+    MinecraftServerService.saveToGame(dir, id, _servers);
+  }
+
+  Color _parseMcColor(String? colorStr, ThemeData theme) {
+    if (colorStr == null) return theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7);
+    if (colorStr.startsWith('#')) {
+      try {
+        return Color(int.parse(colorStr.replaceFirst('#', '0xFF')));
+      } catch (_) {
+        return theme.colorScheme.onSurfaceVariant;
+      }
+    }
+
+    switch (colorStr.toLowerCase()) {
+      case 'black': return Colors.black;
+      case 'dark_blue': return const Color(0xFF0000AA);
+      case 'dark_green': return const Color(0xFF00AA00);
+      case 'dark_aqua': return const Color(0xFF00AAAA);
+      case 'dark_red': return const Color(0xFFAA0000);
+      case 'dark_purple': return const Color(0xFFAA00AA);
+      case 'gold': return const Color(0xFFFFAA00);
+      case 'gray': return const Color(0xFFAAAAAA);
+      case 'dark_gray': return const Color(0xFF555555);
+      case 'blue': return const Color(0xFF5555FF);
+      case 'green': return const Color(0xFF55FF55);
+      case 'aqua': return const Color(0xFF55FFFF);
+      case 'red': return const Color(0xFFFF5555);
+      case 'light_purple': return const Color(0xFFFF55FF);
+      case 'yellow': return const Color(0xFFFFFF55);
+      case 'white': return Colors.white;
+    }
+    return theme.colorScheme.onSurfaceVariant;
+  }
+
+  Widget _buildFolderList(ThemeData theme, String subFolder, IconData genericIcon, {bool isImage = false, bool isSave = false, bool isServerFile = false}) {
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = isServerFile 
+        ? p.join(directory, "versions", id) 
+        : p.join(directory, "versions", id, subFolder);
+    final dir = Directory(folderPath);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildFolderAction(theme),
+        const SizedBox(height: 16),
+        FutureBuilder<List<FileSystemEntity>>(
+          future: dir.exists().then((exists) async {
+            if (!exists) return <FileSystemEntity>[];
+            final list = await dir.list().toList();
+            if (isServerFile) {
+               return list.where((e) => p.basename(e.path) == "servers.dat").toList();
+            }
+            return list.where((e) => !p.basename(e.path).startsWith(".")).toList();
+          }),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
+            }
+            final items = snapshot.data ?? [];
+            if (items.isEmpty) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    children: [
+                      Icon(genericIcon, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                      const SizedBox(height: 12),
+                      Text("No items found".tl, style: TextStyle(color: theme.colorScheme.outline)),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => Divider(height: 1, color: theme.dividerColor.withValues(alpha: 0.05)),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final name = p.basename(item.path);
+                final isFile = item is File;
+
+                Widget leading = Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(genericIcon, color: theme.colorScheme.primary, size: 20),
+                );
+
+                if (isImage && isFile) {
+                  leading = ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.file(
+                      item,
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => leading,
+                    ),
+                  );
+                } else if (isSave && !isFile) {
+                  final iconFile = File(p.join(item.path, "icon.png"));
+                  if (iconFile.existsSync()) {
+                    leading = ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        iconFile,
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.cover,
+                      ),
+                    );
+                  }
+                }
+
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  leading: leading,
+                  title: Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  subtitle: Text(
+                    isFile ? _formatFileSize(item) : "Folder".tl,
+                    style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.folder_open_outlined, size: 18),
+                        tooltip: "Show in explorer".tl,
+                        onPressed: () => launchUrl(Uri.file(isFile ? p.dirname(item.path) : item.path)),
+                      ),
+                      if (isFile)
+                        IconButton(
+                          icon: const Icon(Icons.open_in_new, size: 18),
+                          tooltip: "Open file".tl,
+                          onPressed: () => launchUrl(Uri.file(item.path)),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  String _formatFileSize(File file) {
+    try {
+      final size = file.lengthSync();
+      if (size < 1024) return "$size B";
+      if (size < 1024 * 1024) return "${(size / 1024).toStringAsFixed(1)} KB";
+      return "${(size / (1024 * 1024)).toStringAsFixed(1)} MB";
+    } catch (_) {
+      return "Unknown Size".tl;
+    }
+  }
+
+  Widget _buildExport(ThemeData theme) {
+    final id = widget.item['id']!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSettingsSection(theme, "Basic Information".tl, [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Modpack Name".tl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      TextField(
+                        onChanged: (v) => setState(() => _exportPackName = v),
+                        controller: TextEditingController(text: _exportPackName)..selection = TextSelection.fromPosition(TextPosition(offset: _exportPackName.length)),
+                        decoration: InputDecoration(
+                          hintText: "Enter modpack name".tl,
+                          isDense: true,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Version".tl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      TextField(
+                        onChanged: (v) => setState(() => _exportPackVersion = v),
+                        controller: TextEditingController(text: _exportPackVersion)..selection = TextSelection.fromPosition(TextPosition(offset: _exportPackVersion.length)),
+                        decoration: InputDecoration(
+                          hintText: "1.0.0",
+                          isDense: true,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ]),
+        const SizedBox(height: 24),
+        Text("Export Content List".tl, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
+          ),
+          child: Column(
+            children: [
+              _buildExportCheckboxRow(
+                theme: theme,
+                title: "Game Body".tl,
+                subtitle: id,
+                value: _exportCore,
+                onChanged: (v) => setState(() => _exportCore = v!),
+              ),
+              _buildExportCheckboxRow(
+                theme: theme,
+                title: "Game Settings".tl,
+                subtitle: "Keybinds, volume, video settings, etc.".tl,
+                value: _exportSettings,
+                onChanged: (v) => setState(() => _exportSettings = v!),
+                isSubItem: true,
+              ),
+              const Divider(height: 1),
+              _buildExportCheckboxRow(
+                theme: theme,
+                title: "Mods".tl,
+                subtitle: "Mod files".tl,
+                value: _exportMods,
+                onChanged: (v) => setState(() => _exportMods = v!),
+              ),
+              _buildExportCheckboxRow(
+                theme: theme,
+                title: "Mod Settings".tl,
+                subtitle: "Config files".tl,
+                value: _exportModConfigs,
+                onChanged: (v) => setState(() => _exportModConfigs = v!),
+                isSubItem: true,
+              ),
+              const Divider(height: 1),
+              _buildExportCheckboxRow(
+                theme: theme,
+                title: "Singleplayer Saves".tl,
+                subtitle: "Worlds / Maps".tl,
+                value: _exportSaves,
+                onChanged: (v) => setState(() => _exportSaves = v!),
+              ),
+              _buildExportCheckboxRow(
+                theme: theme,
+                title: "Multiplayer Server List".tl,
+                subtitle: "servers.dat",
+                value: _exportServers,
+                onChanged: (v) => setState(() => _exportServers = v!),
+              ),
+              _buildExportCheckboxRow(
+                theme: theme,
+                title: "Other Folders".tl,
+                subtitle: "Folders not covered by options above".tl,
+                value: _exportOthers,
+                onChanged: (v) => setState(() => _exportOthers = v!),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          child: BloretButton(
+            onPressed: () {
+               showInfo("Exporting modpack...".tl);
+               // TODO: Implement actual export logic
+            },
+            text: "Start Exporting".tl,
+            icon: Icons.ios_share_rounded,
+            height: 50,
+          ),
+        ),
+        const SizedBox(height: 48),
+      ],
+    );
+  }
+
+  Widget _buildExportCheckboxRow({
+    required ThemeData theme,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+    bool isSubItem = false,
+  }) {
+    return InkWell(
+      onTap: () => onChanged(!value),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(isSubItem ? 48 : 16, 12, 16, 12),
+        child: Row(
+          children: [
+            Checkbox(
+              value: value,
+              onChanged: onChanged,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(fontWeight: isSubItem ? FontWeight.normal : FontWeight.bold, fontSize: 14)),
+                  Text(subtitle, style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModify(ThemeData theme) {
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          "Loader Management".tl,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
+          ),
+          child: Column(
+            children: [
+              _buildModifyActionRow(
+                theme: theme,
+                icon: Icons.auto_fix_high_rounded,
+                title: "Repair Configuration".tl,
+                subtitle: "Re-download version metadata and fix corrupted files".tl,
+                buttonText: "Repair".tl,
+                onPressed: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: Text("Repair Core".tl),
+                      content: Text("This will re-verify all core files and repair missing or corrupted ones. Your mods and saves will NOT be affected. Continue?".tl),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
+                        TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Repair".tl)),
+                      ],
+                    ),
+                  );
+                  if (confirm == true) {
+                    showInfo("Repairing %s...".tl.format(id));
+                    await LaunchService.instance.downloadMissingFiles(directory, id);
+                    showSuccess("Repair completed".tl);
+                  }
+                },
+              ),
+              const Divider(height: 1),
+              _buildModifyActionRow(
+                theme: theme,
+                icon: Icons.published_with_changes_rounded,
+                title: "Switch Loader".tl,
+                subtitle: "Install or change mod loader (Fabric/Forge/etc.)".tl,
+                buttonText: "Switch".tl,
+                onPressed: () {
+                  _showSwitchLoaderDialog(theme);
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text(
+          "Important Note".tl,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.orangeAccent),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          "Switching loaders will change the core's entry point. Ensure your mods are compatible with the new loader. Version downgrading is not supported here.".tl,
+          style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModifyActionRow({
+    required ThemeData theme,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String buttonText,
+    required VoidCallback onPressed,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: theme.colorScheme.primary, size: 20),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                Text(subtitle, style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          BloretButton(
+            onPressed: onPressed,
+            text: buttonText,
+            height: 36,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSwitchLoaderDialog(ThemeData theme) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.8,
+        maxChildSize: 0.9,
+        minChildSize: 0.5,
+        builder: (context, scrollController) => Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text("Switch Loader for %s".tl.format(widget.item['id']), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: VersionLoaderSelector(
+                  mcVersion: _getMcVersionOnly(widget.item['id']!),
+                  targetDirectory: widget.item['directory']!,
+                  customVersionId: widget.item['id']!,
+                  onCompleted: () {
+                    Navigator.pop(context);
+                    _loadMetadata();
+                    showSuccess("Loader switched successfully".tl);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _getMcVersionOnly(String id) {
+    final match = RegExp(r'^\d+\.\d+(\.\d+)?').firstMatch(id);
+    return match?.group(0) ?? id;
   }
 
   Widget _buildSettings(ThemeData theme) {
@@ -1083,6 +2053,8 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                     initialValue: _renderer,
                     items: [
                       Win11DropdownItem(label: "Follow Global".tl, value: "Global"),
+                      Win11DropdownItem(label: "OpenGL (Legacy Fix)".tl, value: "OpenGL"),
+                      Win11DropdownItem(label: "DirectX (Legacy Fix)".tl, value: "DirectX"),
                     ],
                     onChanged: (v) => _saveConfig('renderer', v),
                   ),

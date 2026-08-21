@@ -1120,7 +1120,7 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
         (v) => v.type == "snapshot",
       );
 
-      final acceleratedVersions = allVanillaVersions
+      final _ = allVanillaVersions
           .where((v) => v.id == "1.21.8" || v.id == "1.21.7")
           .toList();
 
