@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:bloret_launcher/widgets/google_widgets.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -577,6 +578,15 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   bool _exportServers = true;
   bool _exportOthers = false;
 
+  final TextEditingController _saveSearchController = TextEditingController();
+  String _saveSearchQuery = "";
+
+  // Screenshot State
+  List<File> _screenshotFiles = [];
+  final Set<int> _selectedScreenshotIndices = {};
+  bool _isScreenshotMultiSelectMode = false;
+  bool _isScreenshotsLoading = false;
+
   double _totalRamGb = 16.0;
   double _usedRamGb = 8.0;
   Timer? _memoryTimer;
@@ -586,11 +596,17 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     super.initState();
     _loadMetadata();
     _startMemoryMonitoring();
+    _saveSearchController.addListener(() {
+      setState(() {
+        _saveSearchQuery = _saveSearchController.text.trim().toLowerCase();
+      });
+    });
   }
 
   @override
   void dispose() {
     _memoryTimer?.cancel();
+    _saveSearchController.dispose();
     super.dispose();
   }
 
@@ -918,9 +934,9 @@ class _CoreDetailViewState extends State<CoreDetailView> {
       case 3: // Export
         return _buildExport(theme);
       case 5: // Saves
-        return _buildFolderList(theme, "saves", Icons.landscape_rounded, isSave: true);
+        return _buildSavesView(theme);
       case 6: // Screenshots
-        return _buildFolderList(theme, "screenshots", Icons.photo_rounded, isImage: true);
+        return _buildScreenshotsView(theme);
       case 7: // Mods
         return _buildFolderList(theme, "mods", Icons.extension_rounded);
       case 8: // Resource Packs
@@ -1289,7 +1305,9 @@ class _CoreDetailViewState extends State<CoreDetailView> {
       _servers = saved.map((e) => MinecraftServer(name: e['name'], ip: e['ip'])).toList();
     }
 
-    final futures = _servers.map((s) => MinecraftServerService.pingServer(s)).toList();
+    final futures = _servers.map((s) => MinecraftServerService.pingServer(s, onConnected: () {
+      if (mounted) setState(() {});
+    })).toList();
     await Future.wait(futures);
     
     if (mounted) {
@@ -1391,6 +1409,442 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     }
     return theme.colorScheme.onSurfaceVariant;
   }
+
+  // --- Screenshots Tab Logic ---
+
+  Future<void> _refreshScreenshots() async {
+    if (_isScreenshotsLoading) return;
+    setState(() => _isScreenshotsLoading = true);
+
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = p.join(directory, "versions", id, "screenshots");
+    final dir = Directory(folderPath);
+
+    if (await dir.exists()) {
+      final list = await dir.list().toList();
+      _screenshotFiles = list
+          .whereType<File>()
+          .where((f) => [".png", ".jpg", ".jpeg"].contains(p.extension(f.path).toLowerCase()))
+          .toList()
+        ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+    } else {
+      _screenshotFiles = [];
+    }
+
+    if (mounted) {
+      setState(() => _isScreenshotsLoading = false);
+    }
+  }
+
+  Future<void> _deleteScreenshots(List<int> indices) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Delete Screenshots".tl),
+        content: Text("Are you sure you want to delete %d selected screenshots?".tl.format(indices.length)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Delete".tl, style: const TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      indices.sort((a, b) => b.compareTo(a));
+      for (var idx in indices) {
+        try {
+          await _screenshotFiles[idx].delete();
+        } catch (_) {}
+      }
+      showSuccess("Deleted successfully".tl);
+      _isScreenshotMultiSelectMode = false;
+      _selectedScreenshotIndices.clear();
+      _refreshScreenshots();
+    }
+  }
+
+  Widget _buildScreenshotsView(ThemeData theme) {
+    if (_screenshotFiles.isEmpty && !_isScreenshotsLoading) {
+      _refreshScreenshots();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildScreenshotsToolbar(theme),
+        const SizedBox(height: 20),
+        if (_isScreenshotsLoading)
+          const Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator()))
+        else if (_screenshotFiles.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 60),
+              child: Column(
+                children: [
+                  Icon(Icons.no_photography_outlined, size: 64, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                  const SizedBox(height: 16),
+                  Text("No screenshots found".tl, style: TextStyle(color: theme.colorScheme.outline)),
+                ],
+              ),
+            ),
+          )
+        else
+          Wrap(
+            spacing: 16,
+            runSpacing: 16,
+            children: List.generate(_screenshotFiles.length, (index) {
+              final file = _screenshotFiles[index];
+              final isSelected = _selectedScreenshotIndices.contains(index);
+
+              return TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: Duration(milliseconds: 300 + (index * 30).clamp(0, 300)),
+                curve: Curves.easeOutQuart,
+                builder: (context, value, child) {
+                  return Opacity(
+                    opacity: value,
+                    child: Transform.scale(
+                      scale: 0.95 + (0.05 * value),
+                      child: child,
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 200,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isSelected 
+                        ? theme.colorScheme.primary.withValues(alpha: 0.5) 
+                        : theme.dividerColor.withValues(alpha: 0.05),
+                      width: isSelected ? 2 : 1,
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      // Image Preview
+                      Stack(
+                        children: [
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () {
+                                if (_isScreenshotMultiSelectMode) {
+                                  setState(() {
+                                    if (isSelected) _selectedScreenshotIndices.remove(index);
+                                    else _selectedScreenshotIndices.add(index);
+                                  });
+                                } else {
+                                  launchUrl(Uri.file(file.path));
+                                }
+                              },
+                              child: AspectRatio(
+                                aspectRatio: 16 / 10,
+                                child: Image.file(
+                                  file,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Center(child: Icon(Icons.broken_image, color: theme.colorScheme.outline)),
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Selection Animation
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 200),
+                            child: _isScreenshotMultiSelectMode
+                                ? Positioned(
+                                    top: 8,
+                                    left: 8,
+                                    child: Checkbox(
+                                      value: isSelected,
+                                      visualDensity: VisualDensity.compact,
+                                      onChanged: (v) {
+                                        setState(() {
+                                          if (v == true) _selectedScreenshotIndices.add(index);
+                                          else _selectedScreenshotIndices.remove(index);
+                                        });
+                                      },
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                        ],
+                      ),
+                      // Actions
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _screenshotIconAction(
+                              icon: Icons.open_in_new_rounded,
+                              tooltip: "Open".tl,
+                              onPressed: () => launchUrl(Uri.file(file.path)),
+                            ),
+                            _screenshotIconAction(
+                              icon: Icons.copy_all_rounded,
+                              tooltip: "Copy".tl,
+                              onPressed: () async {
+                                await Pasteboard.writeFiles([file.path]);
+                                showSuccess("Image copied to clipboard".tl);
+                              },
+                            ),
+                            _screenshotIconAction(
+                              icon: Icons.delete_outline_rounded,
+                              tooltip: "Delete".tl,
+                              color: Colors.redAccent,
+                              onPressed: () => _deleteScreenshots([index]),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildScreenshotsToolbar(ThemeData theme) {
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = p.join(directory, "versions", id, "screenshots");
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        children: [
+          _toolbarBtn(
+            icon: Icons.folder_open_rounded,
+            label: "Open Folder".tl,
+            onPressed: () => launchUrl(Uri.directory(folderPath)),
+          ),
+          const SizedBox(width: 8),
+          _toolbarBtn(
+            icon: Icons.refresh_rounded,
+            label: "Refresh".tl,
+            onPressed: _refreshScreenshots,
+            isLoading: _isScreenshotsLoading,
+          ),
+          const Spacer(),
+          if (_isScreenshotMultiSelectMode) ...[
+            Text("${_selectedScreenshotIndices.length} ${"Selected".tl}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 8),
+            _toolbarBtn(
+              icon: Icons.delete_sweep_rounded,
+              label: "Delete".tl,
+              onPressed: _selectedScreenshotIndices.isEmpty ? null : () => _deleteScreenshots(_selectedScreenshotIndices.toList()),
+              color: Colors.redAccent,
+            ),
+            const SizedBox(width: 8),
+            _toolbarBtn(
+              icon: Icons.close_rounded,
+              label: "Cancel".tl,
+              onPressed: () => setState(() {
+                _isScreenshotMultiSelectMode = false;
+                _selectedScreenshotIndices.clear();
+              }),
+            ),
+          ] else
+            _toolbarBtn(
+              icon: Icons.checklist_rounded,
+              label: "Select".tl,
+              onPressed: _screenshotFiles.isEmpty ? null : () => setState(() => _isScreenshotMultiSelectMode = true),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _screenshotIconAction({required IconData icon, required String tooltip, required VoidCallback onPressed, Color? color}) {
+    return IconButton(
+      icon: Icon(icon, size: 18, color: color),
+      tooltip: tooltip,
+      onPressed: onPressed,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+    );
+  }
+  Widget _buildSavesView(ThemeData theme) {
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = p.join(directory, "versions", id, "saves");
+    final dir = Directory(folderPath);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildFolderAction(theme),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _saveSearchController,
+          onChanged: (v) => setState(() => _saveSearchQuery = v.trim().toLowerCase()),
+          decoration: InputDecoration(
+            hintText: "Search worlds...".tl,
+            prefixIcon: const Icon(Icons.search),
+            isDense: true,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            filled: true,
+            fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+          ),
+        ),
+        const SizedBox(height: 16),
+        FutureBuilder<List<FileSystemEntity>>(
+          future: dir.exists().then((exists) async {
+            if (!exists) return <FileSystemEntity>[];
+            final list = await dir.list().toList();
+            return list.where((e) {
+              if (e is! Directory) return false;
+              final name = p.basename(e.path);
+              if (name.startsWith(".")) return false;
+              if (_saveSearchQuery.isNotEmpty) {
+                return name.toLowerCase().contains(_saveSearchQuery);
+              }
+              return true;
+            }).toList();
+          }),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
+            }
+            final items = snapshot.data ?? [];
+            if (items.isEmpty) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    children: [
+                      Icon(Icons.landscape_rounded, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                      const SizedBox(height: 12),
+                      Text("No worlds found".tl, style: TextStyle(color: theme.colorScheme.outline)),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index] as Directory;
+                final name = p.basename(item.path);
+                
+                return FutureBuilder<bool>(
+                  future: MinecraftServerService.isWorldLocked(item.path),
+                  builder: (context, lockSnapshot) {
+                    final isLocked = lockSnapshot.data ?? false;
+                    final iconFile = File(p.join(item.path, "icon.png"));
+                    
+                    Widget leading = Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.landscape_rounded, color: theme.colorScheme.primary, size: 24),
+                    );
+
+                    if (iconFile.existsSync()) {
+                      leading = ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(iconFile, width: 52, height: 52, fit: BoxFit.cover),
+                      );
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Container(
+                        clipBehavior: Clip.antiAlias,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isLocked ? Colors.red.withValues(alpha: 0.3) : theme.dividerColor.withValues(alpha: 0.05),
+                            width: isLocked ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => SaveEditView(saveDir: item.path, isInitiallyLocked: isLocked),
+                                ),
+                              ).then((_) => setState(() {}));
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                children: [
+                                  leading,
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                                        const SizedBox(height: 4),
+                                        if (isLocked)
+                                          Text(
+                                            "Locked by one Minecraft instance".tl,
+                                            style: const TextStyle(fontSize: 11, color: Colors.redAccent, fontWeight: FontWeight.bold),
+                                          )
+                                        else
+                                          Text(
+                                            "Last played: ".tl + _getDirectoryLastModified(item),
+                                            style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  Icon(
+                                    isLocked ? Icons.lock_outline : Icons.chevron_right, 
+                                    color: isLocked ? Colors.redAccent : theme.colorScheme.outline.withValues(alpha: 0.5),
+                                    size: 18,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                );
+              },
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  String _getDirectoryLastModified(Directory dir) {
+    try {
+      final stat = dir.statSync();
+      return DateFormat('yyyy/MM/dd HH:mm').format(stat.modified);
+    } catch (_) {
+      return "Unknown".tl;
+    }
+  }
+
 
   Widget _buildFolderList(ThemeData theme, String subFolder, IconData genericIcon, {bool isImage = false, bool isSave = false, bool isServerFile = false}) {
     final id = widget.item['id']!;
@@ -2866,133 +3320,379 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     );
   }
 }
-
-class GoogleWavySlider extends StatefulWidget {
-  final double value;
-  final double min;
-  final double max;
-  final ValueChanged<double> onChanged;
-
-  const GoogleWavySlider({
-    super.key,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.onChanged,
-  });
+class SaveEditView extends StatefulWidget {
+  final String saveDir;
+  final bool isInitiallyLocked;
+  const SaveEditView({super.key, required this.saveDir, this.isInitiallyLocked = false});
 
   @override
-  State<GoogleWavySlider> createState() => _GoogleWavySliderState();
+  State<SaveEditView> createState() => _SaveEditViewState();
 }
 
-class _GoogleWavySliderState extends State<GoogleWavySlider>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _waveController;
+class _SaveEditViewState extends State<SaveEditView> {
+  bool _isLoading = true;
+  bool _isLocked = false;
+  Map<String, dynamic>? _worldData;
+  
+  bool _allowCheats = false;
+  String _difficulty = "Normal";
+  bool _lockDifficulty = false;
+  final TextEditingController _nameController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _waveController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat();
+    _isLocked = widget.isInitiallyLocked;
+    _loadWorldData();
   }
 
   @override
   void dispose() {
-    _waveController.dispose();
+    _nameController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadWorldData() async {
+    final lock = await MinecraftServerService.isWorldLocked(widget.saveDir);
+    final data = await MinecraftServerService.loadLevelDat(widget.saveDir);
+    if (mounted) {
+      setState(() {
+        _isLocked = lock;
+        _worldData = data;
+        _isLoading = false;
+        if (data != null) {
+          _allowCheats = (data['allowCommands'] == 1 || data['allowCommands'] == true);
+          _difficulty = _mapDifficulty(data['Difficulty'] ?? 2);
+          _lockDifficulty = (data['DifficultyLocked'] == 1 || data['DifficultyLocked'] == true);
+          _nameController.text = data['LevelName'] ?? p.basename(widget.saveDir);
+        }
+      });
+    }
+  }
+
+  String _mapDifficulty(dynamic d) {
+    int val = 2;
+    if (d is int) {
+      val = d;
+    } else {
+      val = int.tryParse(d.toString()) ?? 2;
+    }
+    
+    switch (val) {
+      case 0: return "Peaceful";
+      case 1: return "Easy";
+      case 3: return "Hard";
+      default: return "Normal";
+    }
+  }
+
+  String _mapGameMode(dynamic m) {
+    int val = 0;
+    if (m is int) {
+      val = m;
+    } else {
+      val = int.tryParse(m.toString()) ?? 0;
+    }
+
+    switch (val) {
+      case 1: return "Creative Mode".tl;
+      case 2: return "Adventure Mode".tl;
+      case 3: return "Spectator Mode".tl;
+      default: return "Survival Mode".tl;
+    }
+  }
+
+  String _formatPlayTime(dynamic time) {
+    if (time == null) return "Unknown".tl;
+    int ticks = 0;
+    if (time is int) {
+      ticks = time;
+    } else if (time is double) {
+      ticks = time.toInt();
+    } else {
+      ticks = int.tryParse(time.toString()) ?? 0;
+    }
+    
+    if (ticks <= 0) return "Unknown".tl;
+
+    int seconds = ticks ~/ 20;
+    int minutes = seconds ~/ 60;
+    int hours = minutes ~/ 60;
+    
+    if (hours > 0) {
+      return "%d h, %d min".tl.format([hours, minutes % 60]);
+    }
+    return "%d min, %d sec".tl.format([minutes, seconds % 60]);
+  }
+
+  dynamic _findDeepValue(Map<String, dynamic>? data, List<String> path) {
+    if (data == null) return null;
+    dynamic current = data;
+    for (var key in path) {
+      if (current is Map) {
+        final realKey = current.keys.firstWhere(
+          (k) => k.toLowerCase() == key.toLowerCase(), 
+          orElse: () => ""
+        );
+        if (realKey.isNotEmpty) {
+          current = current[realKey];
+        } else {
+          return null;
+        }
+      } else {
+        return null;
+      }
+    }
+    return current;
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return GestureDetector(
-      onPanUpdate: (details) {
-        final box = context.findRenderObject() as RenderBox;
-        final localPos = box.globalToLocal(details.globalPosition);
-        final percent = (localPos.dx / box.size.width).clamp(0.0, 1.0);
-        widget.onChanged(widget.min + (widget.max - widget.min) * percent);
-      },
-      child: AnimatedBuilder(
-        animation: _waveController,
-        builder: (context, child) {
-          return CustomPaint(
-            size: const Size(double.infinity, 32),
-            painter: _WavySliderPainter(
-              value: (widget.value - widget.min) / (widget.max - widget.min),
-              phase: _waveController.value,
-              color: theme.colorScheme.primary,
-              trackColor: theme.colorScheme.surfaceContainerHighest,
+    final worldName = _worldData?['LevelName'] ?? p.basename(widget.saveDir);
+    
+    final seed = _findDeepValue(_worldData, ['WorldGenSettings', 'seed']) ?? 
+                 _findDeepValue(_worldData, ['WorldGenSettings', 'seed']) ??
+                 _worldData?['RandomSeed'];
+                 
+    final lastPlayed = _worldData?['LastPlayed'];
+    final playTime = _worldData?['Time'] ?? _worldData?['DayTime'];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Edit World: %s".tl.format(worldName)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: _isLoading 
+        ? const Center(child: CircularProgressIndicator())
+        : ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          if (_isLocked)
+            Container(
+              margin: const EdgeInsets.only(bottom: 24),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.redAccent, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      "This save is currently locked by one Minecraft instance. Saving is disabled to prevent data corruption.".tl,
+                      style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          );
-        },
+          _buildSectionTitle(theme, "Save Details".tl),
+          const SizedBox(height: 16),
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _buildDetailRow("Save Version".tl, _worldData?['Version']?['Name']?.toString() ?? "N/A"),
+                  _buildDetailRow("Save Name".tl, worldName),
+                  _buildDetailRow("Seed".tl, seed?.toString() ?? "Unknown".tl),
+                  _buildDetailRow("Last Played".tl, lastPlayed != null 
+                    ? DateFormat('yyyy/MM/dd HH:mm').format(DateTime.fromMillisecondsSinceEpoch(lastPlayed is int ? lastPlayed : (int.tryParse(lastPlayed.toString()) ?? 0))) 
+                    : "Unknown".tl),
+                  _buildDetailRow("Spawn Point (X/Y/Z)".tl, "${_worldData?['SpawnX'] ?? 0} / ${_worldData?['SpawnY'] ?? 0} / ${_worldData?['SpawnZ'] ?? 0}"),
+                  _buildDetailRow("Game Mode".tl, _mapGameMode(_worldData?['GameType'])),
+                  _buildDetailRow("Play Time".tl, _formatPlayTime(playTime)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+          _buildSectionTitle(theme, "Basic Settings".tl),
+          const SizedBox(height: 16),
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("World Name".tl, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _nameController,
+                        decoration: InputDecoration(
+                          hintText: "Enter world name".tl,
+                          isDense: true,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  title: Text("Allow Cheats".tl, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  subtitle: Text("Enable or disable cheat commands".tl, style: const TextStyle(fontSize: 11)),
+                  value: _allowCheats,
+                  onChanged: (v) => setState(() => _allowCheats = v),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  title: Text("Game Difficulty".tl, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  subtitle: Text("Current: ".tl + _difficulty.tl, style: const TextStyle(fontSize: 11)),
+                  trailing: DropdownButton<String>(
+                    value: _difficulty,
+                    underline: const SizedBox(),
+                    items: ["Peaceful", "Easy", "Normal", "Hard"].map((d) => DropdownMenuItem(value: d, child: Text(d.tl))).toList(),
+                    onChanged: (v) => setState(() => _difficulty = v!),
+                  ),
+                ),
+                const Divider(height: 1),
+                CheckboxListTile(
+                  title: Text("Lock Difficulty".tl, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  subtitle: Text("Prevent difficulty from being changed in-game".tl, style: const TextStyle(fontSize: 11)),
+                  value: _lockDifficulty,
+                  onChanged: (v) => setState(() => _lockDifficulty = v!),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 32),
+          _buildSectionTitle(theme, "Game Rules (GameRules)".tl),
+          const SizedBox(height: 16),
+          _buildGameRulesSection(theme),
+          const SizedBox(height: 40),
+          BloretButton(
+            text: _isLocked ? "Save Disabled (Locked)".tl : "Save Changes".tl,
+            icon: _isLocked ? Icons.lock_outline : Icons.save_rounded,
+            onPressed: _isLocked ? null : _saveWorldChanges,
+            height: 50,
+          ),
+        ],
       ),
     );
   }
-}
 
-class _WavySliderPainter extends CustomPainter {
-  final double value;
-  final double phase;
-  final Color color;
-  final Color trackColor;
+  Widget _buildGameRulesSection(ThemeData theme) {
+    if (_worldData == null || _worldData!['GameRules'] == null) return const SizedBox.shrink();
+    final rules = _worldData!['GameRules'] as Map<String, dynamic>;
 
-  _WavySliderPainter({
-    required this.value,
-    required this.phase,
-    required this.color,
-    required this.trackColor,
-  });
+    final commonRules = [
+      'keepInventory',
+      'mobGriefing',
+      'doDaylightCycle',
+      'doWeatherCycle',
+      'doFireTick',
+      'doInsomnia',
+    ];
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 4
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        children: commonRules.map((key) {
+          if (!rules.containsKey(key)) return const SizedBox.shrink();
+          final val = rules[key].toString();
+          final bool isBool = val == "true" || val == "false";
 
-    final trackPaint = Paint()
-      ..color = trackColor
-      ..strokeWidth = 4
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final centerY = size.height / 2;
-    final width = size.width;
-    final activeWidth = width * value;
-
-    canvas.drawLine(
-      Offset(activeWidth, centerY),
-      Offset(width, centerY),
-      trackPaint,
+          return Column(
+            children: [
+              if (isBool)
+                SwitchListTile(
+                  title: Text(key, style: const TextStyle(fontSize: 13, fontFamily: "monospace")),
+                  value: val == "true",
+                  onChanged: (v) {
+                    setState(() {
+                      rules[key] = v.toString();
+                    });
+                  },
+                )
+              else
+                ListTile(
+                  title: Text(key, style: const TextStyle(fontSize: 13, fontFamily: "monospace")),
+                  trailing: Text(val),
+                ),
+              if (key != commonRules.last) const Divider(height: 1),
+            ],
+          );
+        }).toList(),
+      ),
     );
-
-    final path = Path();
-    path.moveTo(0, centerY);
-
-    const double waveHeight = 4.0;
-    const double waveLength = 40.0;
-
-    for (double i = 0; i <= activeWidth; i++) {
-      final y =
-          centerY +
-          waveHeight *
-              (1.0 - (activeWidth - i) / 50).clamp(0.0, 1.0) *
-              math.sin((i / waveLength + phase * 2 * math.pi));
-      path.lineTo(i, y);
-    }
-    canvas.drawPath(path, paint);
-
-    final handlePaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(Offset(activeWidth, centerY), 8, handlePaint);
   }
 
-  @override
-  bool shouldRepaint(covariant _WavySliderPainter oldDelegate) => true;
+  Future<void> _saveWorldChanges() async {
+    if (_worldData == null) return;
+
+    final isStillLocked = await MinecraftServerService.isWorldLocked(widget.saveDir);
+    if (isStillLocked) {
+      showError("Save failed: The world is locked by one Minecraft instance.".tl);
+      setState(() => _isLocked = true);
+      return;
+    }
+
+    showInfo("Saving world data...".tl);
+
+    _worldData!['LevelName'] = _nameController.text.trim();
+    _worldData!['allowCommands'] = _allowCheats ? 1 : 0;
+    _worldData!['Difficulty'] = _unmapDifficulty(_difficulty);
+    _worldData!['DifficultyLocked'] = _lockDifficulty ? 1 : 0;
+
+    try {
+      await MinecraftServerService.saveLevelDat(widget.saveDir, _worldData!);
+      showSuccess("World data saved successfully".tl);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      showError("Failed to save: $e".tl);
+    }
+  }
+
+  int _unmapDifficulty(String d) {
+    switch (d) {
+      case 'Peaceful': return 0;
+      case 'Easy': return 1;
+      case 'Hard': return 3;
+      default: return 2;
+    }
+  }
+
+  Widget _buildSectionTitle(ThemeData theme, String title) {
+    return Text(
+      title,
+      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 13, color: Colors.grey)),
+          Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
 }
 
 class _AnimatedMemoryText extends StatelessWidget {

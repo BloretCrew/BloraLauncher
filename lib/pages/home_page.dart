@@ -74,6 +74,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   RunningCore? _selectedCore;
   Process? _activeLaunchingProcess;
   bool _isLaunchCancelled = false;
+  bool _isLaunchLocked = false;
+  Timer? _lockTimer;
 
   double _launchProgress = 0.0;
   String _launchStatus = "";
@@ -1858,6 +1860,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         ),
         _BottomActionRail(
           onLaunch: _startLaunch,
+          onLongPressLaunch: () {
+            setState(() {
+              _isLaunchLocked = !_isLaunchLocked;
+              _lockTimer?.cancel();
+              if (_isLaunchLocked) {
+                showInfo("Launch button locked temporarily.".tl);
+                _lockTimer = Timer(const Duration(seconds: 10), () {
+                  if (mounted && _isLaunchLocked) {
+                    setState(() => _isLaunchLocked = false);
+                  }
+                });
+              } else {
+                showSuccess("Launch button unlocked.".tl);
+              }
+            });
+          },
+          isLaunchLocked: _isLaunchLocked,
           onSwitchCore: _showVersionSelector,
           onDebug: _showAttachProcessDialog,
           onOpenFolder: _openGameDir,
@@ -3706,6 +3725,8 @@ class _ChartPainter extends CustomPainter {
 
 class _BottomActionRail extends StatelessWidget {
   final VoidCallback onLaunch;
+  final VoidCallback? onLongPressLaunch;
+  final bool isLaunchLocked;
   final VoidCallback onSwitchCore;
   final VoidCallback onDebug;
   final VoidCallback onOpenFolder;
@@ -3716,6 +3737,8 @@ class _BottomActionRail extends StatelessWidget {
 
   const _BottomActionRail({
     required this.onLaunch,
+    this.onLongPressLaunch,
+    this.isLaunchLocked = false,
     required this.onSwitchCore,
     required this.onDebug,
     required this.onOpenFolder,
@@ -3855,10 +3878,13 @@ class _BottomActionRail extends StatelessWidget {
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: BloretButton(
-                            onPressed: onLaunch,
-                            icon: Icons.play_arrow,
-                            text: "Launch".tl,
+                          child: GestureDetector(
+                            onLongPress: onLongPressLaunch,
+                            child: BloretButton(
+                              onPressed: isLaunchLocked ? null : onLaunch,
+                              icon: isLaunchLocked ? Icons.lock_outline : Icons.play_arrow,
+                              text: isLaunchLocked ? "Locked".tl : "Launch".tl,
+                            ),
                           ),
                         ),
                       ],
@@ -3925,18 +3951,24 @@ class _BottomActionRail extends StatelessWidget {
                             needCollapse ? SizedBox(
                               height: 44,
                               width: 44,
-                              child: BloretIconButton(
-                                onPressed: onLaunch,
-                                icon: Icons.play_arrow,
-                                tooltip: "Launch".tl,
+                              child: GestureDetector(
+                                onLongPress: onLongPressLaunch,
+                                child: BloretIconButton(
+                                  onPressed: isLaunchLocked ? null : onLaunch,
+                                  icon: isLaunchLocked ? Icons.lock_outline : Icons.play_arrow,
+                                  tooltip: isLaunchLocked ? "Locked".tl : "Launch".tl,
+                                ),
                               ),
                             ) : SizedBox(
                               height: 44,
                               width: 140,
-                              child: BloretButton(
-                                onPressed: onLaunch,
-                                icon: Icons.play_arrow,
-                                text: "Launch".tl,
+                              child: GestureDetector(
+                                onLongPress: onLongPressLaunch,
+                                child: BloretButton(
+                                  onPressed: isLaunchLocked ? null : onLaunch,
+                                  icon: isLaunchLocked ? Icons.lock_outline : Icons.play_arrow,
+                                  text: isLaunchLocked ? "Locked".tl : "Launch".tl,
+                                ),
                               ),
                             ),
                           ],

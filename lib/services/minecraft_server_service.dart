@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
+import 'dart:ui';
 import 'package:archive/archive_io.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 class MinecraftServer {
@@ -26,9 +28,17 @@ class MinecraftServer {
 class MinecraftServerService {
   static const int tagEnd = 0;
   static const int tagByte = 1;
+  static const int tagShort = 2;
+  static const int tagInt = 3;
+  static const int tagLong = 4;
+  static const int tagFloat = 5;
+  static const int tagDouble = 6;
+  static const int tagByteArray = 7;
   static const int tagString = 8;
   static const int tagList = 9;
   static const int tagCompound = 10;
+  static const int tagIntArray = 11;
+  static const int tagLongArray = 12;
 
   static Future<List<MinecraftServer>> loadFromGame(String versionDir, String versionName) async {
     final file = File(p.join(versionDir, "versions", versionName, "servers.dat"));
@@ -44,12 +54,10 @@ class MinecraftServerService {
       }
       
       final reader = _NbtReader(data);
-      final tag = reader.readTag();
-      if (tag == null || tag is! Map) return [];
+      final root = reader.readRoot();
+      if (root == null) return [];
       
-      final root = tag as Map<String, dynamic>;
       final serversList = root['servers'] as List<dynamic>?;
-      
       if (serversList == null) return [];
 
       return serversList.map((s) {
@@ -60,40 +68,81 @@ class MinecraftServerService {
         );
       }).toList();
     } catch (e) {
-      stderr.writeln("Failed to load servers.dat: $e");
+      debugPrint("Failed to load servers.dat: $e");
       return [];
     }
   }
 
+  static Future<Map<String, dynamic>?> loadLevelDat(String saveDir) async {
+    final file = File(p.join(saveDir, "level.dat"));
+    if (!await file.exists()) return null;
+
+    try {
+      final bytes = await file.readAsBytes();
+      final decoded = GZipDecoder().decodeBytes(bytes);
+      final reader = _NbtReader(Uint8List.fromList(decoded));
+      
+      final root = reader.readRoot();
+      if (root == null) return null;
+
+      if (root.containsKey('Data')) {
+        return root['Data'] as Map<String, dynamic>;
+      }
+      return root;
+    } catch (e) {
+      debugPrint("Failed to load level.dat: $e");
+      return null;
+    }
+  }
+
+  static Future<bool> isWorldLocked(String saveDir) async {
+    final lockFile = File(p.join(saveDir, "session.lock"));
+    if (!await lockFile.exists()) return false;
+    
+    try {
+      final raf = await lockFile.open(mode: FileMode.writeOnlyAppend);
+      await raf.writeByte(1);
+      await raf.close();
+      return false; 
+    } catch (_) {
+      return true;
+    }
+  }
+
+  static Future<void> saveLevelDat(String saveDir, Map<String, dynamic> data) async {
+    final filePath = p.join(saveDir, "level.dat");
+    final writer = _NbtWriter();
+    final bytes = writer.writeRoot("", {'Data': data});
+    final compressed = GZipEncoder().encode(bytes);
+    await _safeSave(filePath, Uint8List.fromList(compressed));
+  }
+
   static Future<void> saveToGame(String versionDir, String versionName, List<MinecraftServer> servers) async {
     final filePath = p.join(versionDir, "versions", versionName, "servers.dat");
-    final file = File(filePath);
-    final parentDir = file.parent;
-    if (!await parentDir.exists()) await parentDir.create(recursive: true);
-
-    final writer = _NbtWriter();
     final List<Map<String, dynamic>> nbtData = servers.map((s) => {
       'name': s.name,
       'ip': s.ip,
     }).toList();
     
-    final bytes = writer.writeRoot({'servers': nbtData});
+    final writer = _NbtWriter();
+    final bytes = writer.writeRoot("", {'servers': nbtData});
     final compressed = GZipEncoder().encode(bytes);
+    await _safeSave(filePath, Uint8List.fromList(compressed));
+  }
 
+  static Future<void> _safeSave(String filePath, Uint8List data) async {
+    final file = File(filePath);
     final randomStr = Random().nextInt(1000000).toString();
     final tempFile = File("${filePath}_$randomStr.dat");
     final oldFile = File("${filePath}_old");
 
     try {
-      await tempFile.writeAsBytes(compressed);
-      
+      await tempFile.writeAsBytes(data);
       if (await file.exists()) {
         if (await oldFile.exists()) await oldFile.delete();
         await file.rename(oldFile.path);
       }
-      
       await tempFile.rename(file.path);
-      
       if (await oldFile.exists()) await oldFile.delete();
     } catch (e) {
       if (await oldFile.exists()) {
@@ -103,7 +152,7 @@ class MinecraftServerService {
     }
   }
 
-  static Future<void> pingServer(MinecraftServer server) async {
+  static Future<void> pingServer(MinecraftServer server, {VoidCallback? onConnected}) async {
     Socket? socket;
     try {
       final String host;
@@ -119,6 +168,8 @@ class MinecraftServerService {
       final stopwatch = Stopwatch()..start();
       socket = await Socket.connect(host, port, timeout: const Duration(seconds: 4));
       server.ping = stopwatch.elapsedMilliseconds;
+      onConnected?.call();
+      
       final handshakeData = BytesBuilder();
       _writeVarIntToBuilder(handshakeData, 0x00); 
       _writeVarIntToBuilder(handshakeData, 763);  
@@ -256,38 +307,84 @@ class _NbtReader {
   int offset = 0;
   _NbtReader(this.data);
 
-  dynamic readTag() {
+  Map<String, dynamic>? readRoot() {
+    if (offset >= data.length) return null;
     int type = data[offset++];
-    if (type == MinecraftServerService.tagEnd) return null;
+    if (type != MinecraftServerService.tagCompound) return null;
     readString();
-    return _readValue(type);
+    return _readValue(type) as Map<String, dynamic>;
   }
 
   dynamic _readValue(int type) {
+    final bd = ByteData.sublistView(data, offset);
     switch (type) {
-      case MinecraftServerService.tagCompound:
-        final map = <String, dynamic>{};
-        while (true) {
-          int innerType = data[offset++];
-          if (innerType == MinecraftServerService.tagEnd) break;
-          String name = readString();
-          map[name] = _readValue(innerType);
-        }
-        return map;
+      case MinecraftServerService.tagByte:
+        return data[offset++];
+      case MinecraftServerService.tagShort:
+        int val = bd.getInt16(0, Endian.big);
+        offset += 2;
+        return val;
+      case MinecraftServerService.tagInt:
+        int val = bd.getInt32(0, Endian.big);
+        offset += 4;
+        return val;
+      case MinecraftServerService.tagLong:
+        int val = bd.getInt64(0, Endian.big);
+        offset += 8;
+        return val;
+      case MinecraftServerService.tagFloat:
+        double val = bd.getFloat32(0, Endian.big);
+        offset += 4;
+        return val;
+      case MinecraftServerService.tagDouble:
+        double val = bd.getFloat64(0, Endian.big);
+        offset += 8;
+        return val;
+      case MinecraftServerService.tagByteArray:
+        int len = bd.getInt32(0, Endian.big);
+        offset += 4;
+        final arr = data.sublist(offset, offset + len);
+        offset += len;
+        return arr;
+      case MinecraftServerService.tagString:
+        return readString();
       case MinecraftServerService.tagList:
-        if (offset + 5 > data.length) return [];
         int innerType = data[offset++];
-        int length = data.buffer.asByteData().getInt32(offset, Endian.big);
+        int length = ByteData.sublistView(data, offset).getInt32(0, Endian.big);
         offset += 4;
         final list = [];
         for (int i = 0; i < length; i++) {
           list.add(_readValue(innerType));
         }
         return list;
-      case MinecraftServerService.tagString:
-        return readString();
-      case MinecraftServerService.tagByte:
-        return data[offset++];
+      case MinecraftServerService.tagCompound:
+        final map = <String, dynamic>{};
+        while (true) {
+          if (offset >= data.length) break;
+          int innerType = data[offset++];
+          if (innerType == MinecraftServerService.tagEnd) break;
+          String name = readString();
+          map[name] = _readValue(innerType);
+        }
+        return map;
+      case MinecraftServerService.tagIntArray:
+        int len = bd.getInt32(0, Endian.big);
+        offset += 4;
+        final list = <int>[];
+        for (int i = 0; i < len; i++) {
+          list.add(ByteData.sublistView(data, offset).getInt32(0, Endian.big));
+          offset += 4;
+        }
+        return list;
+      case MinecraftServerService.tagLongArray:
+        int len = bd.getInt32(0, Endian.big);
+        offset += 4;
+        final list = <int>[];
+        for (int i = 0; i < len; i++) {
+          list.add(ByteData.sublistView(data, offset).getInt64(0, Endian.big));
+          offset += 8;
+        }
+        return list;
       default:
         return null;
     }
@@ -307,37 +404,98 @@ class _NbtReader {
 class _NbtWriter {
   final BytesBuilder bb = BytesBuilder();
 
-  Uint8List writeRoot(Map<String, dynamic> data) {
+  Uint8List writeRoot(String name, Map<String, dynamic> data) {
     bb.addByte(MinecraftServerService.tagCompound);
-    _writeString(""); 
+    _writeString(name); 
     _writeCompound(data);
     return bb.toBytes();
   }
 
   void _writeCompound(Map<String, dynamic> map) {
     map.forEach((key, value) {
-      if (value is List) {
-        bb.addByte(MinecraftServerService.tagList);
-        _writeString(key);
-        bb.addByte(MinecraftServerService.tagCompound);
-        final lenData = ByteData(4)..setInt32(0, value.length, Endian.big);
-        bb.add(lenData.buffer.asUint8List());
-        for (var item in value) {
-          _writeCompound(item as Map<String, dynamic>);
-        }
-      } else if (value is String) {
-        bb.addByte(MinecraftServerService.tagString);
-        _writeString(key);
-        _writeString(value);
-      }
+      int type = _guessType(value);
+      bb.addByte(type);
+      _writeString(key);
+      _writeValue(type, value);
     });
     bb.addByte(MinecraftServerService.tagEnd);
   }
 
+  int _guessType(dynamic v) {
+    if (v is bool) return MinecraftServerService.tagByte;
+    if (v is int) {
+      if (v >= -128 && v <= 127) return MinecraftServerService.tagByte;
+      if (v >= -32768 && v <= 32767) return MinecraftServerService.tagShort;
+      if (v >= -2147483648 && v <= 2147483647) return MinecraftServerService.tagInt;
+      return MinecraftServerService.tagLong;
+    }
+    if (v is double) return MinecraftServerService.tagDouble;
+    if (v is String) return MinecraftServerService.tagString;
+    if (v is List) return MinecraftServerService.tagList;
+    if (v is Map) return MinecraftServerService.tagCompound;
+    if (v is Uint8List) return MinecraftServerService.tagByteArray;
+    return MinecraftServerService.tagEnd;
+  }
+
+  void _writeValue(int type, dynamic v) {
+    final bd = ByteData(8);
+    switch (type) {
+      case MinecraftServerService.tagByte:
+        if (v is bool) {
+          bb.addByte(v ? 1 : 0);
+        } else {
+          bb.addByte(v as int);
+        }
+        break;
+      case MinecraftServerService.tagShort:
+        bd.setInt16(0, v as int, Endian.big);
+        bb.add(bd.buffer.asUint8List(0, 2));
+        break;
+      case MinecraftServerService.tagInt:
+        bd.setInt32(0, v as int, Endian.big);
+        bb.add(bd.buffer.asUint8List(0, 4));
+        break;
+      case MinecraftServerService.tagLong:
+        bd.setInt64(0, v as int, Endian.big);
+        bb.add(bd.buffer.asUint8List(0, 8));
+        break;
+      case MinecraftServerService.tagFloat:
+        bd.setFloat32(0, v as double, Endian.big);
+        bb.add(bd.buffer.asUint8List(0, 4));
+        break;
+      case MinecraftServerService.tagDouble:
+        bd.setFloat64(0, v as double, Endian.big);
+        bb.add(bd.buffer.asUint8List(0, 8));
+        break;
+      case MinecraftServerService.tagString:
+        _writeString(v as String);
+        break;
+      case MinecraftServerService.tagList:
+        final list = v as List;
+        int innerType = list.isEmpty ? MinecraftServerService.tagEnd : _guessType(list.first);
+        bb.addByte(innerType);
+        bd.setInt32(0, list.length, Endian.big);
+        bb.add(bd.buffer.asUint8List(0, 4));
+        for (var item in list) {
+          _writeValue(innerType, item);
+        }
+        break;
+      case MinecraftServerService.tagCompound:
+        _writeCompound(v as Map<String, dynamic>);
+        break;
+      case MinecraftServerService.tagByteArray:
+        final arr = v as Uint8List;
+        bd.setInt32(0, arr.length, Endian.big);
+        bb.add(bd.buffer.asUint8List(0, 4));
+        bb.add(arr);
+        break;
+    }
+  }
+
   void _writeString(String s) {
     final bytes = utf8.encode(s);
-    final lenData = ByteData(2)..setUint16(0, bytes.length, Endian.big);
-    bb.add(lenData.buffer.asUint8List());
+    final bd = ByteData(2)..setUint16(0, bytes.length, Endian.big);
+    bb.add(bd.buffer.asUint8List());
     bb.add(bytes);
   }
 }
