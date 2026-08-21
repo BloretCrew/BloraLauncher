@@ -1,3 +1,5 @@
 modules/** linguist-vendored
 qml/** linguist-vendored
 Bloret-Launcher.py linguist-vendored
+build.ps1 linguist-vendored
+patch.ps1 linguist-vendored
