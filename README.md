@@ -117,7 +117,7 @@ Please ensure all code follows the project's coding standards and include approp
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for detailed information.
+This project is licensed under the GPL-3.0 License. See the LICENSE file for detailed information.
 
 ## Support
 
