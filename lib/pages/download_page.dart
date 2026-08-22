@@ -11,6 +11,7 @@ import '../core/i18n.dart';
 import '../core/java_config.dart';
 import '../main.dart';
 import '../services/download_service.dart';
+import '../widgets/windows_widgets.dart';
 import 'external_app_selector_view.dart';
 import 'java_selector_view.dart';
 import 'mrpack_import_view.dart';
@@ -145,8 +146,8 @@ class _DownloadPageState extends State<DownloadPage> {
           ),
           const SizedBox(height: 16),
           // _buildActiveTasks(context),
-          // const SizedBox(height: 8),
-          // _buildTargetDirSelector(),
+          const SizedBox(height: 8),
+          _buildTargetDirSelector(),
           const SizedBox(height: 16),
           DownloadCard(
             image: SizedBox(
@@ -163,27 +164,6 @@ class _DownloadPageState extends State<DownloadPage> {
               _navigateToSelector();
             },
           ),
-          // DownloadCard(
-          //   image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/forge.png")),
-          //   title: "Forge Loader".tl,
-          //   subtitle: "Install Forge to use Forge Mods".tl,
-          //   buttonText: "Browse All".tl,
-          //   onPressed: () => _navigateToSelector(LoaderType.forge),
-          // ),
-          // DownloadCard(
-          //   image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/fabric.png")),
-          //   title: "Fabric Loader".tl,
-          //   subtitle: "Install Fabric to use Fabric Mods".tl,
-          //   buttonText: "Browse All".tl,
-          //   onPressed: () => _navigateToSelector(LoaderType.fabric),
-          // ),
-          // DownloadCard(
-          //   image: SizedBox(width: 42, height: 42, child: Image.asset("assets/icons/neoforge.png")),
-          //   title: "NeoForge Loader".tl,
-          //   subtitle: "Install NeoForge to use NeoForge Mods".tl,
-          //   buttonText: "Browse All".tl,
-          //   onPressed: () => _navigateToSelector(LoaderType.neoforge),
-          // ),
           DownloadCard(
             image: SizedBox(
               width: 42,
@@ -280,42 +260,42 @@ class _DownloadPageState extends State<DownloadPage> {
     );
   }
 
-  // Widget _buildTargetDirSelector() {
-  //   final List<dynamic> dirs = ConfigService.get('minecraft_dirs') ?? [];
-  //   if (dirs.isEmpty) return const SizedBox.shrink();
-  //
-  //   return Padding(
-  //     padding: const EdgeInsets.symmetric(horizontal: 8),
-  //     child: Column(
-  //       crossAxisAlignment: CrossAxisAlignment.start,
-  //       children: [
-  //         Text(
-  //           "Download Target Directory".tl,
-  //           style: const TextStyle(
-  //             fontSize: 12,
-  //             fontWeight: FontWeight.bold,
-  //             color: Colors.grey,
-  //           ),
-  //         ),
-  //         const SizedBox(height: 4),
-  //         Win11Dropdown(
-  //           initialValue: selectedTargetDir,
-  //           items: dirs
-  //               .map(
-  //                 (d) => Win11DropdownItem(
-  //                   value: d.toString(),
-  //                   label: d.toString(),
-  //                 ),
-  //               )
-  //               .toList(),
-  //           onChanged: (v) {
-  //             setState(() => selectedTargetDir = v);
-  //           },
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
+  Widget _buildTargetDirSelector() {
+    final List<dynamic> dirs = ConfigService.get('minecraft_dirs') ?? [];
+    if (dirs.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Download Target Directory".tl,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Win11Dropdown(
+            initialValue: selectedTargetDir,
+            items: dirs
+                .map(
+                  (d) => Win11DropdownItem(
+                    value: d.toString(),
+                    label: d.toString(),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) {
+              setState(() => selectedTargetDir = v);
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class DownloadCard extends StatelessWidget {

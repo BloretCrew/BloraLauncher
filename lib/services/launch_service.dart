@@ -169,6 +169,35 @@ class LaunchService extends ChangeNotifier {
     }
   }
 
+  /// 保存版本的个性化设置
+  /// [jvmArgs] 自定义JVM参数（加在最前面）
+  /// [gameArgs] 自定义游戏参数（加在最后面）
+  /// [maxMemory] 最大内存 (MB)
+  /// [javaPath] 指定的Java路径
+  Future<void> saveVersionSettings(
+    String minecraftDir,
+    String versionId, {
+    String? jvmArgs,
+    String? gameArgs,
+    int? maxMemory,
+    String? javaPath,
+    String? renderer,
+    String? autoJoinServer,
+  }) async {
+    final Map<String, dynamic> extra = {};
+    if (jvmArgs != null) extra['jvm_args_header'] = jvmArgs;
+    if (gameArgs != null) extra['game_args_tail'] = gameArgs;
+    if (maxMemory != null) {
+      extra['memory_mode'] = "Custom";
+      extra['custom_memory'] = maxMemory;
+    }
+    if (javaPath != null) extra['java_selection'] = javaPath;
+    if (renderer != null) extra['renderer'] = renderer;
+    if (autoJoinServer != null) extra['auto_join_server'] = autoJoinServer;
+
+    await updateBlJson(minecraftDir, versionId, extra: extra);
+  }
+
   Future<Map<String, dynamic>> getBlVersionData(String minecraftDir, String versionId) async {
     try {
       final blJsonPath = p.join(minecraftDir, "versions", ".BLF.json");
@@ -307,7 +336,18 @@ class LaunchService extends ChangeNotifier {
       throw Exception("Version JSON not found: $versionJsonPath");
     }
 
-    final data = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    var content = await file.readAsString();
+    var decoded = jsonDecode(content);
+    // 兼容某些极其特殊、将 JSON 整个作为字符串二次编码的版本 JSON
+    while (decoded is String) {
+      decoded = jsonDecode(decoded);
+    }
+    
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception("Invalid version JSON format: $versionJsonPath");
+    }
+    
+    final data = decoded;
     final parentId = data['inheritsFrom'];
     if (parentId == null) {
       return data;
@@ -351,16 +391,21 @@ class LaunchService extends ChangeNotifier {
         }
         merged['libraries'] = allLibsMap.values.toList();
       } else if (k == "arguments") {
-        final parentArgs =
-            parentData['arguments'] as Map<String, dynamic>? ?? {};
-        final childArgs = v as Map<String, dynamic>;
-        final Map<String, dynamic> mergedArgs = {};
-        for (var field in ["game", "jvm"]) {
-          final pList = parentArgs[field] as List? ?? [];
-          final cList = childArgs[field] as List? ?? [];
-          mergedArgs[field] = [...pList, ...cList];
+        if (v is Map<String, dynamic>) {
+          final parentArgs = parentData['arguments'] is Map<String, dynamic>
+              ? parentData['arguments'] as Map<String, dynamic>
+              : {};
+          final childArgs = v;
+          final Map<String, dynamic> mergedArgs = {};
+          for (var field in ["game", "jvm"]) {
+            final pList = parentArgs[field] as List? ?? [];
+            final cList = childArgs[field] as List? ?? [];
+            mergedArgs[field] = [...pList, ...cList];
+          }
+          merged['arguments'] = mergedArgs;
+        } else {
+          merged['arguments'] = v;
         }
-        merged['arguments'] = mergedArgs;
       } else {
         merged[k] = v;
       }
@@ -657,10 +702,10 @@ class LaunchService extends ChangeNotifier {
 
     final String downloadSource = ConfigService.get("download_source") ?? "bmclapi";
 
-    String rewriteUrl(String? original) {
-      if (original == null) return "";
+    String? rewriteUrl(String? original) {
+      if (original == null || original.isEmpty) return null;
       if (downloadSource == "bmclapi") {
-        return original
+        String rewritten = original
             .replaceAll(
               "https://piston-meta.mojang.com",
               "https://bmclapi2.bangbang93.com",
@@ -685,12 +730,13 @@ class LaunchService extends ChangeNotifier {
               "https://libraries.minecraft.net",
               "https://bmclapi2.bangbang93.com/maven",
             );
+        return rewritten;
       }
       return original;
     }
 
     final clientJarName = versionData['jar'] ?? versionId;
-    final relativeJarPath = p.join('versions', versionId, '$versionId.jar');
+    final relativeJarPath = p.join('versions', clientJarName, '$clientJarName.jar');
     final clientJar = p.join(minecraftDir, relativeJarPath);
 
     final downloads = versionData['downloads'] as Map<String, dynamic>?;
@@ -723,13 +769,18 @@ class LaunchService extends ChangeNotifier {
 
       if (!await File(libPath).exists()) {
         String? libUrl = artifact?['url'];
-        
-        if (libUrl == null && libData['url'] != null) {
+
+        if (libUrl == null || libUrl.isEmpty) {
           String mavenPath = relPath.replaceAll(p.separator, '/');
           if (mavenPath.startsWith('libraries/')) {
             mavenPath = mavenPath.substring(10);
           }
-          libUrl = "${libData['url']}${libData['url'].endsWith('/') ? '' : '/'}$mavenPath";
+          
+          if (libData['url'] != null && libData['url'].toString().isNotEmpty) {
+            libUrl = "${libData['url']}${libData['url'].endsWith('/') ? '' : '/'}$mavenPath";
+          } else {
+            libUrl = "https://libraries.minecraft.net/$mavenPath";
+          }
         }
 
         missing.add({
@@ -761,12 +812,17 @@ class LaunchService extends ChangeNotifier {
           final nativePath = p.join(minecraftDir, nativeRelPath);
           if (!await File(nativePath).exists()) {
             String? nativeUrl = nativeArtifact['url'];
-            if (nativeUrl == null && libData['url'] != null) {
+            if (nativeUrl == null || nativeUrl.isEmpty) {
                String mavenPath = nativeRelPath.replaceAll(p.separator, '/');
                if (mavenPath.startsWith('libraries/')) {
                  mavenPath = mavenPath.substring(10);
                }
-               nativeUrl = "${libData['url']}${libData['url'].endsWith('/') ? '' : '/'}$mavenPath";
+               
+               if (libData['url'] != null && libData['url'].toString().isNotEmpty) {
+                 nativeUrl = "${libData['url']}${libData['url'].endsWith('/') ? '' : '/'}$mavenPath";
+               } else {
+                 nativeUrl = "https://libraries.minecraft.net/$mavenPath";
+               }
             }
 
             missing.add({
@@ -888,8 +944,9 @@ class LaunchService extends ChangeNotifier {
       return;
     }
 
-    bool indexDownloaded = false;
     int totalDownloaded = 0;
+    int previousMissingCount = missing.length;
+    int noProgressRounds = 0;
 
     while (missing.isNotEmpty) {
       onStatus?.call(
@@ -898,20 +955,25 @@ class LaunchService extends ChangeNotifier {
       );
 
       final List<DownloadItem> items = [];
+      bool indexDownloaded = false;
       for (var m in missing) {
-        if (m['url'] == null) continue;
+        if (m['url'] == null || m['url'].toString().isEmpty) continue;
         items.add(
           DownloadItem(
             id: m['id'],
             url: m['url'],
             savePath: m['relativePath'],
             sha1: m['sha1'],
+            groupId: versionId,
           ),
         );
         if (m['type'] == 'asset_index') indexDownloaded = true;
       }
 
-      if (items.isEmpty) break;
+      if (items.isEmpty) {
+        logger.warning("No valid download URLs for ${missing.length} missing files.");
+        break;
+      }
 
       await DownloadService.instance.downloadBatch(
         items,
@@ -919,12 +981,18 @@ class LaunchService extends ChangeNotifier {
       );
       totalDownloaded += items.length;
 
-      if (indexDownloaded) {
-        indexDownloaded = false;
-        missing = await getMissingFiles(minecraftDir, versionId);
+      final newMissing = await getMissingFiles(minecraftDir, versionId);
+      
+      if (newMissing.length >= previousMissingCount && !indexDownloaded) {
+        noProgressRounds++;
+        if (noProgressRounds >= 2) break;
       } else {
-        break;
+        noProgressRounds = 0;
       }
+      
+      previousMissingCount = newMissing.length;
+      missing = newMissing;
+      if (missing.isEmpty) break;
     }
 
     onStatus?.call("Completed %s files".tl.format(totalDownloaded), 1.0);
@@ -1044,18 +1112,36 @@ class LaunchService extends ChangeNotifier {
 
     final int javaVersion = int.tryParse(javaVersionStr) ?? 8;
 
+    final String? vType = versionData['type']?.toString().toLowerCase();
+    final bool isAncient = vType == "old_alpha" || 
+                           vType == "old_beta" || 
+                           versionData['minecraftArguments'] != null ||
+                           version.startsWith(RegExp(r'^(rd-|a|b|c|inf-)'));
+
     onStatus?.call("Loading account information...".tl, 0.15);
     final List<dynamic> accountListRaw =
         ConfigService.get("MinecraftAccountList") ?? [];
     final int chosenIndex = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
 
+    Map<String, dynamic> account;
     if (accountListRaw.isEmpty || chosenIndex >= accountListRaw.length) {
-      throw Exception("No valid account found, please log in first.");
+      if (isAncient) {
+        account = {
+          "username": "BloretPlayer",
+          "uuid": "00000000-0000-0000-0000-000000000000",
+          "type": "Offline",
+          "access_token": "0"
+        };
+        logger.info("Ancient version detected, using offline identity for launch.", LogSource.system);
+      } else {
+        throw Exception("No valid account found, please log in first.");
+      }
+    } else {
+      account = accountListRaw[chosenIndex] is String
+          ? jsonDecode(accountListRaw[chosenIndex])
+          : accountListRaw[chosenIndex];
     }
 
-    final Map<String, dynamic> account = accountListRaw[chosenIndex] is String
-        ? jsonDecode(accountListRaw[chosenIndex])
-        : accountListRaw[chosenIndex];
     final String username = account['username'] ?? "BloretPlayer";
     final String uuid = account['uuid'] ?? "00000000000000000000000000000000";
     final String accessToken = account['access_token'] ?? "0";
@@ -1063,9 +1149,8 @@ class LaunchService extends ChangeNotifier {
     final String clientId = account['clientId'] ?? "";
     final bool isMicrosoft = account['type'] == "Microsoft";
 
-    // Restriction Mode Confirmation
     final restrictionMode = blData['restriction_mode'] ?? "None";
-    if (restrictionMode == "MSA" && !isMicrosoft) {
+    if (!isAncient && restrictionMode == "MSA" && !isMicrosoft) {
       throw Exception("This core is restricted to Microsoft accounts only.".tl);
     }
 
@@ -1110,16 +1195,35 @@ class LaunchService extends ChangeNotifier {
 
     onStatus?.call("Preparing native libraries...".tl, 0.55);
     final libraries = versionData['libraries'] as List? ?? [];
+    final String currentOsStr = Platform.isWindows ? "windows" : (Platform.isMacOS ? "osx" : "linux");
+    
     for (var lib in libraries) {
-      if (!_rulesAllow(lib['rules'])) continue;
-      if (lib['natives'] != null || lib['extract'] != null) {
-        final libPath = _getLibraryPath(
-          minecraftDir,
-          lib as Map<String, dynamic>,
-        );
-        if (libPath.isNotEmpty && await File(libPath).exists()) {
-          final excludes = lib['extract']?['exclude'] as List<dynamic>?;
-          await _extractNatives(libPath, nativesDir, excludes);
+      if (lib is! Map<String, dynamic>) continue;
+      final libData = lib;
+      if (!_rulesAllow(libData['rules'])) continue;
+      
+      if (libData['natives'] != null || libData['extract'] != null) {
+        String? jarPath;
+        final natives = libData['natives'] as Map<String, dynamic>?;
+        
+        if (natives != null && natives.containsKey(currentOsStr)) {
+          final classifier = natives[currentOsStr].replaceAll("\${arch}", "64");
+          final downloads = libData['downloads'] as Map<String, dynamic>?;
+          final classifiers = downloads?['classifiers'] as Map<String, dynamic>?;
+          final nativeArtifact = classifiers?[classifier] as Map<String, dynamic>?;
+          
+          if (nativeArtifact != null) {
+            final relPath = nativeArtifact['path'] ?? p.join("libraries", _getMavenArtifactPath(libData['name'], classifier: classifier));
+            jarPath = p.join(minecraftDir, relPath);
+          }
+        }
+        
+        // 如果没找到特定Native包，尝试从主Jar包提取（兼容旧版本）
+        jarPath ??= _getLibraryPath(minecraftDir, libData);
+
+        if (jarPath.isNotEmpty && await File(jarPath).exists()) {
+          final excludes = libData['extract']?['exclude'] as List<dynamic>?;
+          await _extractNatives(jarPath, nativesDir, excludes);
         }
       }
     }
@@ -1143,7 +1247,7 @@ class LaunchService extends ChangeNotifier {
 
     final Map<String, String> variables = {
       "natives_directory": nativesDir,
-      "launcher_name": "BloraLauncher-Flutter",
+      "launcher_name": "BL-Flutter",
       "launcher_version": "361",
       "classpath": fullClasspath,
       "classpath_separator": Platform.isWindows ? ";" : ":",
@@ -1159,7 +1263,7 @@ class LaunchService extends ChangeNotifier {
           ? accessToken
           : "00000000000000000000000000000000",
       "user_type": isMicrosoft ? "msa" : "legacy",
-      "version_type": "BloraLauncher-Flutter",
+      "version_type": "BL-Flutter",
       "clientid": clientId,
       "auth_xuid": xuid,
       "user_properties": "{}",
@@ -1169,7 +1273,7 @@ class LaunchService extends ChangeNotifier {
 
     // Window Title Logic
     final String customTitle = blData['custom_window_title']?.toString() ?? "";
-    final String launcherBrand = customTitle.isNotEmpty ? customTitle : "BloraLauncher-Flutter";
+    final String launcherBrand = customTitle.isNotEmpty ? customTitle : "BL-Flutter";
     
     // Renderer Logic
     final String renderer = blData['renderer']?.toString() ?? "Global";
@@ -1246,7 +1350,9 @@ class LaunchService extends ChangeNotifier {
     }
 
     // 4. Load JVM Arguments from version JSON (Modern 1.13+)
-    final jvmArguments = versionData['arguments']?['jvm'] as List?;
+    final jvmArgsData = versionData['arguments'];
+    final jvmArguments = (jvmArgsData is Map<String, dynamic>) ? jvmArgsData['jvm'] as List? : null;
+    
     if (jvmArguments != null) {
       for (final entry in jvmArguments) {
         if (entry is String) {
@@ -1275,6 +1381,13 @@ class LaunchService extends ChangeNotifier {
       args.add(variables['classpath']!);
     }
 
+    if (!args.any((a) => a.contains("-Djava.library.path="))) {
+      args.add("-Djava.library.path=$nativesDir");
+    }
+    if (!args.any((a) => a.contains("-Dorg.lwjgl.librarypath="))) {
+      args.add("-Dorg.lwjgl.librarypath=$nativesDir");
+    }
+
     final libraryNames = (versionData['libraries'] as List? ?? [])
         .map((e) => e['name'].toString().toLowerCase())
         .toList();
@@ -1294,12 +1407,12 @@ class LaunchService extends ChangeNotifier {
         versionData['mainClass'] ?? "net.minecraft.client.main.Main";
     args.add(mainClass);
 
-    final gameArguments = versionData['arguments']?['game'] as List?;
-    String templateText = jsonEncode(
-      gameArguments ?? versionData['minecraftArguments'] ?? "",
-    );
-
+    final gameArgsData = versionData['arguments'];
+    final List? gameArguments = (gameArgsData is Map<String, dynamic>) ? gameArgsData['game'] as List? : null;
+    
+    String templateText = "";
     if (gameArguments != null) {
+      templateText = jsonEncode(gameArguments);
       for (final entry in gameArguments) {
         if (entry is String) {
           args.add(_replaceVariables(entry, variables));
@@ -1317,8 +1430,9 @@ class LaunchService extends ChangeNotifier {
         }
       }
     } else {
-      final String minecraftArguments = versionData['minecraftArguments'] ?? "";
-      if (minecraftArguments.isNotEmpty) {
+      final String? minecraftArguments = versionData['minecraftArguments']?.toString();
+      if (minecraftArguments != null && minecraftArguments.isNotEmpty) {
+        templateText = minecraftArguments;
         final expanded = _replaceVariables(minecraftArguments, variables);
         args.addAll(_splitArguments(expanded));
       }
@@ -1368,6 +1482,22 @@ class LaunchService extends ChangeNotifier {
   Future<bool> isVersionComplete(String minecraftDir, String versionId) async {
     final missing = await getMissingFiles(minecraftDir, versionId);
     return missing.isEmpty;
+  }
+
+  /// 判断一个版本是否为“远古版本”
+  Future<bool> isAncientVersion(String minecraftDir, String versionId) async {
+    try {
+      final versionData = await loadMergedVersionJson(minecraftDir, versionId);
+      final String? vType = versionData['type']?.toString().toLowerCase();
+
+      return vType == "old_alpha" ||
+          vType == "old_beta" ||
+          versionData['minecraftArguments'] != null ||
+          versionId.startsWith(RegExp(r'^(rd-|a|b|c|inf-)'));
+    } catch (_) {
+      // 降级判断：仅通过ID判断
+      return versionId.startsWith(RegExp(r'^(rd-|a|b|c|inf-)'));
+    }
   }
 
   Future<String> generateLaunchScript({

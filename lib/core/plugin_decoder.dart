@@ -106,7 +106,7 @@ class PluginDecoder {
       return value.substring(1);
     }
 
-    if (value is String && RegExp(r'^[*&$@%~][a-zA-Z0-9_\.\[\]]+$').hasMatch(value)) {
+    if (value is String && RegExp(r'^[*&$@%~][a-zA-Z0-9_.\[\]]+$').hasMatch(value)) {
       final prefix = value[0];
       final path = value.substring(1);
       
@@ -140,7 +140,7 @@ class PluginDecoder {
 
     String str = value.toString();
     if (str.contains('*') || str.contains(r'$') || str.contains('@') || str.contains('&') || str.contains('%') || str.contains('~') || str.contains('>')) {
-      return str.replaceAllMapped(RegExp(r'([*&$@%~>])([a-zA-Z0-9_\.\[\]]+( [a-zA-Z0-9_\.\[\]]+)*)'), (match) {
+      return str.replaceAllMapped(RegExp(r'([*&$@%~>])([a-zA-Z0-9_.\[\]]+( [a-zA-Z0-9_.\[\]]+)*)'), (match) {
         final prefix = match.group(1);
         final path = match.group(2)!;
         if (prefix == '@' && path == "input") return input.toString();

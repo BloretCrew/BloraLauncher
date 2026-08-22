@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
@@ -16,6 +15,7 @@ import '../core/global.dart';
 import '../core/grammer_candy.dart';
 import '../core/i18n.dart';
 import '../core/logger.dart';
+import '../core/translate_api.dart';
 import '../main.dart';
 import '../services/bloriko.dart';
 import '../services/config_service.dart';
@@ -103,88 +103,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Future<void> _checkApi() async {
     for (int i = 0; i < 5; i++) {
-      try {
-        final dio = Dio();
-        final response = await dio
-            .get(
-              "https://translate.googleapis.com/translate_a/single",
-              queryParameters: {
-                "client": "gtx",
-                "sl": "auto",
-                "tl": "zh-CN",
-                "dt": "t",
-                "q": "ping",
-              },
-            )
-            .timeout(const Duration(seconds: 3));
-
-        if (mounted) {
-          setState(() {
-            _apiAvailable = response.statusCode == 200;
-          });
-          if (_apiAvailable) return;
-        }
-      } catch (_) {}
+      final available = await TranslateApi.checkApiStatus();
+      if (mounted) {
+        setState(() {
+          _apiAvailable = available;
+        });
+        if (_apiAvailable) return;
+      }
       await Future.delayed(const Duration(seconds: 1));
     }
   }
 
   Future<String> _googleTranslate(String text) async {
-    try {
-      String lang = ConfigService.getLanguage().toLowerCase();
-      if (lang.contains("zh_tw") || lang.contains("zh_hk")) {
-        lang = "zh-TW";
-      } else if (lang.contains("zh")) {
-        lang = "zh-CN";
-      } else {
-        lang = lang.split('_').first;
-      }
-
-      // Use placeholders to protect brands from being merged or mistranslated and fucking google
-      // Add protection for JP/RU variants as well as well
-      final source = text
-          .replaceAll("百络谷", "___BLORET_P___")
-          .replaceAll("络可", "___BLORIKO_P___")
-          .replaceAll("ロコ", "___BLORIKO_P___")
-          .replaceAll("Блорико", "___BLORIKO_P___")
-          .replaceAll("Blora", "___BLORA_P___");
-
-      final response = await Dio().get(
-        "https://translate.googleapis.com/translate_a/single",
-        queryParameters: {
-          "client": "gtx",
-          "sl": "auto",
-          "tl": lang,
-          "dt": "t",
-          "q": source,
-        },
-      );
-
-      if (response.statusCode == 200 && response.data is List) {
-        final List parts = response.data[0];
-        var result = parts.map((p) => p[0]).join();
-
-        // Robust restoration function that handles spaces and case changes
-        String restore(String content, String placeholder, String brand) {
-          final escaped = placeholder.replaceAll('_', r'[_ ]*');
-          return content.replaceAll(
-            RegExp(escaped, caseSensitive: false),
-            brand,
-          );
-        }
-
-        result = restore(result, "___BLORET_P___", "Bloret");
-        result = restore(result, "___BLORIKO_P___", "Bloriko");
-        result = restore(result, "___BLORA_P___", "Blora");
-        result = result.replaceAll("___BLORET_P___", "Bloret");
-        result = result.replaceAll("___BORET_P___", "Bloret");
-
-        return result;
-      }
-    } catch (e) {
-      logger.error("Google Translation Error: $e", LogSource.network);
-    }
-    return text;
+    return TranslateApi.googleTranslate(text);
   }
 
   Future<void> _toggleTranslation() async {
@@ -353,6 +284,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _listController.forward();
     _startStatsMonitoring();
     timer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      // 1. 同步小贴士配置
       if (config != null && sentences.length != config!.blTips.length) {
         setState(() {
           sentences.clear();
@@ -360,9 +292,28 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           TranslationStore.translatedTips = null;
           TranslationStore.lastTipsHash = null;
         });
-      } else {
-        setState(() {});
       }
+
+      // 2. 核心状态自动回归逻辑：如果当前在运行页但没有运行中的核心，自动返回主页
+      if (_homeState == HomeState.running &&
+          CoreManager.instance.runningCores.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _homeState = HomeState.normal;
+            _showRunningHandle = false;
+            _selectedCore = null;
+          });
+          if (_pageController.hasClients) {
+            _pageController.animateToPage(
+              0,
+              duration: const Duration(milliseconds: 600),
+              curve: Curves.easeOutExpo,
+            );
+          }
+        }
+      }
+
+      if (mounted) setState(() {});
     });
   }
 
@@ -915,14 +866,38 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
 
     if (_selectedType == "custom_app" && _selectedAppId != null) {
+      setState(() {
+        _isLaunchLocked = !_isLaunchLocked;
+        _lockTimer?.cancel();
+        if (_isLaunchLocked) {
+          _lockTimer = Timer(const Duration(seconds: 10), () {
+            if (mounted && _isLaunchLocked) {
+              setState(() => _isLaunchLocked = false);
+            }
+          });
+        }
+      });
       _launchCustomApp();
       return;
     }
 
+    setState(() {
+      _isLaunchLocked = !_isLaunchLocked;
+      _lockTimer?.cancel();
+      if (_isLaunchLocked) {
+        _lockTimer = Timer(const Duration(seconds: 3), () {
+          if (mounted && _isLaunchLocked) {
+            setState(() => _isLaunchLocked = false);
+          }
+        });
+      }
+    });
+
     final shellState = context.findAncestorStateOfType<MainShellState>();
     if (shellState != null) {
+      final isExtended = shellState.isExtended;
       shellState.setNavExtended(false);
-      await Future.delayed(const Duration(milliseconds: 450));
+      if (isExtended) await Future.delayed(const Duration(milliseconds: 450));
     }
 
     if (!mounted) return;
@@ -959,12 +934,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             : accountListRaw[chosenIndex];
       }
 
-      if (account['type'] == "Microsoft") {
+      final bool isAncient = await LaunchService.instance.isAncientVersion(
+        _selectedVersionDir!,
+        _selectedVersion!,
+      );
+
+      if (!isAncient && account['type'] == "Microsoft") {
         setState(() => _launchStatus = "Verifying Microsoft account...".tl);
         try {
           await PassportService.refreshMinecraftToken();
         } catch (e) {
-          logger.warning("Microsoft token refresh failed: $e", .network);
+          logger.warning("Microsoft token refresh failed: $e", LogSource.network);
         }
         if (_isLaunchCancelled) return;
 
@@ -989,50 +969,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       if (_isLaunchCancelled) return;
 
       if (missing.isNotEmpty) {
-        if (mounted) {
-          final confirm = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: Text("Missing Files".tl),
-              content: Text(
-                "Current core is missing %s files. Download and complete them before launch?"
-                    .tl.format(missing.length),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: Text("Skip".tl),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: Text("Download & Launch".tl),
-                ),
-              ],
-            ),
-          );
-
-          if (confirm == true) {
-            if (_isLaunchCancelled) return;
-            setState(() => _launchStatus = "Downloading missing files...".tl);
-            await LaunchService.instance.downloadMissingFiles(
-              _selectedVersionDir!,
-              _selectedVersion!,
-              onStatus: (status, p) {
-                if (mounted) {
-                  setState(() {
-                    _launchStatus = status;
-                    _launchProgress = p * 0.5;
-                  });
-                }
-              },
-            );
-            if (_isLaunchCancelled) return;
-            showInfo(
-              "Download tasks submitted. Please wait for completion in the overlay."
-                  .tl,
-            );
-          }
-        }
+        if (_isLaunchCancelled) return;
+        setState(() => _launchStatus = "Downloading missing files...".tl);
+        await LaunchService.instance.downloadMissingFiles(
+          _selectedVersionDir!,
+          _selectedVersion!,
+          onStatus: (status, p) {
+            if (mounted) {
+              setState(() {
+                _launchStatus = status;
+                _launchProgress = p * 0.5;
+              });
+            }
+          },
+        );
       }
 
       if (_isLaunchCancelled) return;
@@ -1055,10 +1005,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ? "https://mc-heads.net/avatar/$mcUuid/100"
           : "https://mc-heads.net/avatar/$mcUsername/100";
 
+      final bool killOnExitConfig = ConfigService.get("minecraft_kill_on_exit") ?? false;
       final process = await LaunchService.instance.launch(
         version: _selectedVersion!,
         minecraftDir: _selectedVersionDir!,
-        killOnExit: true,
+        killOnExit: killOnExitConfig,
         onStatus: (status, progress) {
           if (mounted) {
             setState(() {
@@ -1134,10 +1085,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             });
         newCore.subscriptions = [sub1, sub2];
       } catch (e) {
-        _addLogToCore(
-          newCore,
-          "Process output capture unavailable (Detached mode).".tl,
-        );
+        logger.warning("Process output capture unavailable (Detached mode, Core %s).".tl.format(newCore));
       }
 
       Future.delayed(const Duration(seconds: 4), () {
@@ -1155,16 +1103,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         });
       }
 
-      process.exitCode.then((code) {
-        if (_isLaunchCancelled && _activeLaunchingProcess == process) {
-          newCore.isManuallyTerminated = true;
-        }
-        _handleCoreExit(newCore, code);
-      }).catchError((e) {
+      try {
+        process.exitCode.then((code) {
+          if (_isLaunchCancelled && _activeLaunchingProcess == process) {
+            newCore.isManuallyTerminated = true;
+          }
+          _handleCoreExit(newCore, code);
+        }).catchError((e) {
+          if (!newCore.isDetached) {
+            logger.error("Process exit tracking error: $e");
+          }
+        });
+      } catch (e) {
         if (!newCore.isDetached) {
           logger.error("Process exit tracking error: $e");
         }
-      });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -1212,14 +1166,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         try {
           core.killOnExit = false;
           core.isDetached = true;
-          if (core.subscriptions != null) {
-            for (var s in core.subscriptions!) {
-              s.cancel();
-            }
-            core.subscriptions = null;
-          }
-          core.logs.clear();
-          debugPrint("MC Core ${core.id} detached automatically after window creation.");
+          debugPrint("MC Core ${core.id} detached automatically after window creation (Logs maintained).");
         } catch (e) {
           debugPrint("Ignore MC detach error: $e");
         }
@@ -1860,22 +1807,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         ),
         _BottomActionRail(
           onLaunch: _startLaunch,
-          onLongPressLaunch: () {
-            setState(() {
-              _isLaunchLocked = !_isLaunchLocked;
-              _lockTimer?.cancel();
-              if (_isLaunchLocked) {
-                showInfo("Launch button locked temporarily.".tl);
-                _lockTimer = Timer(const Duration(seconds: 10), () {
-                  if (mounted && _isLaunchLocked) {
-                    setState(() => _isLaunchLocked = false);
-                  }
-                });
-              } else {
-                showSuccess("Launch button unlocked.".tl);
-              }
-            });
-          },
           isLaunchLocked: _isLaunchLocked,
           onSwitchCore: _showVersionSelector,
           onDebug: _showAttachProcessDialog,
@@ -3101,7 +3032,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ),
               if (_showLogsInRunning)
                 Expanded(
-                  child: (isLogUnavailable || core?.isDetached == true)
+                  child: (isLogUnavailable || core?.isDetached == true) && core?.logs.isEmpty == true
                       ? Center(
                           child: SingleChildScrollView(
                             child: Column(
@@ -3202,7 +3133,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
       child: Bloriko.type == "bloriko"
           ? Image.asset("assets/bloriko.png")
-          : const Icon(Icons.person),
+          : const Icon(Icons.smart_toy_outlined),
     );
   }
 
@@ -3737,7 +3668,6 @@ class _BottomActionRail extends StatelessWidget {
 
   const _BottomActionRail({
     required this.onLaunch,
-    this.onLongPressLaunch,
     this.isLaunchLocked = false,
     required this.onSwitchCore,
     required this.onDebug,
@@ -3746,7 +3676,7 @@ class _BottomActionRail extends StatelessWidget {
     this.selectedVersionDir,
     this.selectedType,
     this.selectedAppId,
-  });
+  }) : onLongPressLaunch = null;
 
   Widget _buildCoreIcon(ThemeData theme) {
     final Map<String, dynamic> item = {

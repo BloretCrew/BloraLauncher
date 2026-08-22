@@ -148,12 +148,16 @@ class StatsService {
           "total": 0,
           "foreground": 0,
           "background": 0,
+          "last_played": s.endTime,
         };
       }
       stats[v]!["sessions"]++;
       stats[v]!["total"] += s.total;
       stats[v]!["foreground"] += s.foreground;
       stats[v]!["background"] += s.background;
+      if (s.endTime.isAfter(stats[v]!["last_played"])) {
+        stats[v]!["last_played"] = s.endTime;
+      }
     }
 
     final list = stats.values.toList();

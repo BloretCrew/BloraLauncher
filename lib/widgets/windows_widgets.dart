@@ -125,6 +125,10 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
     final double spaceAbove = globalPosition.dy;
     final bool showAbove = spaceBelow < 280 && spaceAbove > spaceBelow;
 
+    // 水平空间检查：如果右侧空间不足 240px，则菜单向左展开（右对齐）
+    final double spaceRight = overlayBox.size.width - globalPosition.dx;
+    final bool alignRight = spaceRight < 240;
+
     return OverlayEntry(
       builder: (context) {
         return Stack(
@@ -137,8 +141,12 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
             CompositedTransformFollower(
               link: _layerLink,
               showWhenUnlinked: false,
-              targetAnchor: showAbove ? Alignment.topLeft : Alignment.bottomLeft,
-              followerAnchor: showAbove ? Alignment.bottomLeft : Alignment.topLeft,
+              targetAnchor: showAbove 
+                  ? (alignRight ? Alignment.topRight : Alignment.topLeft)
+                  : (alignRight ? Alignment.bottomRight : Alignment.bottomLeft),
+              followerAnchor: showAbove 
+                  ? (alignRight ? Alignment.bottomRight : Alignment.bottomLeft)
+                  : (alignRight ? Alignment.topRight : Alignment.topLeft),
               offset: Offset(0, showAbove ? -4 : 4),
               child: Material(
                 color: Colors.transparent,
@@ -277,22 +285,25 @@ class _Win11MenuContent extends StatelessWidget {
       width: width,
       constraints: const BoxConstraints(maxHeight: 300, minWidth: 120),
       decoration: decoration ?? BoxDecoration(
-        color: isDarkMode ? const Color(0xFF191A1C) : Colors.white,
+        color: isDarkMode 
+            ? Color.alphaBlend(themeColor.withValues(alpha: 0.05), theme.colorScheme.surfaceContainer)
+            : Color.alphaBlend(themeColor.withValues(alpha: 0.03), Colors.white),
         border: Border.all(
-          color: isDarkMode ? Colors.white.withValues(alpha: 0.3) : Colors.black.withValues(alpha: 0.15),
-          width: 1,
+          color: themeColor, // 颜色与基底完全一致
+          width: 1.5,        // 宽度与基底完全一致
         ),
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: isDarkMode ? 0.6 : 0.15),
+            blurRadius: 30,  // 增加模糊半径使阴影更柔和
+            spreadRadius: -2, // 负扩张使阴影更聚拢在下方，避免边缘过硬
+            offset: const Offset(0, 12),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(6.5), // 8 - 1.5 = 6.5，确保内圆角完美贴合边框
         child: Material(
           color: Colors.transparent,
           child: Scrollbar(
@@ -362,8 +373,10 @@ class _Win11MenuItemState extends State<_Win11MenuItem> {
           margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
           decoration: BoxDecoration(
             color: widget.isSelected
-                ? widget.themeColor.withValues(alpha: 0.15)
-                : _isHovered ? (isDarkMode ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05)) : Colors.transparent,
+                ? widget.themeColor.withValues(alpha: isDarkMode ? 0.28 : 0.15)
+                : _isHovered 
+                    ? (isDarkMode ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05)) 
+                    : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -373,7 +386,11 @@ class _Win11MenuItemState extends State<_Win11MenuItem> {
                 Icon(widget.item.icon, size: 16, color: isDarkMode ? Colors.white70 : Colors.black54),
                 const SizedBox(width: 8),
               ] else if (widget.isSelected) ...[
-                  Icon(Icons.check, size: 16, color: isDarkMode ? Colors.white70 : Colors.black54),
+                Icon(
+                  Icons.check, 
+                  size: 16, 
+                  color: isDarkMode ? Colors.white.withValues(alpha: 0.9) : widget.themeColor,
+                ),
                 const SizedBox(width: 8),
               ],
               Expanded(
@@ -448,7 +465,8 @@ class _Win11SubmenuItemState extends State<_Win11SubmenuItem> with SingleTickerP
     final RenderBox overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox;
     final globalPosition = renderBox.localToGlobal(Offset.zero);
 
-    final bool canShowRight = globalPosition.dx + size.width + 160 < overlayBox.size.width - 10;
+    // 检查右侧是否有足够空间容纳约 180px 宽的子菜单
+    final bool canShowRight = globalPosition.dx + size.width + 180 < overlayBox.size.width - 20;
 
     _submenuEntry = OverlayEntry(
       builder: (context) {
@@ -551,7 +569,7 @@ class _Win11SubmenuItemState extends State<_Win11SubmenuItem> with SingleTickerP
             margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
             decoration: BoxDecoration(
               color: _isHovered || _isMouseInSubmenu
-                  ? (isDarkMode ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05)) 
+                  ? (isDarkMode ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05))
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(4),
             ),

@@ -3,51 +3,51 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 
 extension NoticeStateExtension on State {
-  void showError(String message, {int duration = 5000}) {
+  void showError(String message, {int duration = 2500}) {
     if (!mounted) return;
     noticeManager.showError(context, message, duration: duration);
   }
 
-  void showWarning(String message, {int duration = 5000}) {
+  void showWarning(String message, {int duration = 2500}) {
     if (!mounted) return;
     noticeManager.showWarning(context, message, duration: duration);
   }
 
-  void showSuccess(String message, {int duration = 5000}) {
+  void showSuccess(String message, {int duration = 2500}) {
     if (!mounted) return;
     noticeManager.showSuccess(context, message, duration: duration);
   }
 
-  void showInfo(String message, {int duration = 5000}) {
+  void showInfo(String message, {int duration = 2500}) {
     if (!mounted) return;
     noticeManager.showInfo(context, message, duration: duration);
   }
 }
 
 extension NoticeContextExtension on BuildContext {
-  void showError(String message, {int duration = 5000}) =>
+  void showError(String message, {int duration = 2500}) =>
       noticeManager.showError(this, message, duration: duration);
 
-  void showWarning(String message, {int duration = 5000}) =>
+  void showWarning(String message, {int duration = 2500}) =>
       noticeManager.showWarning(this, message, duration: duration);
 
-  void showSuccess(String message, {int duration = 5000}) =>
+  void showSuccess(String message, {int duration = 2500}) =>
       noticeManager.showSuccess(this, message, duration: duration);
 
-  void showInfo(String message, {int duration = 5000}) =>
+  void showInfo(String message, {int duration = 2500}) =>
       noticeManager.showInfo(this, message, duration: duration);
 }
 
-void showError(String message, {int duration = 5000}) =>
+void showError(String message, {int duration = 2500}) =>
     noticeManager.showError(globalShellContext, message, duration: duration);
 
-void showWarning(String message, {int duration = 5000}) =>
+void showWarning(String message, {int duration = 2500}) =>
     noticeManager.showWarning(globalShellContext, message, duration: duration);
 
-void showSuccess(String message, {int duration = 5000}) =>
+void showSuccess(String message, {int duration = 2500}) =>
     noticeManager.showSuccess(globalShellContext, message, duration: duration);
 
-void showInfo(String message, {int duration = 5000}) =>
+void showInfo(String message, {int duration = 2500}) =>
     noticeManager.showInfo(globalShellContext, message, duration: duration);
 
 extension WithOpacity on Color {

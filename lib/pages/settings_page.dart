@@ -20,14 +20,19 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher_string.dart';
+import 'package:dio/dio.dart';
 
 import '../core/android_bridge.dart';
 import '../core/grammer_candy.dart';
+import '../core/network_config.dart';
+import '../core/translate_api.dart';
 import '../services/plugin_service.dart';
 import '../models/plugin.dart';
 import '../core/theme.dart';
 import '../core/theme_manager.dart';
 import '../services/bloriko.dart';
+import '../services/passport_service.dart';
+import '../services/download_service.dart';
 import 'fake_3d_editor_page.dart';
 
 enum SettingCategory {
@@ -63,6 +68,8 @@ class _SettingsPageState extends State<SettingsPage> {
   List<String> _proxyList = [];
   List<Map<String, String>> _detectedJavaList = [];
   bool _isScanningJava = false;
+  bool _isCheckingTranslationApi = false;
+  bool _translationApiAvailable = true;
   List<Win11DropdownItem> _remoteModelItems = [];
   bool _isFetchingAiModels = false;
   final Set<String> _expandedItems = {};
@@ -78,12 +85,24 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     _proxyList = List<String>.from(ConfigService.get('proxy_list') ?? []);
 
-    Future.delayed(Duration.zero, () async {
+    Future.delayed(const Duration(milliseconds: 400), () async {
       _detectedJavaList = await parseJavaCache(
         ConfigService.get('detected_java_list'),
       );
       _refreshJavaList();
+      _checkTranslationApi();
     });
+  }
+
+  Future<void> _checkTranslationApi() async {
+    setState(() => _isCheckingTranslationApi = true);
+    final available = await TranslateApi.checkApiStatus();
+    if (mounted) {
+      setState(() {
+        _translationApiAvailable = available;
+        _isCheckingTranslationApi = false;
+      });
+    }
   }
 
   static Future<List<dynamic>> jsonDecodeIsolate(String data) async {
@@ -132,6 +151,95 @@ class _SettingsPageState extends State<SettingsPage> {
       1,
       duration: const Duration(milliseconds: 400),
       curve: Curves.easeInOutCubic,
+    );
+  }
+
+  void _applyProxyImmediately() {
+    BloraHttpOverrides.applyToDio(PassportService.dio);
+    BloraHttpOverrides.applyToDio(DownloadService.instance.dio);
+  }
+
+  Future<void> _showProxyTestDialog(BuildContext context) async {
+    final TextEditingController urlController = TextEditingController(
+      text: "https://www.google.com",
+    );
+    String result = "";
+    bool isTesting = false;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text("Proxy Connectivity Test".tl),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: urlController,
+                  decoration: InputDecoration(
+                    labelText: "Target URL".tl,
+                    hintText: "https://www.google.com",
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (isTesting)
+                  const CircularProgressIndicator()
+                else if (result.isNotEmpty)
+                  Text(
+                    result,
+                    style: TextStyle(
+                      color: result.contains("Success")
+                          ? Colors.green
+                          : Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text("Close".tl),
+              ),
+              TextButton(
+                onPressed: isTesting
+                    ? null
+                    : () async {
+                        setDialogState(() {
+                          isTesting = true;
+                          result = "";
+                        });
+
+                        try {
+                          final dio = Dio();
+                          BloraHttpOverrides.applyToDio(dio);
+                          final startTime = DateTime.now();
+                          final response = await dio
+                              .get(urlController.text.trim())
+                              .timeout(const Duration(seconds: 10));
+                          final duration = DateTime.now()
+                              .difference(startTime)
+                              .inMilliseconds;
+
+                          setDialogState(() {
+                            result =
+                                "${"Success".tl} (${response.statusCode}) - ${duration}ms";
+                            isTesting = false;
+                          });
+                        } catch (e) {
+                          setDialogState(() {
+                            result = "${"Failed".tl}: $e";
+                            isTesting = false;
+                          });
+                        }
+                      },
+                child: Text("Test".tl),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -269,7 +377,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {
       "id": SettingCategory.notification,
       "title": "Notifications".tl,
-      "desc": "Manage system notifications".tl,
+      "desc": ConfigService.get("develop_mode") == true ?  "Manage system notifications".tl : "COMING SOON",
       "icon": Icons.notifications,
     },
     {
@@ -1060,12 +1168,25 @@ class _SettingsPageState extends State<SettingsPage> {
             Icons.cloud_download,
             dropdown: Win11Dropdown(
               items: [
+                Win11DropdownItem(label: "Hybrid".tl, value: "hybrid"),
                 Win11DropdownItem(label: "BMCLAPI", value: "bmclapi"),
                 Win11DropdownItem(label: "Mojang", value: "official"),
               ],
-              initialValue: ConfigService.get("download_source") ?? "bmclapi",
+              initialValue: ConfigService.get("download_source") ?? "hybrid",
               onChanged: (v) => ConfigService.set("download_source", v),
             ),
+          ),
+          _buildSettingItem(
+            "Download Threads".tl,
+            "${"Max concurrent download tasks".tl}: ${(ConfigService.get("download_threads") ?? 6).toInt()}",
+            Icons.dynamic_feed_rounded,
+            sliderValue: (ConfigService.get("download_threads") ?? 6).toDouble(),
+            sliderMin: 1,
+            sliderMax: 128,
+            onSliderChanged: (v) async {
+              await ConfigService.set("download_threads", v.toInt());
+              setState(() {});
+            },
           ),
           _buildSettingItem(
             "Strongly Attached Process".tl,
@@ -1328,6 +1449,54 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
         if (_selectedCategory == SettingCategory.network) ...[
           _buildSettingItem(
+            "Translation Engine".tl,
+            "Choose a fallback engine for game/mod translations".tl,
+            Icons.translate,
+            dropdown: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_isCheckingTranslationApi)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  Icon(
+                    _translationApiAvailable
+                        ? Icons.wifi_tethering
+                        : Icons.portable_wifi_off,
+                    size: 16,
+                    color: _translationApiAvailable
+                        ? Colors.green
+                        : Colors.redAccent,
+                  ),
+                const SizedBox(width: 8),
+                Win11Dropdown(
+                  items: [
+                    Win11DropdownItem(
+                      label: "Auto (Recommended)".tl,
+                      value: "auto",
+                    ),
+                    Win11DropdownItem(
+                      label: "Google Translate",
+                      value: "google",
+                    ),
+                    Win11DropdownItem(label: "MyMemory", value: "mymemory"),
+                    Win11DropdownItem(label: "LibreTranslate", value: "libre"),
+                  ],
+                  initialValue:
+                      ConfigService.get("translation_engine") ?? "auto",
+                  onChanged: (v) async {
+                    await ConfigService.set("translation_engine", v);
+                    _checkTranslationApi();
+                    setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+          _buildSettingItem(
             "Network Proxy".tl,
             ConfigService.get("proxy") == null ||
                     ConfigService.get("proxy").isEmpty
@@ -1340,6 +1509,7 @@ class _SettingsPageState extends State<SettingsPage> {
               onChanged: (v) async {
                 if (v != null) {
                   await ConfigService.set("proxy", v);
+                  _applyProxyImmediately();
                   setState(() {});
                 }
               },
@@ -1381,6 +1551,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               ConfigService.set("proxy_list", _proxyList);
                               if (ConfigService.get("proxy") == proxy) {
                                 ConfigService.set("proxy", "");
+                                _applyProxyImmediately();
                               }
                             });
                           },
@@ -1395,89 +1566,109 @@ class _SettingsPageState extends State<SettingsPage> {
                     );
                   }),
                   const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: theme.dividerColor.withValues(alpha: 0.1),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.add_link,
-                          size: 20,
-                          color: theme.colorScheme.primary,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: _proxyController,
-                            decoration: const InputDecoration(
-                              hintText: "http://127.0.0.1:10808",
-                              border: InputBorder.none,
-                              isDense: true,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surface,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: theme.dividerColor.withValues(alpha: 0.1),
                             ),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              fontFamily: 'monospace',
-                            ),
-                            onSubmitted: (v) async {
-                              final val = v.trim();
-                              if (val.isNotEmpty) {
-                                if (!_proxyList.contains(val)) {
-                                  setState(() {
-                                    _proxyList.add(val);
-                                    ConfigService.set("proxy_list", _proxyList);
-                                    _proxyController.clear();
-                                  });
-                                  if (mounted) {
-                                    showSuccess("Proxy address added".tl);
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.add_link,
+                                size: 20,
+                                color: theme.colorScheme.primary,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextField(
+                                  controller: _proxyController,
+                                  decoration: const InputDecoration(
+                                    hintText: "http://127.0.0.1:10808",
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'monospace',
+                                  ),
+                                  onSubmitted: (v) async {
+                                    final val = v.trim();
+                                    if (val.isNotEmpty) {
+                                      if (!_proxyList.contains(val)) {
+                                        setState(() {
+                                          _proxyList.add(val);
+                                          ConfigService.set(
+                                            "proxy_list",
+                                            _proxyList,
+                                          );
+                                          _proxyController.clear();
+                                        });
+                                        if (mounted) {
+                                          showSuccess("Proxy address added".tl);
+                                        }
+                                      } else {
+                                        if (mounted) {
+                                          showWarning(
+                                            "This address is already in the list"
+                                                .tl,
+                                          );
+                                        }
+                                      }
+                                    }
+                                  },
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () async {
+                                  final v = _proxyController.text.trim();
+                                  if (v.isNotEmpty) {
+                                    if (!_proxyList.contains(v)) {
+                                      setState(() {
+                                        _proxyList.add(v);
+                                        ConfigService.set(
+                                          "proxy_list",
+                                          _proxyList,
+                                        );
+                                        _proxyController.clear();
+                                      });
+                                      if (mounted) {
+                                        showSuccess("Proxy address added".tl);
+                                      }
+                                    } else {
+                                      if (mounted) {
+                                        showWarning(
+                                          "This address is already in the list"
+                                              .tl,
+                                        );
+                                      }
+                                    }
                                   }
-                                } else {
-                                  if (mounted) {
-                                    showWarning(
-                                      "This address is already in the list".tl,
-                                    );
-                                  }
-                                }
-                              }
-                            },
+                                },
+                                icon: const Icon(Icons.add, size: 20),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ],
                           ),
                         ),
-                        IconButton(
-                          onPressed: () async {
-                            final v = _proxyController.text.trim();
-                            if (v.isNotEmpty) {
-                              if (!_proxyList.contains(v)) {
-                                setState(() {
-                                  _proxyList.add(v);
-                                  ConfigService.set("proxy_list", _proxyList);
-                                  _proxyController.clear();
-                                });
-                                if (mounted) {
-                                  showSuccess("Proxy address added".tl);
-                                }
-                              } else {
-                                if (mounted) {
-                                  showWarning(
-                                    "This address is already in the list".tl,
-                                  );
-                                }
-                              }
-                            }
-                          },
-                          icon: const Icon(Icons.add, size: 20),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 12),
+                      BloretButton(
+                        text: "Test".tl,
+                        icon: Icons.network_check,
+                        onPressed: () => _showProxyTestDialog(context),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1695,12 +1886,25 @@ class _SettingsPageState extends State<SettingsPage> {
               "${"Check and install hot update patches".tl} (${"Current".tl}: $_hotfixVersion)",
               Icons.update,
               trailing: _isCheckingUpdate
-                  ? const Padding(
-                      padding: EdgeInsets.only(right: 6),
-                      child: SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                  ? Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest
+                              .withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: theme.dividerColor.withValues(
+                              alpha: 0.1,
+                            ),
+                          ),
+                        ),
+                        padding: const EdgeInsets.all(8),
+                        child: const CircularProgressIndicator(
+                          strokeWidth: 2,
+                        ),
                       ),
                     )
                   : IconButton(
@@ -1836,50 +2040,53 @@ class _SettingsPageState extends State<SettingsPage> {
                       },
                     ),
             ),
-          _buildSettingItem(
-            "Notifications".tl,
-            "Show a test notification".tl,
-            Icons.notifications_active,
-            trailing: BloretButton(
-              text: "Show".tl,
-              onPressed: () {
-                showInfo("This is a test notification".tl);
-              },
-            ),
-          ),
-          _buildSettingItem(
-            "Notifications Success".tl,
-            "Show a test notification".tl,
-            Icons.notifications_active,
-            trailing: BloretButton(
-              text: "Show".tl,
-              onPressed: () {
-                showSuccess("This is a test notification".tl);
-              },
-            ),
-          ),
-          _buildSettingItem(
-            "Notifications Warning".tl,
-            "Show a test notification".tl,
-            Icons.notifications_active,
-            trailing: BloretButton(
-              text: "Show".tl,
-              onPressed: () {
-                showWarning("This is a test notification".tl);
-              },
-            ),
-          ),
-          _buildSettingItem(
-            "Notifications Error".tl,
-            "Show a test notification".tl,
-            Icons.notifications_active,
-            trailing: BloretButton(
-              text: "Show".tl,
-              onPressed: () {
-                showError("This is a test notification".tl);
-              },
-            ),
-          ),
+          if (ConfigService.get("develop_mode") == true)
+            ...[
+              _buildSettingItem(
+                "Notifications".tl,
+                "Show a test notification".tl,
+                Icons.notifications_active,
+                trailing: BloretButton(
+                  text: "Show".tl,
+                  onPressed: () {
+                    showInfo("This is a test notification".tl);
+                  },
+                ),
+              ),
+              _buildSettingItem(
+                "Notifications Success".tl,
+                "Show a test notification".tl,
+                Icons.notifications_active,
+                trailing: BloretButton(
+                  text: "Show".tl,
+                  onPressed: () {
+                    showSuccess("This is a test notification".tl);
+                  },
+                ),
+              ),
+              _buildSettingItem(
+                "Notifications Warning".tl,
+                "Show a test notification".tl,
+                Icons.notifications_active,
+                trailing: BloretButton(
+                  text: "Show".tl,
+                  onPressed: () {
+                    showWarning("This is a test notification".tl);
+                  },
+                ),
+              ),
+              _buildSettingItem(
+                "Notifications Error".tl,
+                "Show a test notification".tl,
+                Icons.notifications_active,
+                trailing: BloretButton(
+                  text: "Show".tl,
+                  onPressed: () {
+                    showError("This is a test notification".tl);
+                  },
+                ),
+              ),
+            ]
         ],
         const SizedBox(height: 24),
         Text(
@@ -2385,9 +2592,38 @@ class _SettingsPageState extends State<SettingsPage> {
               leading: const Icon(Icons.extension, size: 32),
               title: Text(plugin.translate(plugin.name), style: const TextStyle(fontWeight: FontWeight.bold)),
               subtitle: Text("${plugin.version} | ${plugin.author}"),
-              trailing: Switch(
-                value: plugin.isEnabled,
-                onChanged: (v) => PluginService.instance.togglePlugin(plugin.id, v),
+              trailing: Row(
+                mainAxisSize: .min,
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.delete, color: Colors.red,),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: Text("Delete".tl),
+                          content: Text("Are you sure you want to delete this plugins? This action is irreversible.".tl),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel".tl)),
+                            TextButton(
+                              onPressed: () {
+                                PluginService.instance.deletePlugin(plugin.id);
+                                Navigator.pop(context);
+                                showSuccess("Plugin deleted".tl);
+                                setState(() {});
+                              },
+                              child: Text("Delete".tl, style: const TextStyle(color: Colors.red)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  Switch(
+                    value: plugin.isEnabled,
+                    onChanged: (v) => PluginService.instance.togglePlugin(plugin.id, v),
+                  )
+                ],
               ),
             ),
             if (plugin.description.isNotEmpty)
@@ -2623,7 +2859,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               if (sliderValue != null)
                                 SizedBox(
-                                  width: 150,
+                                  width: 220,
                                   child: Slider(
                                     value: sliderValue,
                                     min: sliderMin ?? 0.0,
@@ -2632,7 +2868,16 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ),
                                 ),
                               if (dropdown != null)
-                                SizedBox(width: 120, child: dropdown),
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 8),
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      minWidth: 120,
+                                      maxWidth: 240,
+                                    ),
+                                    child: dropdown,
+                                  ),
+                                ),
                               if (trailing != null &&
                                   switchValue == null &&
                                   sliderValue == null &&
@@ -2746,7 +2991,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                           if (sliderValue != null)
                             SizedBox(
-                              width: 150,
+                              width: 220,
                               child: Slider(
                                 value: sliderValue,
                                 min: sliderMin ?? 0.0,
@@ -2755,7 +3000,16 @@ class _SettingsPageState extends State<SettingsPage> {
                               ),
                             ),
                           if (dropdown != null)
-                            SizedBox(width: 120, child: dropdown),
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  minWidth: 100,
+                                  maxWidth: 240,
+                                ),
+                                child: dropdown,
+                              ),
+                            ),
                           if (trailing != null &&
                               switchValue == null &&
                               sliderValue == null &&

@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
+import 'package:archive/archive.dart';
+import 'package:bloret_launcher/tools/isolate.dart';
 import 'package:bloret_launcher/widgets/google_widgets.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
@@ -9,6 +13,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:string_width/string_width.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/ffi_proxy.dart';
@@ -543,6 +549,7 @@ class CoreDetailView extends StatefulWidget {
 
 class _CoreDetailViewState extends State<CoreDetailView> {
   int _activeTabIndex = 0;
+  bool _isMetadataLoading = true;
   Map<String, dynamic>? _versionData;
   Map<String, dynamic>? _mrpackMeta;
   Map<String, dynamic>? _stats;
@@ -586,6 +593,41 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   final Set<int> _selectedScreenshotIndices = {};
   bool _isScreenshotMultiSelectMode = false;
   bool _isScreenshotsLoading = false;
+  bool _screenshotsInitialized = false;
+
+  // Mod State
+  List<File> _modFiles = [];
+  final Map<String, Map<String, dynamic>> _modCache = {};
+  final Set<int> _selectedModIndices = {};
+  bool _isModMultiSelectMode = false;
+  bool _isModsLoading = false;
+  bool _modsInitialized = false;
+
+  // Save State
+  List<FileSystemEntity> _saveFiles = [];
+  bool _isSavesLoading = false;
+  bool _savesInitialized = false;
+
+  // Generic Folder State
+  final Map<String, List<FileSystemEntity>> _folderContentCache = {};
+  final Map<String, bool> _folderLoadingState = {};
+  final Map<String, bool> _folderInitializedState = {};
+
+  // Resource Pack State
+  List<FileSystemEntity> _resourcePackFiles = [];
+  final Map<String, Map<String, dynamic>> _resourcePackCache = {};
+  final Set<int> _selectedResourcePackIndices = {};
+  bool _isResourcePackMultiSelectMode = false;
+  bool _isResourcePacksLoading = false;
+  bool _resourcePacksInitialized = false;
+
+  // Shader Pack State
+  List<FileSystemEntity> _shaderPackFiles = [];
+  final Map<String, Map<String, dynamic>> _shaderPackCache = {};
+  final Set<int> _selectedShaderPackIndices = {};
+  bool _isShaderPackMultiSelectMode = false;
+  bool _isShaderPacksLoading = false;
+  bool _shaderPacksInitialized = false;
 
   double _totalRamGb = 16.0;
   double _usedRamGb = 8.0;
@@ -594,7 +636,9 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   @override
   void initState() {
     super.initState();
-    _loadMetadata();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadMetadata();
+    });
     _startMemoryMonitoring();
     _saveSearchController.addListener(() {
       setState(() {
@@ -630,37 +674,58 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     } catch (_) {}
   }
 
+  static Future<Map<String, dynamic>> _parseCoreMetadataIsolate(Map<String, dynamic> params) async {
+    final String dir = params['dir'];
+    final String id = params['id'];
+    final String versionDir = p.join(dir, "versions", id);
+    
+    Map<String, dynamic>? mrpackMeta;
+    try {
+      final metaFile = File(p.join(versionDir, "bloret-mrpack-meta.json"));
+      if (metaFile.existsSync()) {
+        mrpackMeta = jsonDecode(metaFile.readAsStringSync());
+      }
+    } catch (_) {}
+
+    Map<String, dynamic>? blData;
+    try {
+      final blFile = File(p.join(versionDir, ".BLF.json"));
+      if (blFile.existsSync()) {
+        blData = jsonDecode(blFile.readAsStringSync());
+      }
+    } catch (_) {}
+
+    return {
+      'mrpackMeta': mrpackMeta,
+      'blData': blData,
+    };
+  }
+
   Future<void> _loadMetadata() async {
     final id = widget.item['id']!;
     final uniqueId = widget.item['unique_id'] ?? id;
     final dir = widget.item['directory']!;
-    final versionDir = p.join(dir, "versions", id);
 
-    try {
-      _versionData = await LaunchService.instance.loadMergedVersionJson(dir, id);
-    } catch (_) {}
+    final results = await Future.wait([
+      LaunchService.instance.loadMergedVersionJson(dir, id).catchError((_) => <String, dynamic>{}),
+      StatsService.instance.getVersionStats().catchError((_) => <Map<String, dynamic>>[]),
+      runIsolate(_parseCoreMetadataIsolate, {'dir': dir, 'id': id}).catchError((_) => <String, dynamic>{}),
+      MinecraftServerService.loadFromGame(dir, id).catchError((_) => <MinecraftServer>[]),
+    ]);
 
-    try {
-      final metaFile = File(p.join(versionDir, "bloret-mrpack-meta.json"));
-      if (await metaFile.exists()) {
-        _mrpackMeta = jsonDecode(await metaFile.readAsString());
-      }
-    } catch (_) {}
-
-    try {
-      final allStats = await StatsService.instance.getVersionStats();
-      _stats = allStats.firstWhere((s) => s['version'] == id, orElse: () => {});
-    } catch (_) {}
-
-    // Load from .BLF.json
-    final blData = await LaunchService.instance.getBlVersionData(dir, id);
+    _versionData = results[0] as Map<String, dynamic>?;
+    final allStats = results[1] as List;
+    final isolateRes = results[2] as Map<String, dynamic>;
     
-    // Helper to get with migration from ConfigService
+    _mrpackMeta = isolateRes['mrpackMeta'];
+    final blData = isolateRes['blData'] ?? {};
+
+    _stats = allStats.firstWhere((s) => s['version'] == id, orElse: () => <String, dynamic>{});
+
     T getVal<T>(String key, T defaultValue) {
       if (blData.containsKey(key)) return blData[key] as T;
       final legacy = ConfigService.get('${key}_$uniqueId');
       if (legacy != null) {
-        // Migrate immediately
         _saveConfig(key, legacy);
         return legacy as T;
       }
@@ -690,17 +755,16 @@ class _CoreDetailViewState extends State<CoreDetailView> {
 
     _exportPackName = _customName ?? id;
 
-    // Load servers directly from game's servers.dat
-    MinecraftServerService.loadFromGame(dir, id).then((list) {
-      if (mounted) {
-        setState(() {
-          _servers = list;
-          _refreshAllServers();
-        });
-      }
-    });
+    // Ensure page transition animation is finished before refreshing UI
+    await Future.delayed(const Duration(milliseconds: 450));
 
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {
+        _servers = results[3] as List<MinecraftServer>;
+        _isMetadataLoading = false;
+        _refreshAllServers();
+      });
+    }
   }
 
   void _saveConfig(String key, dynamic value) {
@@ -775,11 +839,31 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   }
 
   Widget _buildHeader(ThemeData theme) {
+    final bool isOverview = _activeTabIndex == 0;
     final id = widget.item['id']!;
     final directory = widget.item['directory']!;
+    const duration = Duration(milliseconds: 400);
+    const curve = Curves.fastOutSlowIn;
 
-    return Padding(
-      padding: const EdgeInsets.all(24),
+    final bool isResourceTab = _activeTabIndex >= 5;
+
+    return AnimatedContainer(
+      duration: duration,
+      curve: curve,
+      padding: EdgeInsets.fromLTRB(
+        24,
+        isOverview ? 24 : 12,
+        24,
+        isOverview ? 24 : 8,
+      ),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.dividerColor.withValues(alpha: isOverview ? 0 : 0.05),
+            width: 1,
+          ),
+        ),
+      ),
       child: Row(
         children: [
           IconButton(
@@ -787,46 +871,118 @@ class _CoreDetailViewState extends State<CoreDetailView> {
             onPressed: widget.onBack,
           ),
           const SizedBox(width: 12),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
-            transitionBuilder: (Widget child, Animation<double> animation) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            child: CoreIcon(
-              key: ValueKey("detail_icon_${_selectedIcon}_$_selectedCategory"),
-              item: {
-                ...widget.item,
-                'bl_instance_icon': _selectedIcon,
-                'bl_instance_category': _selectedCategory,
-              },
-              size: 80,
-            ),
-          ),
-          const SizedBox(width: 20),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Text(
-                  _customName ?? id,
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
+                AnimatedOpacity(
+                  duration: duration,
+                  curve: curve,
+                  opacity: isOverview ? 1.0 : 0.0,
+                  child: AnimatedContainer(
+                    duration: duration,
+                    curve: curve,
+                    width: isOverview ? 80 : 0,
+                    height: isOverview ? 80 : 0,
+                    child: OverflowBox(
+                      minWidth: 80,
+                      maxWidth: 80,
+                      minHeight: 80,
+                      maxHeight: 80,
+                      child: CoreIcon(
+                        item: {
+                          ...widget.item,
+                          'bl_instance_icon': _selectedIcon,
+                          'bl_instance_category': _selectedCategory,
+                        },
+                        size: 80,
+                      ),
+                    ),
                   ),
                 ),
-                Tooltip(
-                  message: directory,
-                  child: Text(
-                    (_customDescription != null &&
-                            _customDescription!.isNotEmpty)
-                        ? _customDescription!
-                        : directory,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                AnimatedContainer(
+                  duration: duration,
+                  curve: curve,
+                  width: isOverview ? 20 : 0,
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Flexible(
+                            child: AnimatedDefaultTextStyle(
+                              duration: duration,
+                              curve: curve,
+                              style: TextStyle(
+                                fontSize: isOverview ? 28 : 20,
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.onSurface,
+                              ),
+                              child: Text(
+                                _customName ?? id,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                          ClipRect(
+                            child: AnimatedContainer(
+                              duration: duration,
+                              curve: curve,
+                              width: isResourceTab ? (16 * stringWidth(" ·  User Resource Manage".tl)).toDouble() : 0,
+                              child: AnimatedOpacity(
+                                duration: duration,
+                                curve: curve,
+                                opacity: isResourceTab ? 0.5 : 0.0,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(left: 6),
+                                  child: Text(
+                                    " ·  User Resource Manage".tl,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.normal,
+                                    ),
+                                    maxLines: 1,
+                                    softWrap: false,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      AnimatedOpacity(
+                        duration: duration,
+                        curve: curve,
+                        opacity: isOverview ? 1.0 : 0.0,
+                        child: AnimatedContainer(
+                          duration: duration,
+                          curve: curve,
+                          height: isOverview ? 22 : 0,
+                          child: ClipRect(
+                            child: Tooltip(
+                              message: directory,
+                              child: Text(
+                                (_customDescription != null &&
+                                        _customDescription!.isNotEmpty)
+                                    ? _customDescription!
+                                    : directory,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -938,11 +1094,11 @@ class _CoreDetailViewState extends State<CoreDetailView> {
       case 6: // Screenshots
         return _buildScreenshotsView(theme);
       case 7: // Mods
-        return _buildFolderList(theme, "mods", Icons.extension_rounded);
+        return _buildModList(theme);
       case 8: // Resource Packs
-        return _buildFolderList(theme, "resourcepacks", Icons.palette_rounded);
+        return _buildResourcePackList(theme);
       case 9: // Shader Packs
-        return _buildFolderList(theme, "shaderpacks", Icons.wb_sunny_rounded);
+        return _buildShaderPackList(theme);
       case 10: // Schematics
         return _buildFolderList(theme, "schematics", Icons.architecture_rounded);
       case 11: // Servers
@@ -956,6 +1112,1008 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   bool _isPingUpdating = false;
   final Set<int> _selectedServerIndices = {};
   bool _isServerMultiSelectMode = false;
+
+  Future<void> _refreshModList() async {
+    if (_isModsLoading) return;
+    setState(() => _isModsLoading = true);
+
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = p.join(directory, "versions", id, "mods");
+    final dir = Directory(folderPath);
+
+    if (await dir.exists()) {
+      final list = await dir.list().toList();
+      _modFiles = list
+          .whereType<File>()
+          .where((f) => f.path.toLowerCase().endsWith(".jar") || f.path.toLowerCase().endsWith(".disabled"))
+          .toList()
+        ..sort((a, b) => p.basename(a.path).toLowerCase().compareTo(p.basename(b.path).toLowerCase()));
+    } else {
+      _modFiles = [];
+    }
+
+    if (mounted) {
+      setState(() {
+        _isModsLoading = false;
+        _modsInitialized = true;
+      });
+    }
+  }
+
+  static Future<Map<String, dynamic>> _parseModIsolate(Map<String, dynamic> params) async {
+    final String path = params['path'];
+    final String tempDirPath = params['tempDirPath'];
+    
+    try {
+      final bytes = await File(path).readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
+
+      String? name;
+      String? version;
+      String? description;
+      Uint8List? iconBytes;
+      String? iconExtension;
+
+      // Try Fabric
+      final fabricJsonFile = archive.findFile('fabric.mod.json');
+      if (fabricJsonFile != null) {
+        try {
+          final data = jsonDecode(utf8.decode(fabricJsonFile.content)) as Map<String, dynamic>;
+          name = data['name'];
+          version = data['version'];
+          description = data['description'];
+          final icon = data['icon'];
+          if (icon is String) {
+            final iconFile = archive.findFile(icon);
+            if (iconFile != null) {
+              iconBytes = iconFile.content;
+              iconExtension = p.extension(icon);
+            }
+          } else if (icon is Map) {
+             final firstIcon = icon.values.firstOrNull;
+             if (firstIcon is String) {
+                final iconFile = archive.findFile(firstIcon);
+                if (iconFile != null) {
+                  iconBytes = iconFile.content;
+                  iconExtension = p.extension(firstIcon);
+                }
+             }
+          }
+        } catch (_) {}
+      }
+
+      // Try Forge (mods.toml)
+      if (name == null) {
+        final forgeTomlFile = archive.findFile('META-INF/mods.toml');
+        if (forgeTomlFile != null) {
+          try {
+            final content = utf8.decode(forgeTomlFile.content);
+            name = RegExp(r'displayName\s*=\s*"(.*?)"').firstMatch(content)?.group(1);
+            version = RegExp(r'version\s*=\s*"(.*?)"').firstMatch(content)?.group(1);
+            description = RegExp(r"description\s*=\s*'''([\s\S]*?)'''").firstMatch(content)?.group(1) 
+                       ?? RegExp(r'description\s*=\s*"(.*?)"').firstMatch(content)?.group(1);
+            
+            final logoFile = RegExp(r'logoFile\s*=\s*"(.*?)"').firstMatch(content)?.group(1);
+            if (logoFile != null) {
+              final iconFile = archive.findFile(logoFile.startsWith('/') ? logoFile.substring(1) : logoFile);
+              if (iconFile != null) {
+                iconBytes = iconFile.content;
+                iconExtension = p.extension(logoFile);
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Fallback
+      if (iconBytes == null) {
+        final iconFile = archive.findFile('icon.png') ?? archive.findFile('logo.png') ?? archive.findFile('assets/icon.png');
+        if (iconFile != null) {
+          iconBytes = iconFile.content;
+          iconExtension = ".png";
+        }
+      }
+
+      String? iconPath;
+      if (iconBytes != null) {
+        final fileName = 'mod_icon_${DateTime.now().microsecondsSinceEpoch}_${p.basename(path)}${iconExtension ?? ".png"}';
+        final file = File(p.join(tempDirPath, fileName));
+        await file.writeAsBytes(iconBytes);
+        iconPath = file.path;
+      }
+
+      return {
+        'name': name ?? p.basename(path),
+        'version': version,
+        'description': description,
+        'iconPath': iconPath,
+      };
+    } catch (e) {
+      return {'name': p.basename(path)};
+    }
+  }
+
+  Future<Map<String, dynamic>> _getModInfo(File file) async {
+    final path = file.path;
+    if (_modCache.containsKey(path)) return _modCache[path]!;
+
+    final tempDir = await getTemporaryDirectory();
+    final info = await runIsolate(_parseModIsolate, {
+      'path': path,
+      'tempDirPath': tempDir.path,
+    });
+    
+    _modCache[path] = info;
+    return info;
+  }
+
+  Widget _buildModList(ThemeData theme) {
+    if (!_modsInitialized && !_isModsLoading) {
+      _refreshModList();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildModToolbar(theme),
+        const SizedBox(height: 16),
+        if (_modFiles.isEmpty && !_isModsLoading)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Column(
+                children: [
+                  Icon(Icons.extension_rounded, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                  const SizedBox(height: 12),
+                  Text("No mods found".tl, style: TextStyle(color: theme.colorScheme.outline)),
+                ],
+              ),
+            ),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _modFiles.length,
+            itemBuilder: (context, index) {
+              final file = _modFiles[index];
+              final isSelected = _selectedModIndices.contains(index);
+              final isEnabled = !file.path.endsWith(".disabled");
+
+              return FutureBuilder<Map<String, dynamic>>(
+                future: _getModInfo(file),
+                builder: (context, snapshot) {
+                  final info = snapshot.data;
+
+                  if (info == null) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 12),
+                          Container(width: 48, height: 48, decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(10))),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(width: 120, height: 14, color: Colors.grey.withValues(alpha: 0.2)),
+                                const SizedBox(height: 8),
+                                Container(width: 80, height: 10, color: Colors.grey.withValues(alpha: 0.1)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0.0, end: 1.0),
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, value, child) => Opacity(
+                      opacity: value,
+                      child: Transform.translate(offset: Offset(0, 10 * (1 - value)), child: child),
+                    ),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: isEnabled ? 0.2 : 0.05),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected 
+                              ? theme.colorScheme.primary.withValues(alpha: 0.5) 
+                              : theme.dividerColor.withValues(alpha: 0.05),
+                          width: isSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () {
+                            if (_isModMultiSelectMode) {
+                              setState(() {
+                                if (isSelected) {
+                                  _selectedModIndices.remove(index);
+                                } else {
+                                  _selectedModIndices.add(index);
+                                }
+                              });
+                            }
+                          },
+                          onLongPress: () {
+                            setState(() {
+                              _isModMultiSelectMode = true;
+                              _selectedModIndices.add(index);
+                            });
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            child: Row(
+                              children: [
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 300),
+                                  switchInCurve: Curves.easeOutCubic,
+                                  switchOutCurve: Curves.easeInCubic,
+                                  transitionBuilder: (child, animation) => FadeTransition(
+                                    opacity: animation,
+                                    child: SizeTransition(
+                                      sizeFactor: animation,
+                                      axis: Axis.horizontal,
+                                      alignment: .centerLeft,
+                                      child: child,
+                                    ),
+                                  ),
+                                  child: _isModMultiSelectMode ? Padding(
+                                    padding: const EdgeInsets.only(right: 12),
+                                    child: Checkbox(
+                                      value: isSelected,
+                                      visualDensity: VisualDensity.compact,
+                                      onChanged: (v) {
+                                        setState(() {
+                                          if (v == true) {
+                                            _selectedModIndices.add(index);
+                                          } else {
+                                            _selectedModIndices.remove(index);
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  ) : const SizedBox.shrink(),
+                                ),
+                                Container(
+                                  width: 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: info['iconPath'] != null
+                                      ? ClipRRect(
+                                          borderRadius: BorderRadius.circular(10),
+                                          child: Opacity(
+                                            opacity: isEnabled ? 1.0 : 0.5,
+                                            child: Image.file(File(info['iconPath']), fit: BoxFit.cover),
+                                          ),
+                                        )
+                                      : Icon(Icons.extension_rounded, 
+                                          color: isEnabled ? theme.colorScheme.primary : theme.colorScheme.outline, 
+                                          size: 24),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  flex: 3,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        info['name'],
+                                        style: TextStyle(
+                                          fontSize: 15, 
+                                          fontWeight: FontWeight.bold,
+                                          color: isEnabled ? theme.colorScheme.onSurface : theme.colorScheme.outline,
+                                          decoration: isEnabled ? null : TextDecoration.lineThrough,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      if (info['version'] != null)
+                                        Text(
+                                          info['version'],
+                                          style: TextStyle(
+                                            fontSize: 11, 
+                                            color: theme.colorScheme.primary.withValues(alpha: 0.7),
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                if (info['description'] != null)
+                                  Expanded(
+                                    flex: 5,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      child: Text(
+                                        info['description'].toString().replaceAll('\n', ' ').trim(),
+                                        style: TextStyle(
+                                          fontSize: 11, 
+                                          color: theme.colorScheme.outline.withValues(alpha: 0.6),
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                const SizedBox(width: 8),
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 300),
+                                  switchInCurve: Curves.easeOutCubic,
+                                  switchOutCurve: Curves.easeInCubic,
+                                  transitionBuilder: (child, animation) => FadeTransition(
+                                    opacity: animation,
+                                    child: SizeTransition(
+                                      sizeFactor: animation,
+                                      axis: Axis.horizontal,
+                                      alignment: .centerRight,
+                                      child: child,
+                                    ),
+                                  ),
+                                  child: !_isModMultiSelectMode ? Switch(
+                                              value: isEnabled,
+                                              onChanged: (v) => _toggleMod(index),
+                                            ) : const SizedBox.shrink(),
+                                )
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildModToolbar(ThemeData theme) {
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = p.join(directory, "versions", id, "mods");
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        children: [
+          _toolbarBtn(
+            icon: Icons.folder_open_rounded,
+            label: "Open Folder".tl,
+            onPressed: () => launchUrl(Uri.directory(folderPath)),
+          ),
+          const SizedBox(width: 8),
+          _toolbarBtn(
+            icon: Icons.refresh_rounded,
+            label: "Refresh".tl,
+            onPressed: _refreshModList,
+            isLoading: _isModsLoading,
+          ),
+          const Spacer(),
+          if (_isModMultiSelectMode) ...[
+            Text("${_selectedModIndices.length} ${"Selected".tl}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 8),
+            _toolbarBtn(
+              icon: Icons.published_with_changes_rounded,
+              label: "Toggle State".tl,
+              onPressed: _selectedModIndices.isEmpty ? null : () => _smartBatchToggleMods(),
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            _toolbarBtn(
+              icon: Icons.delete_sweep_rounded,
+              label: "Delete".tl,
+              onPressed: _selectedModIndices.isEmpty ? null : () => _deleteMods(_selectedModIndices.toList()),
+              color: Colors.redAccent,
+            ),
+            const SizedBox(width: 8),
+            _toolbarBtn(
+              icon: Icons.close_rounded,
+              label: "Cancel".tl,
+              onPressed: () => setState(() {
+                _isModMultiSelectMode = false;
+                _selectedModIndices.clear();
+              }),
+            ),
+          ] else
+            _toolbarBtn(
+              icon: Icons.checklist_rounded,
+              label: "Select".tl,
+              onPressed: _modFiles.isEmpty ? null : () => setState(() => _isModMultiSelectMode = true),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _smartBatchToggleMods() async {
+    final List<int> indices = _selectedModIndices.toList();
+    int enabledCount = 0;
+    for (var idx in indices) {
+      if (!_modFiles[idx].path.endsWith(".disabled")) enabledCount++;
+    }
+
+    bool targetEnable = enabledCount <= (indices.length / 2);
+    await _batchToggleMods(targetEnable);
+  }
+
+  Future<void> _batchToggleMods(bool enable) async {
+    showInfo((enable ? "Enabling %s mods..." : "Disabling %s mods...").tl.format(_selectedModIndices.length));
+    
+    final List<int> indices = _selectedModIndices.toList();
+    for (var idx in indices) {
+       final file = _modFiles[idx];
+       final isCurrentlyEnabled = !file.path.endsWith(".disabled");
+       if (isCurrentlyEnabled == enable) continue;
+
+       try {
+         final String newPath = enable 
+             ? file.path.substring(0, file.path.length - ".disabled".length)
+             : "${file.path}.disabled";
+         
+         final newFile = await file.rename(newPath);
+         _modFiles[idx] = newFile;
+         if (_modCache.containsKey(file.path)) {
+           _modCache[newPath] = _modCache.remove(file.path)!;
+         }
+       } catch (_) {}
+    }
+    
+    setState(() {
+      _isModMultiSelectMode = false;
+      _selectedModIndices.clear();
+    });
+    showSuccess("Batch operation completed".tl);
+  }
+
+  Future<void> _toggleMod(int index) async {
+    final file = _modFiles[index];
+    final isEnabled = !file.path.endsWith(".disabled");
+    
+    try {
+      final String newPath = isEnabled 
+          ? "${file.path}.disabled" 
+          : file.path.substring(0, file.path.length - ".disabled".length);
+      
+      final newFile = await file.rename(newPath);
+      setState(() {
+        _modFiles[index] = newFile;
+        // Update cache key
+        if (_modCache.containsKey(file.path)) {
+          _modCache[newPath] = _modCache.remove(file.path)!;
+        }
+      });
+    } catch (e) {
+      showError("Failed to toggle mod: $e".tl);
+    }
+  }
+
+  Future<void> _deleteMods(List<int> indices) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Delete Mods".tl),
+        content: Text("Are you sure you want to delete %s selected mods?".tl.format(indices.length)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Delete".tl, style: const TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      indices.sort((a, b) => b.compareTo(a));
+      for (var idx in indices) {
+        try {
+          await _modFiles[idx].delete();
+        } catch (_) {}
+      }
+      showSuccess("Deleted successfully".tl);
+      setState(() {
+        _isModMultiSelectMode = false;
+        _selectedModIndices.clear();
+      });
+      _refreshModList();
+    }
+  }
+
+  Future<void> _refreshResourcePackList() async {
+    if (_isResourcePacksLoading) return;
+    setState(() => _isResourcePacksLoading = true);
+
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = p.join(directory, "versions", id, "resourcepacks");
+    final dir = Directory(folderPath);
+
+    if (await dir.exists()) {
+      final list = await dir.list().toList();
+      _resourcePackFiles = list
+          .where((f) => f is Directory || f.path.toLowerCase().endsWith(".zip"))
+          .toList()
+        ..sort((a, b) => p.basename(a.path).toLowerCase().compareTo(p.basename(b.path).toLowerCase()));
+    } else {
+      _resourcePackFiles = [];
+    }
+
+    if (mounted) {
+      setState(() {
+        _isResourcePacksLoading = false;
+        _resourcePacksInitialized = true;
+      });
+    }
+  }
+
+  static Future<Map<String, dynamic>> _parseResourcePackIsolate(Map<String, dynamic> params) async {
+    final String path = params['path'];
+    final String tempDirPath = params['tempDirPath'];
+    final bool isDir = params['isDir'];
+
+    String? description;
+    Uint8List? iconBytes;
+
+    try {
+      if (isDir) {
+        final metaFile = File(p.join(path, "pack.mcmeta"));
+        if (await metaFile.exists()) {
+          try {
+            final data = jsonDecode(await metaFile.readAsString());
+            description = data['pack']?['description']?.toString();
+          } catch (_) {}
+        }
+        final iconFile = File(p.join(path, "pack.png"));
+        if (await iconFile.exists()) {
+          iconBytes = await iconFile.readAsBytes();
+        }
+      } else {
+        final bytes = await File(path).readAsBytes();
+        final archive = ZipDecoder().decodeBytes(bytes);
+        
+        final metaFile = archive.findFile('pack.mcmeta');
+        if (metaFile != null) {
+          try {
+            final data = jsonDecode(utf8.decode(metaFile.content));
+            description = data['pack']?['description']?.toString();
+          } catch (_) {}
+        }
+        final iconFile = archive.findFile('pack.png');
+        if (iconFile != null) {
+          iconBytes = iconFile.content;
+        }
+      }
+
+      String? iconPath;
+      if (iconBytes != null) {
+        final fileName = 'rp_icon_${DateTime.now().microsecondsSinceEpoch}_${p.basename(path)}.png';
+        final file = File(p.join(tempDirPath, fileName));
+        await file.writeAsBytes(iconBytes);
+        iconPath = file.path;
+      }
+
+      return {
+        'name': p.basename(path),
+        'description': description,
+        'iconPath': iconPath,
+      };
+    } catch (e) {
+      return {'name': p.basename(path)};
+    }
+  }
+
+  Future<Map<String, dynamic>> _getResourcePackInfo(FileSystemEntity entity) async {
+    final path = entity.path;
+    if (_resourcePackCache.containsKey(path)) return _resourcePackCache[path]!;
+
+    final tempDir = await getTemporaryDirectory();
+    final info = await runIsolate(_parseResourcePackIsolate, {
+      'path': path,
+      'tempDirPath': tempDir.path,
+      'isDir': entity is Directory,
+    });
+    
+    _resourcePackCache[path] = info;
+    return info;
+  }
+
+  Widget _buildResourcePackList(ThemeData theme) {
+    if (!_resourcePacksInitialized && !_isResourcePacksLoading) {
+      _refreshResourcePackList();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildResourcePackToolbar(theme),
+        const SizedBox(height: 16),
+        if (_resourcePackFiles.isEmpty && !_isResourcePacksLoading)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Column(
+                children: [
+                  Icon(Icons.palette_rounded, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                  const SizedBox(height: 12),
+                  Text("No resource packs found".tl, style: TextStyle(color: theme.colorScheme.outline)),
+                ],
+              ),
+            ),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _resourcePackFiles.length,
+            itemBuilder: (context, index) {
+              final file = _resourcePackFiles[index];
+              final isSelected = _selectedResourcePackIndices.contains(index);
+
+              return FutureBuilder<Map<String, dynamic>>(
+                future: _getResourcePackInfo(file),
+                builder: (context, snapshot) {
+                  final info = snapshot.data;
+                  if (info == null) return _buildGenericPlaceholder(theme);
+
+                  return _buildPackItem(
+                    theme: theme,
+                    index: index,
+                    name: info['name'],
+                    description: info['description'],
+                    iconPath: info['iconPath'],
+                    isEnabled: true,
+                    isSelected: isSelected,
+                    isMultiSelect: _isResourcePackMultiSelectMode,
+                    onToggle: null,
+                    onSelect: (v) {
+                       setState(() {
+                         if (v == true) {
+                           _selectedResourcePackIndices.add(index);
+                         } else {
+                           _selectedResourcePackIndices.remove(index);
+                         }
+                       });
+                    },
+                    onLongPress: () {
+                      setState(() {
+                        _isResourcePackMultiSelectMode = true;
+                        _selectedResourcePackIndices.add(index);
+                      });
+                    },
+                    iconData: Icons.palette_rounded,
+                  );
+                },
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildResourcePackToolbar(ThemeData theme) {
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = p.join(directory, "versions", id, "resourcepacks");
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        children: [
+          _toolbarBtn(icon: Icons.folder_open_rounded, label: "Open Folder".tl, onPressed: () => launchUrl(Uri.directory(folderPath))),
+          const SizedBox(width: 8),
+          _toolbarBtn(icon: Icons.refresh_rounded, label: "Refresh".tl, onPressed: _refreshResourcePackList, isLoading: _isResourcePacksLoading),
+          const Spacer(),
+          if (_isResourcePackMultiSelectMode) ...[
+            Text("${_selectedResourcePackIndices.length} ${"Selected".tl}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 8),
+            _toolbarBtn(icon: Icons.delete_sweep_rounded, label: "Delete".tl, onPressed: _selectedResourcePackIndices.isEmpty ? null : () => _deleteResourcePacks(_selectedResourcePackIndices.toList()), color: Colors.redAccent),
+            const SizedBox(width: 8),
+            _toolbarBtn(icon: Icons.close_rounded, label: "Cancel".tl, onPressed: () => setState(() { _isResourcePackMultiSelectMode = false; _selectedResourcePackIndices.clear(); })),
+          ] else
+            _toolbarBtn(icon: Icons.checklist_rounded, label: "Select".tl, onPressed: _resourcePackFiles.isEmpty ? null : () => setState(() => _isResourcePackMultiSelectMode = true)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteResourcePacks(List<int> indices) async {
+    final confirm = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+      title: Text("Delete Resource Packs".tl),
+      content: Text("Delete %s selected packs?".tl.format(indices.length)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
+        TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Delete".tl, style: const TextStyle(color: Colors.red))),
+      ],
+    ));
+    if (confirm == true) {
+      indices.sort((a, b) => b.compareTo(a));
+      for (var idx in indices) { 
+        try { 
+          await _resourcePackFiles[idx].delete(recursive: true); 
+        } catch (_) {} 
+      }
+      setState(() { _isResourcePackMultiSelectMode = false; _selectedResourcePackIndices.clear(); });
+      _refreshResourcePackList();
+    }
+  }
+
+  Future<void> _refreshShaderPackList() async {
+    if (_isShaderPacksLoading) return;
+    setState(() => _isShaderPacksLoading = true);
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = p.join(directory, "versions", id, "shaderpacks");
+    final dir = Directory(folderPath);
+    if (await dir.exists()) {
+      final list = await dir.list().toList();
+      _shaderPackFiles = list.where((f) => f is Directory || f.path.toLowerCase().endsWith(".zip")).toList()
+        ..sort((a, b) => p.basename(a.path).toLowerCase().compareTo(p.basename(b.path).toLowerCase()));
+    } else { _shaderPackFiles = []; }
+    if (mounted) {
+      setState(() {
+        _isShaderPacksLoading = false;
+        _shaderPacksInitialized = true;
+      });
+    }
+  }
+
+  Future<Map<String, dynamic>> _getShaderPackInfo(FileSystemEntity entity) async {
+    final path = entity.path;
+    if (_shaderPackCache.containsKey(path)) return _shaderPackCache[path]!;
+    
+    final tempDir = await getTemporaryDirectory();
+    final info = await runIsolate(_parseResourcePackIsolate, {
+      'path': path,
+      'tempDirPath': tempDir.path,
+      'isDir': entity is Directory,
+    });
+    
+    _shaderPackCache[path] = info;
+    return info;
+  }
+
+  Widget _buildShaderPackList(ThemeData theme) {
+    if (!_shaderPacksInitialized && !_isShaderPacksLoading) _refreshShaderPackList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildShaderPackToolbar(theme),
+        const SizedBox(height: 16),
+        if (_shaderPackFiles.isEmpty && !_isShaderPacksLoading)
+          Center(child: Padding(padding: const EdgeInsets.symmetric(vertical: 40), child: Column(children: [
+            Icon(Icons.wb_sunny_rounded, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+            const SizedBox(height: 12),
+            Text("No shader packs found".tl, style: TextStyle(color: theme.colorScheme.outline)),
+          ])))
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _shaderPackFiles.length,
+            itemBuilder: (context, index) {
+              final file = _shaderPackFiles[index];
+              final isSelected = _selectedShaderPackIndices.contains(index);
+              return FutureBuilder<Map<String, dynamic>>(
+                future: _getShaderPackInfo(file),
+                builder: (context, snapshot) {
+                  final info = snapshot.data;
+                  if (info == null) return _buildGenericPlaceholder(theme);
+                  return _buildPackItem(
+                    theme: theme, index: index, name: info['name'], description: info['description'], iconPath: info['iconPath'],
+                    isEnabled: true, isSelected: isSelected, isMultiSelect: _isShaderPackMultiSelectMode,
+                    onToggle: null,
+                    onSelect: (v) { 
+                      setState(() { 
+                        if (v == true) {
+                          _selectedShaderPackIndices.add(index); 
+                        } else {
+                          _selectedShaderPackIndices.remove(index); 
+                        }
+                      }); 
+                    },
+                    onLongPress: () { setState(() { _isShaderPackMultiSelectMode = true; _selectedShaderPackIndices.add(index); }); },
+                    iconData: Icons.wb_sunny_rounded,
+                  );
+                },
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildShaderPackToolbar(ThemeData theme) {
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = p.join(directory, "versions", id, "shaderpacks");
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerLow, borderRadius: BorderRadius.circular(12), border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1))),
+      child: Row(children: [
+        _toolbarBtn(icon: Icons.folder_open_rounded, label: "Open Folder".tl, onPressed: () async {
+          if (!await Directory(folderPath).exists()) await Directory(folderPath).create(recursive: true);
+          launchUrl(Uri.directory(folderPath));
+        }),
+        const SizedBox(width: 8),
+        _toolbarBtn(icon: Icons.refresh_rounded, label: "Refresh".tl, onPressed: _refreshShaderPackList, isLoading: _isShaderPacksLoading),
+        const Spacer(),
+        if (_isShaderPackMultiSelectMode) ...[
+          Text("${_selectedShaderPackIndices.length} ${"Selected".tl}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(width: 8),
+          _toolbarBtn(icon: Icons.delete_sweep_rounded, label: "Delete".tl, onPressed: _selectedShaderPackIndices.isEmpty ? null : () => _deleteShaderPacks(_selectedShaderPackIndices.toList()), color: Colors.redAccent),
+          const SizedBox(width: 8),
+          _toolbarBtn(icon: Icons.close_rounded, label: "Cancel".tl, onPressed: () => setState(() { _isShaderPackMultiSelectMode = false; _selectedShaderPackIndices.clear(); })),
+        ] else
+          _toolbarBtn(icon: Icons.checklist_rounded, label: "Select".tl, onPressed: _shaderPackFiles.isEmpty ? null : () => setState(() => _isShaderPackMultiSelectMode = true)),
+      ]),
+    );
+  }
+
+  Widget _buildSavesToolbar(ThemeData theme) {
+    final id = widget.item['id']!;
+    final directory = widget.item['directory']!;
+    final folderPath = p.join(directory, "versions", id, "saves");
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerLow, borderRadius: BorderRadius.circular(12), border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1))),
+      child: Row(children: [
+        _toolbarBtn(icon: Icons.folder_open_rounded, label: "Open Folder".tl, onPressed: () async {
+            if (!await Directory(folderPath).exists()) await Directory(folderPath).create(recursive: true);
+            launchUrl(Uri.directory(folderPath));
+          }),
+        const SizedBox(width: 8),
+        _toolbarBtn(icon: Icons.refresh_rounded, label: "Refresh".tl, onPressed: _refreshSavesList, isLoading: _isSavesLoading),
+      ]),
+    );
+  }
+
+  Future<void> _deleteShaderPacks(List<int> indices) async {
+    final confirm = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+      title: Text("Delete Shader Packs".tl),
+      content: Text("Delete %s selected packs?".tl.format(indices.length)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
+        TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Delete".tl, style: const TextStyle(color: Colors.red))),
+      ],
+    ));
+    if (confirm == true) {
+      indices.sort((a, b) => b.compareTo(a));
+      for (var idx in indices) { 
+        try { 
+          await _shaderPackFiles[idx].delete(recursive: true); 
+        } catch (_) {} 
+      }
+      setState(() { _isShaderPackMultiSelectMode = false; _selectedShaderPackIndices.clear(); });
+      _refreshShaderPackList();
+    }
+  }
+
+  Widget _buildGenericPlaceholder(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      height: 64,
+      decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+      child: Row(children: [
+        const SizedBox(width: 12),
+        Container(width: 48, height: 48, decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(10))),
+        const SizedBox(width: 16),
+        Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(width: 120, height: 14, color: Colors.grey.withValues(alpha: 0.2)),
+          const SizedBox(height: 8),
+          Container(width: 80, height: 10, color: Colors.grey.withValues(alpha: 0.1)),
+        ])),
+      ]),
+    );
+  }
+
+  Widget _buildPackItem({
+    required ThemeData theme,
+    required int index,
+    required String name,
+    required String? description,
+    required String? iconPath,
+    required bool isEnabled,
+    required bool isSelected,
+    required bool isMultiSelect,
+    required VoidCallback? onToggle,
+    required Function(bool?) onSelect,
+    required VoidCallback onLongPress,
+    required IconData iconData,
+  }) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) => Opacity(opacity: value, child: Transform.translate(offset: Offset(0, 10 * (1 - value)), child: child)),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: isEnabled ? 0.2 : 0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isSelected ? theme.colorScheme.primary.withValues(alpha: 0.5) : theme.dividerColor.withValues(alpha: 0.05), width: isSelected ? 2 : 1),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () { if (isMultiSelect) onSelect(!isSelected); },
+            onLongPress: onLongPress,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(children: [
+                AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: SizeTransition(
+                        sizeFactor: animation,
+                        axis: Axis.horizontal,
+                        alignment: .centerLeft,
+                        child: child,
+                      ),
+                    ),
+                    child: isMultiSelect ? Padding(padding: const EdgeInsets.only(right: 12), child: Checkbox(value: isSelected, visualDensity: VisualDensity.compact, onChanged: onSelect)) : const SizedBox.shrink(),
+                ),
+                Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+                  child: iconPath != null
+                      ? ClipRRect(borderRadius: BorderRadius.circular(10), child: Opacity(opacity: isEnabled ? 1.0 : 0.5, child: Image.file(File(iconPath), fit: BoxFit.cover)))
+                      : Icon(iconData, color: isEnabled ? theme.colorScheme.primary : theme.colorScheme.outline, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(flex: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: isEnabled ? theme.colorScheme.onSurface : theme.colorScheme.outline, decoration: isEnabled ? null : TextDecoration.lineThrough), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  if (description != null) 
+                    RichText(
+                      text: _parseMcFormat(
+                        description.replaceAll('\n', ' ').trim(), 
+                        TextStyle(fontSize: 12, color: theme.colorScheme.outline.withValues(alpha: 0.6)),
+                        theme
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ])),
+                const SizedBox(width: 8),
+                if (!isMultiSelect && onToggle != null) Switch(value: isEnabled, onChanged: (v) => onToggle(),),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildServerList(ThemeData theme) {
     final _ = widget.item['id']!;
@@ -1297,8 +2455,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   Future<void> _refreshAllServers() async {
     if (_isPingUpdating) return;
     setState(() => _isPingUpdating = true);
-    
-    // If list is empty, try to load from config (sidecar)
+
     if (_servers.isEmpty) {
       final String id = widget.item['id']!;
       final List<dynamic> saved = ConfigService.get("server_list_$id") ?? [];
@@ -1360,7 +2517,20 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     );
   }
 
-  void _deleteServers(List<int> indices) {
+  void _deleteServers(List<int> indices) async {
+    if (indices.isEmpty) return;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Delete Servers".tl),
+        content: Text("Delete %s selected servers?".tl.format(indices.length)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Delete".tl, style: const TextStyle(color: Colors.red))),
+        ]
+      )
+    );
+    if (result != true) return;
     indices.sort((a, b) => b.compareTo(a));
     setState(() {
       for (var idx in indices) {
@@ -1377,6 +2547,93 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     final String dir = widget.item['directory']!;
 
     MinecraftServerService.saveToGame(dir, id, _servers);
+  }
+
+  TextSpan _parseMcFormat(String text, TextStyle baseStyle, ThemeData theme) {
+    if (!text.contains('§')) return TextSpan(text: text, style: baseStyle);
+
+    List<InlineSpan> spans = [];
+    final parts = text.split('§');
+    
+    if (parts[0].isNotEmpty) {
+      spans.add(TextSpan(text: parts[0], style: baseStyle));
+    }
+    
+    TextStyle currentStyle = baseStyle;
+    bool isObfuscated = false;
+    
+    for (int i = 1; i < parts.length; i++) {
+      String part = parts[i];
+      if (part.isEmpty) continue;
+      
+      String code = part[0].toLowerCase();
+      String content = part.substring(1);
+      
+      bool isColorCode = true;
+      Color? targetColor;
+
+      switch (code) {
+        case '0': targetColor = Colors.black; break;
+        case '1': targetColor = const Color(0xFF0000AA); break;
+        case '2': targetColor = const Color(0xFF00AA00); break;
+        case '3': targetColor = const Color(0xFF00AAAA); break;
+        case '4': targetColor = const Color(0xFFAA0000); break;
+        case '5': targetColor = const Color(0xFFAA00AA); break;
+        case '6': targetColor = const Color(0xFFFFAA00); break;
+        case '7': targetColor = const Color(0xFFAAAAAA); break;
+        case '8': targetColor = const Color(0xFF555555); break;
+        case '9': targetColor = const Color(0xFF5555FF); break;
+        case 'a': targetColor = const Color(0xFF55FF55); break;
+        case 'b': targetColor = const Color(0xFF55FFFF); break;
+        case 'c': targetColor = const Color(0xFFFF5555); break;
+        case 'd': targetColor = const Color(0xFFFF55FF); break;
+        case 'e': targetColor = const Color(0xFFFFFF55); break;
+        case 'f': targetColor = Colors.white; break;
+        case 'g': targetColor = const Color(0xFFDDD605); break;
+        case 'h': targetColor = const Color(0xFFE3D4D1); break;
+        case 'i': targetColor = const Color(0xFFCECACA); break;
+        case 'j': targetColor = const Color(0xFF443A3B); break;
+        case 'm': targetColor = const Color(0xFF971607); break;
+        case 'n': targetColor = const Color(0xFFB4684D); break;
+        case 'p': targetColor = const Color(0xFFDEB12D); break;
+        case 'q': targetColor = const Color(0xFF11A036); break;
+        case 's': targetColor = const Color(0xFF2CBAA8); break;
+        case 't': targetColor = const Color(0xFF21497B); break;
+        case 'u': targetColor = const Color(0xFF9A5CC6); break;
+        case 'v': targetColor = const Color(0xFFEB7114); break;
+        case 'w': targetColor = const Color(0xFF8CB3FF); break;
+        default: isColorCode = false;
+      }
+
+      if (isColorCode) {
+        currentStyle = baseStyle.copyWith(color: targetColor);
+        isObfuscated = false;
+      } else {
+        switch (code) {
+          case 'k': isObfuscated = true; break;
+          case 'l': currentStyle = currentStyle.copyWith(fontWeight: FontWeight.bold); break;
+          case 'o': currentStyle = currentStyle.copyWith(fontStyle: FontStyle.italic); break;
+          case 'r': 
+            currentStyle = baseStyle; 
+            isObfuscated = false;
+            break;
+        }
+      }
+      
+      if (content.isNotEmpty) {
+        if (isObfuscated) {
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.baseline,
+            baseline: TextBaseline.alphabetic,
+            child: ObfuscatedTextWidget(text: content, style: currentStyle),
+          ));
+        } else {
+          spans.add(TextSpan(text: content, style: currentStyle));
+        }
+      }
+    }
+    
+    return TextSpan(children: spans);
   }
 
   Color _parseMcColor(String? colorStr, ThemeData theme) {
@@ -1410,8 +2667,6 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     return theme.colorScheme.onSurfaceVariant;
   }
 
-  // --- Screenshots Tab Logic ---
-
   Future<void> _refreshScreenshots() async {
     if (_isScreenshotsLoading) return;
     setState(() => _isScreenshotsLoading = true);
@@ -1433,7 +2688,10 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     }
 
     if (mounted) {
-      setState(() => _isScreenshotsLoading = false);
+      setState(() {
+        _isScreenshotsLoading = false;
+        _screenshotsInitialized = true;
+      });
     }
   }
 
@@ -1442,7 +2700,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text("Delete Screenshots".tl),
-        content: Text("Are you sure you want to delete %d selected screenshots?".tl.format(indices.length)),
+        content: Text("Are you sure you want to delete %s selected screenshots?".tl.format(indices.length)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Cancel".tl)),
           TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Delete".tl, style: const TextStyle(color: Colors.red))),
@@ -1464,8 +2722,35 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     }
   }
 
+  void _showScreenshotPreview(File file) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.85),
+      builder: (context) => GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: Center(
+          child: Hero(
+            tag: file.path,
+            child: InteractiveViewer(
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.9,
+                  maxHeight: MediaQuery.of(context).size.height * 0.9,
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.file(file, fit: BoxFit.contain),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildScreenshotsView(ThemeData theme) {
-    if (_screenshotFiles.isEmpty && !_isScreenshotsLoading) {
+    if (!_screenshotsInitialized && !_isScreenshotsLoading) {
       _refreshScreenshots();
     }
 
@@ -1525,33 +2810,41 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                   clipBehavior: Clip.antiAlias,
                   child: Column(
                     children: [
-                      // Image Preview
                       Stack(
                         children: [
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () {
-                                if (_isScreenshotMultiSelectMode) {
-                                  setState(() {
-                                    if (isSelected) _selectedScreenshotIndices.remove(index);
-                                    else _selectedScreenshotIndices.add(index);
-                                  });
-                                } else {
-                                  launchUrl(Uri.file(file.path));
-                                }
-                              },
-                              child: AspectRatio(
-                                aspectRatio: 16 / 10,
-                                child: Image.file(
-                                  file,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Center(child: Icon(Icons.broken_image, color: theme.colorScheme.outline)),
+                          AspectRatio(
+                            aspectRatio: 16 / 10,
+                            child: Hero(
+                              tag: file.path,
+                              child: Image.file(
+                                file,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Center(
+                                  child: Icon(Icons.broken_image, color: theme.colorScheme.outline),
                                 ),
                               ),
                             ),
                           ),
-                          // Selection Animation
+                          Positioned.fill(
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  if (_isScreenshotMultiSelectMode) {
+                                    setState(() {
+                                      if (isSelected) {
+                                        _selectedScreenshotIndices.remove(index);
+                                      } else {
+                                        _selectedScreenshotIndices.add(index);
+                                      }
+                                    });
+                                  } else {
+                                    _showScreenshotPreview(file);
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
                           AnimatedSwitcher(
                             duration: const Duration(milliseconds: 200),
                             child: _isScreenshotMultiSelectMode
@@ -1563,8 +2856,11 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                                       visualDensity: VisualDensity.compact,
                                       onChanged: (v) {
                                         setState(() {
-                                          if (v == true) _selectedScreenshotIndices.add(index);
-                                          else _selectedScreenshotIndices.remove(index);
+                                          if (v == true) {
+                                            _selectedScreenshotIndices.add(index);
+                                          } else {
+                                            _selectedScreenshotIndices.remove(index);
+                                          }
                                         });
                                       },
                                     ),
@@ -1573,7 +2869,6 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                           ),
                         ],
                       ),
-                      // Actions
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                         child: Row(
@@ -1676,20 +2971,53 @@ class _CoreDetailViewState extends State<CoreDetailView> {
       padding: EdgeInsets.zero,
     );
   }
-  Widget _buildSavesView(ThemeData theme) {
+
+  Future<void> _refreshSavesList() async {
+    if (_isSavesLoading) return;
+    setState(() => _isSavesLoading = true);
+
     final id = widget.item['id']!;
     final directory = widget.item['directory']!;
     final folderPath = p.join(directory, "versions", id, "saves");
     final dir = Directory(folderPath);
 
+    if (await dir.exists()) {
+      final list = await dir.list().toList();
+      _saveFiles = list.where((e) {
+        if (e is! Directory) return false;
+        final name = p.basename(e.path);
+        return !name.startsWith(".");
+      }).toList()
+        ..sort((a, b) => p.basename(a.path).toLowerCase().compareTo(p.basename(b.path).toLowerCase()));
+    } else {
+      _saveFiles = [];
+    }
+
+    if (mounted) {
+      setState(() {
+        _isSavesLoading = false;
+        _savesInitialized = true;
+      });
+    }
+  }
+
+  Widget _buildSavesView(ThemeData theme) {
+    if (!_savesInitialized && !_isSavesLoading) {
+      _refreshSavesList();
+    }
+
+    final filteredSaves = _saveFiles.where((e) {
+      if (_saveSearchQuery.isEmpty) return true;
+      return p.basename(e.path).toLowerCase().contains(_saveSearchQuery);
+    }).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildFolderAction(theme),
+        _buildSavesToolbar(theme),
         const SizedBox(height: 16),
         TextField(
           controller: _saveSearchController,
-          onChanged: (v) => setState(() => _saveSearchQuery = v.trim().toLowerCase()),
           decoration: InputDecoration(
             hintText: "Search worlds...".tl,
             prefixIcon: const Icon(Icons.search),
@@ -1700,138 +3028,118 @@ class _CoreDetailViewState extends State<CoreDetailView> {
           ),
         ),
         const SizedBox(height: 16),
-        FutureBuilder<List<FileSystemEntity>>(
-          future: dir.exists().then((exists) async {
-            if (!exists) return <FileSystemEntity>[];
-            final list = await dir.list().toList();
-            return list.where((e) {
-              if (e is! Directory) return false;
-              final name = p.basename(e.path);
-              if (name.startsWith(".")) return false;
-              if (_saveSearchQuery.isNotEmpty) {
-                return name.toLowerCase().contains(_saveSearchQuery);
-              }
-              return true;
-            }).toList();
-          }),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
-            }
-            final items = snapshot.data ?? [];
-            if (items.isEmpty) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Column(
-                    children: [
-                      Icon(Icons.landscape_rounded, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
-                      const SizedBox(height: 12),
-                      Text("No worlds found".tl, style: TextStyle(color: theme.colorScheme.outline)),
-                    ],
-                  ),
-                ),
-              );
-            }
+        if (_isSavesLoading)
+          const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+        else if (filteredSaves.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Column(
+                children: [
+                  Icon(Icons.landscape_rounded, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                  const SizedBox(height: 12),
+                  Text("No worlds found".tl, style: TextStyle(color: theme.colorScheme.outline)),
+                ],
+              ),
+            ),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: filteredSaves.length,
+            itemBuilder: (context, index) {
+              final item = filteredSaves[index] as Directory;
+              final name = p.basename(item.path);
+              
+              return FutureBuilder<bool>(
+                future: MinecraftServerService.isWorldLocked(item.path),
+                builder: (context, lockSnapshot) {
+                  final isLocked = lockSnapshot.data ?? false;
+                  final iconFile = File(p.join(item.path, "icon.png"));
+                  
+                  Widget leading = Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.landscape_rounded, color: theme.colorScheme.primary, size: 24),
+                  );
 
-            return ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: items.length,
-              itemBuilder: (context, index) {
-                final item = items[index] as Directory;
-                final name = p.basename(item.path);
-                
-                return FutureBuilder<bool>(
-                  future: MinecraftServerService.isWorldLocked(item.path),
-                  builder: (context, lockSnapshot) {
-                    final isLocked = lockSnapshot.data ?? false;
-                    final iconFile = File(p.join(item.path, "icon.png"));
-                    
-                    Widget leading = Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(Icons.landscape_rounded, color: theme.colorScheme.primary, size: 24),
+                  if (iconFile.existsSync()) {
+                    leading = ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(iconFile, width: 52, height: 52, fit: BoxFit.cover),
                     );
+                  }
 
-                    if (iconFile.existsSync()) {
-                      leading = ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.file(iconFile, width: 52, height: 52, fit: BoxFit.cover),
-                      );
-                    }
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Container(
-                        clipBehavior: Clip.antiAlias,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isLocked ? Colors.red.withValues(alpha: 0.3) : theme.dividerColor.withValues(alpha: 0.05),
-                            width: isLocked ? 1.5 : 1,
-                          ),
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Container(
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isLocked ? Colors.red.withValues(alpha: 0.3) : theme.dividerColor.withValues(alpha: 0.05),
+                          width: isLocked ? 1.5 : 1,
                         ),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => SaveEditView(saveDir: item.path, isInitiallyLocked: isLocked),
-                                ),
-                              ).then((_) => setState(() {}));
-                            },
-                            borderRadius: BorderRadius.circular(12),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Row(
-                                children: [
-                                  leading,
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                                        const SizedBox(height: 4),
-                                        if (isLocked)
-                                          Text(
-                                            "Locked by one Minecraft instance".tl,
-                                            style: const TextStyle(fontSize: 11, color: Colors.redAccent, fontWeight: FontWeight.bold),
-                                          )
-                                        else
-                                          Text(
-                                            "Last played: ".tl + _getDirectoryLastModified(item),
-                                            style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  Icon(
-                                    isLocked ? Icons.lock_outline : Icons.chevron_right, 
-                                    color: isLocked ? Colors.redAccent : theme.colorScheme.outline.withValues(alpha: 0.5),
-                                    size: 18,
-                                  ),
-                                ],
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => SaveEditView(saveDir: item.path, isInitiallyLocked: isLocked),
                               ),
+                            ).then((_) => _refreshSavesList());
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              children: [
+                                leading,
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 4),
+                                      if (isLocked)
+                                        Text(
+                                          "Locked by one Minecraft instance".tl,
+                                          style: const TextStyle(fontSize: 11, color: Colors.redAccent, fontWeight: FontWeight.bold),
+                                        )
+                                      else
+                                        Text(
+                                          "Last played: ".tl + _getDirectoryLastModified(item),
+                                          style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(
+                                  isLocked ? Icons.lock_outline : Icons.chevron_right, 
+                                  color: isLocked ? Colors.redAccent : theme.colorScheme.outline.withValues(alpha: 0.5),
+                                  size: 18,
+                                ),
+                              ],
                             ),
                           ),
                         ),
                       ),
-                    );
-                  }
-                );
-              },
-            );
-          },
-        ),
+                    ),
+                  );
+                }
+              );
+            },
+          ),
       ],
     );
   }
@@ -1845,8 +3153,10 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     }
   }
 
+  Future<void> _refreshFolderList(String subFolder, bool isServerFile) async {
+    if (_folderLoadingState[subFolder] == true) return;
+    setState(() => _folderLoadingState[subFolder] = true);
 
-  Widget _buildFolderList(ThemeData theme, String subFolder, IconData genericIcon, {bool isImage = false, bool isSave = false, bool isServerFile = false}) {
     final id = widget.item['id']!;
     final directory = widget.item['directory']!;
     final folderPath = isServerFile 
@@ -1854,115 +3164,129 @@ class _CoreDetailViewState extends State<CoreDetailView> {
         : p.join(directory, "versions", id, subFolder);
     final dir = Directory(folderPath);
 
+    if (await dir.exists()) {
+      final list = await dir.list().toList();
+      List<FileSystemEntity> items;
+      if (isServerFile) {
+        items = list.where((e) => p.basename(e.path) == "servers.dat").toList();
+      } else {
+        items = list.where((e) => !p.basename(e.path).startsWith(".")).toList();
+      }
+      _folderContentCache[subFolder] = items;
+    } else {
+      _folderContentCache[subFolder] = [];
+    }
+
+    if (mounted) {
+      setState(() {
+        _folderLoadingState[subFolder] = false;
+        _folderInitializedState[subFolder] = true;
+      });
+    }
+  }
+
+  Widget _buildFolderList(ThemeData theme, String subFolder, IconData genericIcon, {bool isImage = false, bool isSave = false, bool isServerFile = false}) {
+    if (_folderInitializedState[subFolder] != true && _folderLoadingState[subFolder] != true) {
+      _refreshFolderList(subFolder, isServerFile);
+    }
+
+    final items = _folderContentCache[subFolder] ?? [];
+    final isLoading = _folderLoadingState[subFolder] == true;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildFolderAction(theme),
         const SizedBox(height: 16),
-        FutureBuilder<List<FileSystemEntity>>(
-          future: dir.exists().then((exists) async {
-            if (!exists) return <FileSystemEntity>[];
-            final list = await dir.list().toList();
-            if (isServerFile) {
-               return list.where((e) => p.basename(e.path) == "servers.dat").toList();
-            }
-            return list.where((e) => !p.basename(e.path).startsWith(".")).toList();
-          }),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
-            }
-            final items = snapshot.data ?? [];
-            if (items.isEmpty) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Column(
-                    children: [
-                      Icon(genericIcon, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
-                      const SizedBox(height: 12),
-                      Text("No items found".tl, style: TextStyle(color: theme.colorScheme.outline)),
-                    ],
-                  ),
+        if (isLoading)
+          const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+        else if (items.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Column(
+                children: [
+                  Icon(genericIcon, size: 48, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                  const SizedBox(height: 12),
+                  Text("No items found".tl, style: TextStyle(color: theme.colorScheme.outline)),
+                ],
+              ),
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: items.length,
+            separatorBuilder: (_, _) => Divider(height: 1, color: theme.dividerColor.withValues(alpha: 0.05)),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              final name = p.basename(item.path);
+              final isFile = item is File;
+
+              Widget leading = Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
+                child: Icon(genericIcon, color: theme.colorScheme.primary, size: 20),
               );
-            }
 
-            return ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: items.length,
-              separatorBuilder: (_, _) => Divider(height: 1, color: theme.dividerColor.withValues(alpha: 0.05)),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                final name = p.basename(item.path);
-                final isFile = item is File;
-
-                Widget leading = Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
+              if (isImage && isFile) {
+                leading = ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(
+                    item,
+                    width: 40,
+                    height: 40,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => leading,
                   ),
-                  child: Icon(genericIcon, color: theme.colorScheme.primary, size: 20),
                 );
-
-                if (isImage && isFile) {
+              } else if (isSave && !isFile) {
+                final iconFile = File(p.join(item.path, "icon.png"));
+                if (iconFile.existsSync()) {
                   leading = ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: Image.file(
-                      item,
+                      iconFile,
                       width: 40,
                       height: 40,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => leading,
                     ),
                   );
-                } else if (isSave && !isFile) {
-                  final iconFile = File(p.join(item.path, "icon.png"));
-                  if (iconFile.existsSync()) {
-                    leading = ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.file(
-                        iconFile,
-                        width: 40,
-                        height: 40,
-                        fit: BoxFit.cover,
-                      ),
-                    );
-                  }
                 }
+              }
 
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  leading: leading,
-                  title: Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                  subtitle: Text(
-                    isFile ? _formatFileSize(item) : "Folder".tl,
-                    style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+              return ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                leading: leading,
+                title: Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                subtitle: Text(
+                  isFile ? _formatFileSize(item) : "Folder".tl,
+                  style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.folder_open_outlined, size: 18),
+                      tooltip: "Show in explorer".tl,
+                      onPressed: () => launchUrl(Uri.file(isFile ? p.dirname(item.path) : item.path)),
+                    ),
+                    if (isFile)
                       IconButton(
-                        icon: const Icon(Icons.folder_open_outlined, size: 18),
-                        tooltip: "Show in explorer".tl,
-                        onPressed: () => launchUrl(Uri.file(isFile ? p.dirname(item.path) : item.path)),
+                        icon: const Icon(Icons.open_in_new, size: 18),
+                        tooltip: "Open file".tl,
+                        onPressed: () => launchUrl(Uri.file(item.path)),
                       ),
-                      if (isFile)
-                        IconButton(
-                          icon: const Icon(Icons.open_in_new, size: 18),
-                          tooltip: "Open file".tl,
-                          onPressed: () => launchUrl(Uri.file(item.path)),
-                        ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-        ),
+                  ],
+                ),
+              );
+            },
+          ),
       ],
     );
   }
@@ -2664,7 +3988,15 @@ class _CoreDetailViewState extends State<CoreDetailView> {
       }
     }
 
-    final String lastPlayedStr = ConfigService.get('last_played_$id') ?? "Never".tl;
+    String lastPlayedStr = "Never".tl;
+    if (_stats != null && _stats!['last_played'] != null) {
+      final DateTime lp = _stats!['last_played'] is DateTime 
+          ? _stats!['last_played'] 
+          : DateTime.parse(_stats!['last_played'].toString());
+      lastPlayedStr = DateFormat('yyyy/MM/dd HH:mm').format(lp);
+    } else {
+      lastPlayedStr = ConfigService.get('last_played_$id') ?? "Never".tl;
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3097,6 +4429,27 @@ class _CoreDetailViewState extends State<CoreDetailView> {
   }
 
   Widget _buildModpackBanner(ThemeData theme) {
+    if (_isMetadataLoading) {
+      return Container(
+        height: 80,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.05)),
+        ),
+        child: Row(
+          children: [
+            const CircularProgressIndicator(strokeWidth: 3),
+            const SizedBox(width: 16),
+            Text("Loading modpack info...".tl, style: TextStyle(color: theme.colorScheme.primary)),
+          ],
+        ),
+      );
+    }
+
+    if (_mrpackMeta == null) return const SizedBox.shrink();
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -3168,13 +4521,21 @@ class _CoreDetailViewState extends State<CoreDetailView> {
                     color: theme.colorScheme.outline,
                   ),
                 ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
+                const SizedBox(height: 2),
+                if (_isMetadataLoading)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
               ],
             ),
           ],
@@ -3320,6 +4681,7 @@ class _CoreDetailViewState extends State<CoreDetailView> {
     );
   }
 }
+
 class SaveEditView extends StatefulWidget {
   final String saveDir;
   final bool isInitiallyLocked;
@@ -3420,9 +4782,9 @@ class _SaveEditViewState extends State<SaveEditView> {
     int hours = minutes ~/ 60;
     
     if (hours > 0) {
-      return "%d h, %d min".tl.format([hours, minutes % 60]);
+      return "%s h, %s min".tl.format(hours, minutes % 60);
     }
-    return "%d min, %d sec".tl.format([minutes, seconds % 60]);
+    return "%s min, %s sec".tl.format(minutes, seconds % 60);
   }
 
   dynamic _findDeepValue(Map<String, dynamic>? data, List<String> path) {
@@ -3717,6 +5079,84 @@ class _AnimatedMemoryText extends StatelessWidget {
           style: const TextStyle(fontSize: 10, color: Colors.grey),
         );
       },
+    );
+  }
+}
+
+class ObfuscatedTextWidget extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+  const ObfuscatedTextWidget({super.key, required this.text, required this.style});
+
+  @override
+  State<ObfuscatedTextWidget> createState() => _ObfuscatedTextWidgetState();
+}
+
+class _ObfuscatedTextWidgetState extends State<ObfuscatedTextWidget> {
+  late Timer _timer;
+  int _offset = 0;
+  final List<double> _widths = [];
+  double _maxHeight = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateMetrics();
+    _timer = Timer.periodic(const Duration(milliseconds: 40), (timer) {
+      if (!mounted) return;
+      setState(() {
+        _offset++;
+      });
+    });
+  }
+
+  void _calculateMetrics() {
+    for (int i = 0; i < widget.text.length; i++) {
+      final tp = TextPainter(
+        text: TextSpan(text: widget.text[i], style: widget.style),
+        textDirection: ui.TextDirection.ltr,
+      )..layout();
+      _widths.add(tp.width);
+      if (tp.height > _maxHeight) _maxHeight = tp.height;
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: List.generate(widget.text.length, (i) {
+        final char = widget.text[i];
+        if (char == ' ') return Text(' ', style: widget.style.copyWith(fontWeight: FontWeight.normal));
+        
+        final int charSeed = (i * 31 + _offset * 17) % 0x2000;
+        int charCode = 0x0021 + charSeed;
+
+        return SizedBox(
+          width: _widths[i],
+          height: _maxHeight,
+          child: OverflowBox(
+            maxWidth: 100, 
+            maxHeight: _maxHeight,
+            child: Text(
+              String.fromCharCode(charCode),
+              style: widget.style,
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.visible,
+              softWrap: false,
+            ),
+          ),
+        );
+      }),
     );
   }
 }

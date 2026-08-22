@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../core/i18n.dart';
+import '../services/launch_service.dart';
 import '../services/stats_service.dart';
+import '../widgets/core_icon.dart';
 
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key});
@@ -18,6 +20,7 @@ class _StatsPageState extends State<StatsPage> {
   List<dynamic> sessionList = [];
   List<String> dateList = [];
   List<String> allVersions = [];
+  Map<String, Map<String, String>> versionMap = {};
 
   int currentPage = 1;
   int totalPages = 1;
@@ -33,10 +36,13 @@ class _StatsPageState extends State<StatsPage> {
   }
 
   Future<void> refreshAll() async {
+    await Future.delayed(const Duration(milliseconds: 400));
     final ov = await StatsService.instance.getOverview();
     final vs = await StatsService.instance.getVersionStats();
     final dl = await StatsService.instance.getAllDates();
     final av = await StatsService.instance.getAllVersions();
+    final allAvailable = await LaunchService.instance.getAllAvailableVersions();
+    final vMap = {for (var v in allAvailable) v['id']!: v};
 
     if (mounted) {
       setState(() {
@@ -44,6 +50,7 @@ class _StatsPageState extends State<StatsPage> {
         versionStats = vs;
         dateList = dl;
         allVersions = av;
+        versionMap = vMap;
         currentPage = 1;
       });
       loadSessions();
@@ -184,6 +191,7 @@ class _StatsPageState extends State<StatsPage> {
           VersionStatsList(
             data: versionStats,
             formatTime: formatTime,
+            versionMap: versionMap,
           ),
           const SizedBox(height: 24),
           Text(
@@ -199,6 +207,7 @@ class _StatsPageState extends State<StatsPage> {
           SessionList(
             sessions: sessionList,
             formatTime: formatTime,
+            versionMap: versionMap,
           ),
           const SizedBox(height: 12),
           _buildPagination(theme),
@@ -360,11 +369,13 @@ class StatCard extends StatelessWidget {
 class VersionStatsList extends StatelessWidget {
   final List<dynamic> data;
   final String Function(dynamic) formatTime;
+  final Map<String, Map<String, String>> versionMap;
 
   const VersionStatsList({
     super.key,
     required this.data,
     required this.formatTime,
+    required this.versionMap,
   });
 
   @override
@@ -382,6 +393,9 @@ class VersionStatsList extends StatelessWidget {
 
     return Column(
       children: data.map((item) {
+        final vId = item["version"]?.toString() ?? "";
+        final vData = versionMap[vId] ?? {'id': vId};
+
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Card(
@@ -389,24 +403,7 @@ class VersionStatsList extends StatelessWidget {
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      color: Colors.blue.withValues(alpha: 0.15),
-                    ),
-                    child: Text(
-                      (item["version"] ?? "?")
-                          .toString()
-                          .substring(0, 1)
-                          .toUpperCase(),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                  CoreIcon(item: vData, size: 40),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
@@ -459,11 +456,13 @@ class VersionStatsList extends StatelessWidget {
 class SessionList extends StatelessWidget {
   final List<dynamic> sessions;
   final String Function(dynamic) formatTime;
+  final Map<String, Map<String, String>> versionMap;
 
   const SessionList({
     super.key,
     required this.sessions,
     required this.formatTime,
+    required this.versionMap,
   });
 
   @override
@@ -481,29 +480,16 @@ class SessionList extends StatelessWidget {
 
     return Column(
       children: sessions.map((item) {
+        final vId = item["version"]?.toString() ?? "";
+        final vData = versionMap[vId] ?? {'id': vId};
+
         return Card(
           margin: const EdgeInsets.only(bottom: 10),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    borderRadius:
-                    BorderRadius.circular(8),
-                    color:
-                    Colors.blue.withValues(alpha: 0.12),
-                  ),
-                  child: Text(
-                    (item["version"] ?? "?")
-                        .toString()
-                        .substring(0, 1)
-                        .toUpperCase(),
-                  ),
-                ),
+                CoreIcon(item: vData, size: 36),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(

@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import '../core/translate_api.dart';
 
 enum NoticeType { info, warning, error, success }
 
@@ -20,7 +20,7 @@ class Notice {
     required this.icon,
     this.continueOnHover = false,
     this.reusable = true,
-    this.durationMs = 5000,
+    this.durationMs = 2000,
     this.type = NoticeType.info,
   }) : id = UniqueKey().toString();
 
@@ -90,23 +90,10 @@ class NoticeOverlayState extends State<NoticeOverlay> {
 
   Future<void> _checkApiStatus() async {
     try {
-      final dio = Dio();
-      final response = await dio
-          .get(
-            "https://translate.googleapis.com/translate_a/single",
-            queryParameters: {
-              "client": "gtx",
-              "sl": "auto",
-              "tl": "zh-CN",
-              "dt": "t",
-              "q": "ping",
-            },
-          )
-          .timeout(const Duration(seconds: 3));
-
+      final status = await TranslateApi.checkApiStatus();
       if (mounted) {
         setState(() {
-          _apiAvailable = response.statusCode == 200;
+          _apiAvailable = status;
         });
       }
     } catch (_) {}
@@ -432,26 +419,11 @@ class _NoticeCardState extends State<NoticeCard> {
     setState(() => _isTranslating = true);
 
     try {
-      final dio = Dio();
-      final response = await dio.get(
-        "https://translate.googleapis.com/translate_a/single",
-        queryParameters: {
-          "client": "gtx",
-          "sl": "auto",
-          "tl": "zh-CN",
-          "dt": "t",
-          "q": widget.notice.message,
-        },
-      );
-
-      if (response.statusCode == 200 && response.data is List) {
-        final List parts = response.data[0];
-        final translated = parts.map((p) => p[0]).join();
-        if (mounted) {
-          setState(() {
-            _translatedText = translated;
-          });
-        }
+      final translated = await TranslateApi.translate(widget.notice.message);
+      if (mounted && translated != widget.notice.message) {
+        setState(() {
+          _translatedText = translated;
+        });
       }
     } catch (_) {
     } finally {

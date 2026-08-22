@@ -20,6 +20,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../core/global.dart';
 import '../core/grammer_candy.dart';
 import '../main.dart';
 import '../services/config_service.dart';
@@ -685,8 +686,8 @@ class _BloraChatPageState extends State<BloraChatPage>
             builder: (context) => AlertDialog(
               title: Text("Character Type Mismatch".tl),
               content: Text(
-                "This conversation last used character '$savedType', while current is '${Bloriko.type}'. Loading directly may cause context confusion."
-                    .tl,
+                "This conversation last used character '%s', while current is '%s'. Loading directly may cause context confusion."
+                    .tl.format(agentNameFn(savedType), agentNameFn(Bloriko.type)),
               ),
               actions: [
                 TextButton(
@@ -698,7 +699,7 @@ class _BloraChatPageState extends State<BloraChatPage>
                     Bloriko.setType(savedType);
                     Navigator.pop(context, true);
                   },
-                  child: Text("${"Switch to".tl} $savedType"),
+                  child: Text("${"Switch to".tl} ${agentNameFn(savedType)}"),
                 ),
                 FilledButton(
                   onPressed: () {
@@ -3703,7 +3704,7 @@ class _BloraChatPageState extends State<BloraChatPage>
                                                   switchInCurve:
                                                       Curves.easeOutBack,
                                                   switchOutCurve:
-                                                      Curves.easeOutExpo,
+                                                      Curves.easeInCubic,
                                                   transitionBuilder:
                                                       (
                                                         child,
@@ -4415,6 +4416,51 @@ class _BloraChatPageState extends State<BloraChatPage>
                                                             ),
                                                       ),
                                                     ],
+                                                    const SizedBox(height: 8),
+                                                    OutlinedButton.icon(
+                                                      onPressed: () =>
+                                                          _retryMessage(index),
+                                                      style: OutlinedButton
+                                                          .styleFrom(
+                                                            foregroundColor:
+                                                                theme
+                                                                    .colorScheme
+                                                                    .error,
+                                                            side: BorderSide(
+                                                              color: theme
+                                                                  .colorScheme
+                                                                  .error
+                                                                  .withValues(
+                                                                    alpha: 0.5,
+                                                                  ),
+                                                            ),
+                                                            padding:
+                                                                const EdgeInsets
+                                                                    .symmetric(
+                                                                  horizontal:
+                                                                      12,
+                                                                  vertical: 4,
+                                                                ),
+                                                            minimumSize:
+                                                                const Size(
+                                                              0,
+                                                              32,
+                                                            ),
+                                                            visualDensity:
+                                                                VisualDensity
+                                                                    .compact,
+                                                          ),
+                                                      icon: const Icon(
+                                                        Icons.refresh_rounded,
+                                                        size: 16,
+                                                      ),
+                                                      label: Text(
+                                                        "Retry".tl,
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ),
                                                   ],
                                                 ),
                                               ),

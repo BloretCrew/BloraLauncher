@@ -174,7 +174,7 @@
     }
   },
   "get_link_rule": {
-    "url": "*domain/ajaxm.php?file=$fileId",
+    "url": "*domain/ajaxfile.php?file=$fileId",
     "method": "POST",
     "header": {
       "User-Agent": "&ua",

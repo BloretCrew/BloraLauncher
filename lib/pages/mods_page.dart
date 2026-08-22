@@ -2,16 +2,15 @@ import 'dart:io';
 
 import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/core/grammer_candy.dart';
+import 'package:bloret_launcher/core/translate_api.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/mod_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
-import '../services/config_service.dart';
 import '../widgets/windows_widgets.dart';
 
 class ModsPage extends StatefulWidget {
@@ -53,30 +52,11 @@ class _ModsPageState extends State<ModsPage> {
   }
 
   Future<void> _checkApiStatus() async {
-    try {
-      final dio = Dio();
-      final response = await dio.get(
-        "https://translate.googleapis.com/translate_a/single",
-        queryParameters: {
-          "client": "gtx",
-          "sl": "auto",
-          "tl": "zh-CN",
-          "dt": "t",
-          "q": "ping",
-        },
-      ).timeout(const Duration(seconds: 3));
-
-      if (mounted) {
-        setState(() {
-          _apiAvailable = response.statusCode == 200;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _apiAvailable = false;
-        });
-      }
+    final available = await TranslateApi.checkApiStatus();
+    if (mounted) {
+      setState(() {
+        _apiAvailable = available;
+      });
     }
   }
 
@@ -166,49 +146,8 @@ class _ModsPageState extends State<ModsPage> {
     setState(() => _translatingSlugs.add(slug));
 
     try {
-      String lang = ConfigService.getLanguage().toLowerCase();
-      if (lang.contains("zh_tw") || lang.contains("zh_hk")) {
-        lang = "zh-TW";
-      } else if (lang.contains("zh")) {
-        lang = "zh-CN";
-      } else {
-        lang = lang.split('_').first;
-      }
-
-      // Use placeholders to protect brands from being merged or mistranslated
-      final source = desc
-          .replaceAll("百络谷", "___BLORET_P___")
-          .replaceAll("络可", "___BLORIKO_P___")
-          .replaceAll("ロコ", "___BLORIKO_P___")
-          .replaceAll("Блорико", "___BLORIKO_P___")
-          .replaceAll("Blora", "___BLORA_P___");
-
-      final dio = Dio();
-      final response = await dio.get(
-        "https://translate.googleapis.com/translate_a/single",
-        queryParameters: {
-          "client": "gtx",
-          "sl": "auto",
-          "tl": lang,
-          "dt": "t",
-          "q": source,
-        },
-      );
-
-      if (response.statusCode == 200 && response.data is List) {
-        final List parts = response.data[0];
-        var result = parts.map((p) => p[0]).join();
-
-        // Robust restoration function that handles spaces and case changes
-        String restore(String content, String placeholder, String brand) {
-          final escaped = placeholder.replaceAll('_', r'[_ ]*');
-          return content.replaceAll(RegExp(escaped, caseSensitive: false), brand);
-        }
-
-        result = restore(result, "___BLORET_P___", "Bloret");
-        result = restore(result, "___BLORIKO_P___", "Bloriko");
-        result = restore(result, "___BLORA_P___", "Blora");
-
+      final result = await TranslateApi.googleTranslate(desc);
+      if (mounted) {
         setState(() {
           _translatedDescriptions[slug] = result;
         });

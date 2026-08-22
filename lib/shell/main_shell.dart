@@ -40,6 +40,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   bool _isDownloadExpanded = false;
   Timer? _timer;
   final Set<int> _renderedIndices = {0};
+  final Map<int, Widget> _pageCache = {};
   Brightness? _lastBrightness;
 
   final _trayChannel = const BasicMessageChannel(
@@ -236,12 +237,12 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
               Stack(
                 alignment: Alignment.center,
                 children: [
-                  const SizedBox(
-                    width: 28,
-                    height: 28,
+                  SizedBox(
+                    width: Bloriko.type == "bloriko" ? 34 : 28,
+                    height: Bloriko.type == "bloriko" ? 34 : 28,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                  Icon(_getEmotionIcon(Bloriko.instance.emotion), size: 16),
+                  Bloriko.type == "bloriko" ? Container(width: 32, height: 32, clipBehavior: .antiAlias, decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer, shape: BoxShape.circle), child: Image.asset("assets/bloriko.png"),) : Icon(Icons.smart_toy_outlined, size: 16),
                 ],
               ),
               const SizedBox(width: 12),
@@ -347,13 +348,13 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
           child: CircularProgressIndicator(
             value: progress,
             strokeWidth: 3,
-            color: Colors.blueAccent,
+            color: Theme.of(context).colorScheme.primary,
           ),
         ),
         Icon(
           speed > 0 ? Icons.downloading : Icons.file_download_outlined,
           size: 18,
-          color: Colors.blueAccent,
+          color: Theme.of(context).colorScheme.primary,
         ),
       ],
     );
@@ -364,14 +365,20 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     List<DownloadTask> activeTasks,
     double progress,
   ) {
-    final tasks = DownloadService.instance.getTasks().where((t) {
+    final allTasks = DownloadService.instance.getTasks().where((t) {
       return t.isDownloading ||
           (t.progress > 0 && t.progress < 1.0) ||
-          t.status.contains("失败");
+          t.status.contains("失败") || t.status.contains("错误") || t.status.contains("超时") || t.status.contains("Failed") || t.status.contains("Error") || t.status.contains("Timeout");
     }).toList();
+
+    final Map<String?, List<DownloadTask>> groupedTasks = {};
+    for (var task in allTasks) {
+      groupedTasks.putIfAbsent(task.groupId, () => []).add(task);
+    }
 
     final totalSpeed = DownloadService.instance.totalSpeed;
     final remaining = DownloadService.instance.remainingTasks;
+    final theme = Theme.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -380,7 +387,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
           children: [
             Icon(
               Icons.file_download,
-              color: Theme.of(context).colorScheme.primary,
+              color: theme.colorScheme.primary,
               size: 20,
             ),
             const SizedBox(width: 8),
@@ -414,7 +421,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
             Text(
               "${(progress * 100).toInt()}%",
               style: TextStyle(
-                color: Theme.of(context).colorScheme.primary,
+                color: theme.colorScheme.primary,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -427,85 +434,158 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
             ),
           ],
         ),
-        const Divider(height: 12),
         Expanded(
-          child: tasks.isEmpty
+          child: allTasks.isEmpty
               ? Center(child: Text("No tasks".tl))
-              : ListView.builder(
+              : ListView(
                   padding: EdgeInsets.zero,
-                  itemCount: tasks.length,
-                  itemBuilder: (context, index) {
-                    final task = tasks[index];
-                    return ListenableBuilder(
-                      listenable: task,
-                      builder: (context, child) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      task.id,
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
+                  children: groupedTasks.entries.map((entry) {
+                    final groupId = entry.key;
+                    final tasks = entry.value;
+
+                    return AnimatedSize(
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeOutCubic,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (groupId != null)
+                            TweenAnimationBuilder<double>(
+                              tween: Tween(begin: 0.0, end: 1.0),
+                              duration: const Duration(milliseconds: 500),
+                              curve: Curves.easeOutBack,
+                              builder: (context, value, child) {
+                                return Transform.translate(
+                                  offset: Offset(20 * (1 - value), 0),
+                                  child: Opacity(opacity: value, child: child),
+                                );
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        groupId,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                          color: theme.colorScheme.primary.withValues(alpha: 0.7),
+                                          letterSpacing: 0.5,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                  ),
-                                  if (task.isDownloading) ...[
-                                    Text(
-                                      DownloadService.instance.formatSpeed(
-                                        task.speed,
+                                    InkWell(
+                                      onTap: () => DownloadService.instance.cancelGroup(groupId),
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                        child: Text(
+                                          "Cancel Group".tl,
+                                          style: const TextStyle(fontSize: 9, color: Colors.redAccent),
+                                        ),
                                       ),
-                                      style: const TextStyle(
-                                        fontSize: 9,
-                                        color: Colors.blueAccent,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.cancel_outlined,
-                                        size: 14,
-                                        color: Colors.redAccent,
-                                      ),
-                                      onPressed: () => DownloadService.instance
-                                          .cancelTask(task.id),
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
                                     ),
                                   ],
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(2),
-                                child: LinearProgressIndicator(
-                                  value: task.progress,
-                                  minHeight: 3,
-                                  backgroundColor: Colors.grey.withValues(
-                                    alpha: 0.1,
-                                  ),
                                 ),
                               ),
-                              if (task.isDownloading)
-                                Text(
-                                  task.status,
-                                  style: const TextStyle(
-                                    fontSize: 9,
-                                    color: Colors.grey,
+                            ),
+                          ...tasks.map((task) {
+                            return ListenableBuilder(
+                              listenable: task,
+                              key: ValueKey(task.id), // 重要：保持动画状态
+                              builder: (context, child) {
+                                return TweenAnimationBuilder<double>(
+                                  tween: Tween(begin: 0.0, end: 1.0),
+                                  duration: const Duration(milliseconds: 600),
+                                  curve: Curves.easeOutCubic,
+                                  builder: (context, value, child) {
+                                    return Transform.translate(
+                                      offset: Offset(0, 10 * (1 - value)),
+                                      child: Opacity(opacity: value, child: child),
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 2),
+                                    child: InkWell(
+                                      onTap: () {},
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(4.0),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    task.id,
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                if (task.isDownloading) ...[
+                                                  Text(
+                                                    DownloadService.instance.formatSpeed(
+                                                      task.speed,
+                                                    ),
+                                                    style: const TextStyle(
+                                                      fontSize: 9,
+                                                      color: Colors.blueAccent,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  IconButton(
+                                                    icon: const Icon(
+                                                      Icons.cancel_outlined,
+                                                      size: 14,
+                                                      color: Colors.redAccent,
+                                                    ),
+                                                    onPressed: () => DownloadService.instance
+                                                        .cancelTask(task.id),
+                                                    padding: EdgeInsets.zero,
+                                                    constraints: const BoxConstraints(),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                            const SizedBox(height: 2),
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(2),
+                                              child: LinearProgressIndicator(
+                                                value: task.progress,
+                                                minHeight: 3,
+                                                backgroundColor: Colors.grey.withValues(
+                                                  alpha: 0.1,
+                                                ),
+                                              ),
+                                            ),
+                                            if (task.isDownloading)
+                                              Text(
+                                                task.status,
+                                                style: const TextStyle(
+                                                  fontSize: 9,
+                                                  color: Colors.grey,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                ),
-                            ],
-                          ),
-                        );
-                      },
+                                );
+                              },
+                            );
+                          }),
+                          if (groupId != null) const SizedBox(height: 8),
+                        ],
+                      ),
                     );
-                  },
+                  }).toList(),
                 ),
         ),
       ],
@@ -553,7 +633,6 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // Sync theme with native side
     if (_lastBrightness != theme.brightness) {
       _lastBrightness = theme.brightness;
       WinWindow.setIconTheme(isDark);
@@ -691,22 +770,24 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                             return const SizedBox.shrink();
                           }
 
+                          _pageCache[index] ??= (item.$2 as Widget Function())();
+
                           return AnimatedOpacity(
                             key: ValueKey(index),
-                            duration: const Duration(milliseconds: 400),
+                            duration: isSelected ? const Duration(milliseconds: 400) : Duration.zero,
                             curve: Curves.easeOutCubic,
                             opacity: isSelected ? 1.0 : 0.0,
                             child: IgnorePointer(
                               ignoring: !isSelected,
                               child: AnimatedSlide(
-                                duration: const Duration(milliseconds: 400),
+                                duration: isSelected ? const Duration(milliseconds: 400) : Duration.zero,
                                 curve: Curves.easeOutCubic,
                                 offset: isSelected
                                     ? Offset.zero
                                     : (isPortrait
                                           ? const Offset(0, 0.05)
                                           : const Offset(0.02, 0)),
-                                child: (item.$2 as Widget Function())(),
+                                child: _pageCache[index]!,
                               ),
                             ),
                           );
@@ -736,7 +817,9 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 500),
+                        duration: const Duration(milliseconds: 350),
+                        switchInCurve: Curves.easeOutBack,
+                        switchOutCurve: Curves.easeInBack,
                         transitionBuilder: (child, animation) => FadeTransition(
                           opacity: animation,
                           child: ScaleTransition(
@@ -752,7 +835,9 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                       ),
                       if (showDownload && showAgent) const SizedBox(width: 12),
                       AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 500),
+                        duration: const Duration(milliseconds: 350),
+                        switchInCurve: Curves.easeOutBack,
+                        switchOutCurve: Curves.easeInBack,
                         transitionBuilder: (child, animation) => FadeTransition(
                           opacity: animation,
                           child: ScaleTransition(
@@ -872,27 +957,6 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
         ),
       ),
     );
-  }
-}
-
-IconData _getEmotionIcon(String emotion) {
-  switch (emotion) {
-    case 'neutral':
-      return Icons.sentiment_satisfied;
-    case 'happy':
-      return Icons.sentiment_very_satisfied;
-    case 'shy':
-      return Icons.face_retouching_natural;
-    case 'angry':
-      return Icons.sentiment_very_dissatisfied;
-    case 'sad':
-      return Icons.sentiment_dissatisfied;
-    case 'excited':
-      return Icons.celebration;
-    case 'curious':
-      return Icons.help_outline;
-    default:
-      return Icons.sentiment_satisfied;
   }
 }
 

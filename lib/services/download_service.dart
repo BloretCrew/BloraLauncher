@@ -75,17 +75,20 @@ class DownloadItem {
   final String url;
   final String savePath;
   final String? sha1;
+  final String? groupId;
 
   DownloadItem({
     required this.id,
     required this.url,
     required this.savePath,
     this.sha1,
+    this.groupId,
   });
 }
 
 class DownloadTask extends ChangeNotifier {
   final String id;
+  final String? groupId;
   double progress = 0.0;
   String status = "Ready...";
   bool isDownloading = false;
@@ -95,7 +98,7 @@ class DownloadTask extends ChangeNotifier {
   DateTime lastUpdate = DateTime.now();
   int lastReceived = 0;
 
-  DownloadTask(this.id);
+  DownloadTask(this.id, {this.groupId});
 
   void update(double p, String s, {int? received, int? total}) {
     progress = p;
@@ -122,7 +125,7 @@ class DownloadService extends ChangeNotifier {
 
   final Map<String, DownloadTask> _tasks = {};
   final Map<String, CancelToken> _cancelTokens = {};
-  final Dio _dio = Dio(
+  final Dio dio = Dio(
     BaseOptions(
       headers: {
         "User-Agent":
@@ -156,12 +159,19 @@ class DownloadService extends ChangeNotifier {
     return "${(speed / (1024 * 1024)).toStringAsFixed(1)} MB/s";
   }
 
-  DownloadTask getTask(String id) {
+  DownloadTask getTask(String id, {String? groupId}) {
     return _tasks.putIfAbsent(id, () {
-      final task = DownloadTask(id);
+      final task = DownloadTask(id, groupId: groupId);
       task.addListener(notifyListeners);
       return task;
     });
+  }
+
+  void cancelGroup(String groupId) {
+    final toCancel = _tasks.values.where((t) => t.groupId == groupId).toList();
+    for (var task in toCancel) {
+      cancelTask(task.id);
+    }
   }
 
   void cancelTask(String id) {
@@ -177,8 +187,9 @@ class DownloadService extends ChangeNotifier {
   Future<bool> downloadLibrary(
     String id,
     MavenArtifact artifact,
-    Directory librariesDir,
-  ) async {
+    Directory librariesDir, {
+    String? groupId,
+  }) async {
     final savePath = p.join(librariesDir.path, artifact.path);
     final file = File(savePath);
 
@@ -200,24 +211,53 @@ class DownloadService extends ChangeNotifier {
     }
 
     await file.parent.create(recursive: true);
-    final task = getTask(id);
+    final task = getTask(id, groupId: groupId);
     task.isDownloading = true;
 
     try {
-      await _dio.download(
-        artifact.url,
-        savePath,
-        onReceiveProgress: (count, total) {
-          if (total != -1) {
-            task.update(
-              count / total,
-              "Transferring...".tl,
-              received: count,
-              total: total,
-            );
-          }
-        },
-      );
+      final String downloadSource = ConfigService.get("download_source") ?? "bmclapi";
+      
+      try {
+        await dio.download(
+          artifact.url,
+          savePath,
+          onReceiveProgress: (count, total) {
+            if (total != -1) {
+              task.update(
+                count / total,
+                "Transferring...".tl,
+                received: count,
+                total: total,
+              );
+            }
+          },
+        );
+      } catch (e) {
+        if (downloadSource == "hybrid" && !artifact.url.contains("bmclapi2.bangbang93.com")) {
+          final fallbackUrl = artifact.url
+              .replaceAll("https://libraries.minecraft.net", "https://bmclapi2.bangbang93.com/maven")
+              .replaceAll("https://resources.download.minecraft.net", "https://bmclapi2.bangbang93.com/assets")
+              .replaceAll("https://piston-meta.mojang.com", "https://bmclapi2.bangbang93.com")
+              .replaceAll("https://launcher.mojang.com", "https://bmclapi2.bangbang93.com")
+              .replaceAll("https://maven.fabricmc.net", "https://bmclapi2.bangbang93.com/maven")
+              .replaceAll("https://maven.quiltmc.org/repository/release", "https://bmclapi2.bangbang93.com/maven");
+          
+          debugPrint("Hybrid Mode: Official download failed, falling back to mirror: $fallbackUrl");
+          task.update(task.progress, "Retrying via Mirror...".tl);
+          
+          await dio.download(
+            fallbackUrl,
+            savePath,
+            onReceiveProgress: (count, total) {
+              if (total != -1) {
+                task.update(count / total, "Transferring (Mirror)...".tl, received: count, total: total);
+              }
+            },
+          );
+          return true;
+        }
+        rethrow;
+      }
       return true;
     } catch (e) {
       debugPrint("Download Lib Failed $id: $e");
@@ -233,7 +273,9 @@ class DownloadService extends ChangeNotifier {
   ) async {
     final queue = List.from(items);
     final List<Future<void>> futures = [];
-    for (int i = 0; i < 6 && queue.isNotEmpty; i++) {
+    final int threadCount = ConfigService.get("download_threads") ?? 6;
+
+    for (int i = 0; i < threadCount && queue.isNotEmpty; i++) {
       futures.add(_processQueue(queue, baseDir));
     }
     await Future.wait(futures);
@@ -241,14 +283,14 @@ class DownloadService extends ChangeNotifier {
 
   Future<void> _processQueue(List queue, Directory baseDir) async {
     while (queue.isNotEmpty) {
-      final item = queue.removeAt(0);
+      final DownloadItem item = queue.removeAt(0);
       final artifact = MavenArtifact(
         name: item.id,
         url: item.url,
         path: item.savePath,
         sha1: item.sha1,
       );
-      await downloadLibrary(item.id, artifact, baseDir);
+      await downloadLibrary(item.id, artifact, baseDir, groupId: item.groupId);
     }
   }
 
@@ -468,13 +510,11 @@ class DownloadService extends ChangeNotifier {
       return _cachedVanillaVersions;
     }
 
-    // Load from disk first if not in memory
     if (_cachedVanillaVersions.isEmpty) {
       _cachedVanillaVersions = await _loadVersionsFromDisk();
       if (_cachedVanillaVersions.isNotEmpty) notifyListeners();
     }
 
-    // If we have data and not forcing refresh, return it and update in background
     if (_cachedVanillaVersions.isNotEmpty && !forceRefresh) {
       _updateVersionsInBackground();
       return _cachedVanillaVersions;
@@ -492,18 +532,36 @@ class DownloadService extends ChangeNotifier {
     notifyListeners();
 
     int attempts = 0;
+    final String downloadSource = ConfigService.get("download_source") ?? "bmclapi";
+    
     while (attempts <= retries) {
       try {
-        final response = await _dio.get(
-          "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json",
-          onReceiveProgress: (count, total) {
-            if (total != -1) {
-              _versionsUpdateProgress = count / total;
-              _versionsUpdateStatus = "Downloading version manifest...".tl;
-              notifyListeners();
-            }
-          },
-        );
+        String url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+        if (downloadSource == "bmclapi") {
+          url = "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json";
+        }
+
+        Response response;
+        try {
+          response = await dio.get(
+            url,
+            onReceiveProgress: (count, total) {
+              if (total != -1) {
+                _versionsUpdateProgress = count / total;
+                _versionsUpdateStatus = "Downloading version manifest...".tl;
+                notifyListeners();
+              }
+            },
+          );
+        } catch (e) {
+          if (downloadSource == "hybrid") {
+            url = "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json";
+            debugPrint("Hybrid Mode: Official manifest failed, retrying via mirror: $url");
+            response = await dio.get(url);
+          } else {
+            rethrow;
+          }
+        }
 
         if (response.statusCode == 200) {
           final List<dynamic> versions = response.data is String
@@ -570,7 +628,7 @@ class DownloadService extends ChangeNotifier {
           return <Map<String, dynamic>>[];
       }
 
-      final response = await _dio.get(
+      final response = await dio.get(
         url,
         options: Options(responseType: ResponseType.plain),
       );
@@ -635,7 +693,7 @@ class DownloadService extends ChangeNotifier {
     String url,
     Directory targetDir,
   ) async {
-    final task = getTask("Install_$versionId");
+    final task = getTask("Install_$versionId", groupId: "Install_$versionId");
     task.isDownloading = true;
     task.update(0.0, "Fetching metadata...".tl);
 
@@ -646,7 +704,18 @@ class DownloadService extends ChangeNotifier {
         finalUrl = url.replaceAll("https://piston-meta.mojang.com", "https://bmclapi2.bangbang93.com");
       }
 
-      final response = await _dio.get(finalUrl);
+      Response response;
+      try {
+        response = await dio.get(finalUrl);
+      } catch (e) {
+        if (downloadSource == "hybrid") {
+          final fallbackUrl = url.replaceAll("https://piston-meta.mojang.com", "https://bmclapi2.bangbang93.com");
+          debugPrint("Hybrid Mode: Official manifest failed, retrying via mirror: $fallbackUrl");
+          response = await dio.get(fallbackUrl);
+        } else {
+          rethrow;
+        }
+      }
       if (response.statusCode != 200) {
         throw Exception("Failed to get version metadata from $finalUrl");
       }
@@ -684,7 +753,7 @@ class DownloadService extends ChangeNotifier {
   }) async {
     final String versionId =
         customVersionId ?? "$mcVersion-${type.name}-$loaderVersion";
-    final task = getTask("Install_$versionId");
+    final task = getTask("Install_$versionId", groupId: "Install_$versionId");
     task.isDownloading = true;
     task.update(0.0, "Preparing installation...".tl);
 
@@ -698,7 +767,25 @@ class DownloadService extends ChangeNotifier {
           orElse: () => throw Exception("Vanilla version $mcVersion not found in manifest"),
         );
         
-        final res = await _dio.get(vanilla.url);
+        final String downloadSource = ConfigService.get("download_source") ?? "bmclapi";
+        
+        Response res;
+        try {
+          String url = vanilla.url;
+          if (downloadSource == "bmclapi") {
+             url = url.replaceAll("https://piston-meta.mojang.com", "https://bmclapi2.bangbang93.com");
+          }
+          res = await dio.get(url);
+        } catch (e) {
+          if (downloadSource == "hybrid") {
+            final fallbackUrl = vanilla.url.replaceAll("https://piston-meta.mojang.com", "https://bmclapi2.bangbang93.com");
+            debugPrint("Hybrid Mode: Official vanilla metadata failed, retrying via mirror: $fallbackUrl");
+            res = await dio.get(fallbackUrl);
+          } else {
+            rethrow;
+          }
+        }
+
         if (res.statusCode == 200) {
           await File(parentPath).parent.create(recursive: true);
           await File(parentPath).writeAsString(jsonEncode(res.data));
@@ -715,7 +802,7 @@ class DownloadService extends ChangeNotifier {
 
       if (type == LoaderType.fabric) {
         task.update(0.2, "Fetching Fabric JSON...".tl);
-        final res = await _dio.get(
+        final res = await dio.get(
           "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/$mcVersion/$loaderVersion/profile/json",
         );
         loaderJson = res.data;
@@ -731,30 +818,30 @@ class DownloadService extends ChangeNotifier {
             "mcversion=$mcVersion&version=$pureForgeVersion&category=installer&format=json";
 
         try {
-          final res = await _dio.get(url);
+          final res = await dio.get(url);
           loaderJson = res.data;
         } catch (e) {
           final fallbackUrl = "https://bmclapi2.bangbang93.com/forge/download/$loaderVersion/json";
-          final res = await _dio.get(fallbackUrl);
+          final res = await dio.get(fallbackUrl);
           loaderJson = res.data;
         }
       } else if (type == LoaderType.neoforge) {
         task.update(0.2, "Fetching NeoForge JSON...".tl);
         try {
-          final res = await _dio.get(
+          final res = await dio.get(
             "https://bmclapi2.bangbang93.com/neoforge/version/$loaderVersion",
           );
           loaderJson = res.data;
         } catch (e) {
           final fullVersion = "$mcVersion-$loaderVersion";
-          final res = await _dio.get(
+          final res = await dio.get(
             "https://bmclapi2.bangbang93.com/neoforge/version/$fullVersion",
           );
           loaderJson = res.data;
         }
       } else if (type == LoaderType.quilt) {
         task.update(0.2, "Fetching Quilt JSON...".tl);
-        final res = await _dio.get(
+        final res = await dio.get(
           "https://bmclapi2.bangbang93.com/quilt-meta/v3/versions/loader/$mcVersion/$loaderVersion/profile/json",
         );
         loaderJson = res.data;
@@ -786,9 +873,10 @@ class DownloadService extends ChangeNotifier {
     String url,
     String fileName,
     Future<bool> Function(String path, Function(String) updateStatus)
-    onComplete,
-  ) async {
-    final task = getTask(id);
+    onComplete, {
+    String? groupId,
+  }) async {
+    final task = getTask(id, groupId: groupId);
     if (task.isDownloading) return;
 
     final cancelToken = CancelToken();
@@ -801,7 +889,7 @@ class DownloadService extends ChangeNotifier {
       final tempDir = await getApplicationCacheDirectory();
       final savePath = p.join(tempDir.path, fileName);
 
-      await _dio.download(
+      await dio.download(
         url,
         savePath,
         cancelToken: cancelToken,

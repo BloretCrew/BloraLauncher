@@ -19,11 +19,31 @@ class AboutPage extends StatefulWidget {
 
 class AboutPageState extends State<AboutPage> {
   int count = 0;
+  bool _isLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        setState(() {
+          _isLoaded = true;
+        });
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isPortrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+
+    if (!_isLoaded) {
+      return const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       body: Padding(
@@ -45,7 +65,14 @@ class AboutPageState extends State<AboutPage> {
                   children: [
                     Row(
                       children: [
-                        Image.asset(theme.brightness == Brightness.dark ? "assets/bloret_dark.png" : "assets/bloret_light.png", width: isPortrait ? 64 : 100, height: isPortrait ? 64 : 100, fit: BoxFit.cover,),
+                        Image.asset(
+                          theme.brightness == Brightness.dark ? "assets/bloret_dark.png" : "assets/bloret_light.png", 
+                          width: isPortrait ? 64 : 100, 
+                          height: isPortrait ? 64 : 100, 
+                          cacheWidth: isPortrait ? 128 : 200,
+                          cacheHeight: isPortrait ? 128 : 200,
+                          fit: BoxFit.cover,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
@@ -150,7 +177,7 @@ class AboutPageState extends State<AboutPage> {
                       children: [
                         Row(
                           children: [
-                            CustomPaint(painter: GithubPainter(), size: const Size(40, 40)),
+                            CustomPaint(painter: GithubPainter(color: theme.iconTheme.color ?? Colors.black), size: const Size(40, 40)),
                             const SizedBox(width: 12),
                             Text("Github".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                           ],
@@ -178,7 +205,7 @@ class AboutPageState extends State<AboutPage> {
                     )
                   : Row(
                       children: [
-                        CustomPaint(painter: GithubPainter(), size: const Size(48, 48)),
+                        CustomPaint(painter: GithubPainter(color: theme.iconTheme.color ?? Colors.black), size: const Size(48, 48)),
                         const SizedBox(width: 12),
                         Text("Github".tl, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                         const Spacer(),
@@ -234,38 +261,34 @@ class BloretAboutWidget extends StatelessWidget {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDarkMode ? const Color(0xFFB0B0B0) : const Color(0xFF606060);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return DefaultTextStyle(
-          style: TextStyle(
-            fontSize: 16,
-            color: textColor,
-            height: 1.4,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildLinkText('$name Launcher Website: ', 'https://launcher.bloret.net/', isDarkMode),
-              _buildLinkText('Bloret PassPort: ', 'https://passport.bloret.net/', isDarkMode),
-              _buildLinkText('Bloret Wiki: ', 'https://wiki.bloret.net/', isDarkMode),
-              Text('$name Launcher brings Bloret to your computer.'.tl),
-              Text('$name Launcher is ad-free open-source software owned by Bloret.'.tl),
-              Text('$name Launcher: Flutter Edition is ad-free open-source software owned by Bloret.'.tl),
-              const SizedBox(height: 8),
-              Text('© 2026 $name Launcher All rights reserved. © 2026 Bloret All rights reserved.'),
-              _buildLinkText('To view the source code of $name Launcher, please go to: ', 'https://github.com/BloretCrew/Bloret-Launcher/', isDarkMode),
-              _buildLinkText('To view the source code of $name Launcher: Flutter Edition, please go to: ', 'https://github.com/xXYxxdMC-GH/BloretLauncher/', isDarkMode),
-              _buildLinkText('To view the source code of $name Launcher Setup, please go to: ', 'https://github.com/BloretCrew/Bloret-Launcher-Setup/', isDarkMode),
-              _buildLinkText('To submit an issue, please go to: ', 'https://github.com/xXYxxdMC-GH/BloretLauncher/issues/new/choose', isDarkMode),
-              const SizedBox(height: 8),
-              _buildRichEulaText(),
-              const SizedBox(height: 8),
-              Text('Thanks to Flutter for providing the framework for $name Launcher. Thanks to the developers who contributed to $name Launcher. Thanks to the open-source projects that $name Launcher learned from and integrated.'.tl),
-            ],
-          ),
-        );
-      },
+    return DefaultTextStyle(
+      style: TextStyle(
+        fontSize: 16,
+        color: textColor,
+        height: 1.4,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildLinkText('$name Launcher Website: ', 'https://launcher.bloret.net/', isDarkMode),
+          _buildLinkText('Bloret PassPort: ', 'https://passport.bloret.net/', isDarkMode),
+          _buildLinkText('Bloret Wiki: ', 'https://wiki.bloret.net/', isDarkMode),
+          Text((Platform.isAndroid || Platform.isIOS) ? '$name Launcher brings Bloret to your phone.'.tl : '$name Launcher brings Bloret to your computer.'.tl),
+          Text('$name Launcher is ad-free open-source software owned by Bloret.'.tl),
+          Text('$name Launcher: Flutter Edition is ad-free open-source software owned by Bloret.'.tl),
+          const SizedBox(height: 8),
+          Text('© 2026 $name Launcher All rights reserved. © 2026 Bloret All rights reserved.'),
+          _buildLinkText('To view the source code of $name Launcher, please go to: ', 'https://github.com/BloretCrew/Bloret-Launcher/', isDarkMode),
+          _buildLinkText('To view the source code of $name Launcher: Flutter Edition, please go to: ', 'https://github.com/xXYxxdMC-GH/BloretLauncher/', isDarkMode),
+          _buildLinkText('To view the source code of $name Launcher Setup, please go to: ', 'https://github.com/BloretCrew/Bloret-Launcher-Setup/', isDarkMode),
+          _buildLinkText('To submit an issue, please go to: ', 'https://github.com/xXYxxdMC-GH/BloretLauncher/issues/new/choose', isDarkMode),
+          const SizedBox(height: 8),
+          _buildRichEulaText(),
+          const SizedBox(height: 8),
+          Text('Thanks to Flutter for providing the framework for $name Launcher. Thanks to the developers who contributed to $name Launcher. Thanks to the open-source projects that $name Launcher learned from and integrated.'.tl + (ConfigService.get("develop_mode") == true ? "Thanks to me to code this shit.".tl : "")),
+        ],
+      ),
     );
   }
 
@@ -335,18 +358,27 @@ class BloretAboutWidget extends StatelessWidget {
 }
 
 class GithubPainter extends CustomPainter {
+  final Color color;
+  static Path? _cachedPath;
+
+  GithubPainter({required this.color});
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = (ThemeData().brightness == Brightness.dark ? Colors.white : Colors.black)
+      ..color = color
       ..style = PaintingStyle.fill;
 
+    _cachedPath ??= buildIconPath();
+    
+    canvas.save();
     canvas.scale(size.width / 24);
-    canvas.drawPath(buildIconPath(), paint);
+    canvas.drawPath(_cachedPath!, paint);
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant GithubPainter oldDelegate) => oldDelegate.color != color;
 }
 
 

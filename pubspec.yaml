@@ -64,6 +64,7 @@ dependencies:
   vector_math: ^2.4.2
   device_info_plus: ^11.3.0
   encrypt: ^5.0.3
+  string_width: ^0.1.5
 
 dependency_overrides:
   pointycastle: ^4.0.0
