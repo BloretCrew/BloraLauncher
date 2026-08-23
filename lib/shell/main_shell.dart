@@ -652,7 +652,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
             Row(
               children: [
                 AnimatedContainer(
-                  duration: const Duration(milliseconds: 400),
+                  duration: const Duration(milliseconds: 250),
                   width: !isPortrait ? (_isExtended ? 240 : 48) : 0,
                   curve: Curves.linearToEaseOut,
                   child: ClipRect(
