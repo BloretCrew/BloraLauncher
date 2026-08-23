@@ -14,6 +14,7 @@ import '../core/ffi_proxy.dart';
 import '../core/grammer_candy.dart';
 import '../core/i18n.dart';
 import '../core/java_config.dart';
+import '../core/uuid_utils.dart';
 import '../core/window_bridge.dart';
 import '../main.dart';
 import '../services/config_service.dart';
@@ -38,17 +39,26 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
     'Welcome'.tl,
     'Language'.tl,
     'Login'.tl,
-    'Sync'.tl,
+    'Account'.tl,
     'Java'.tl,
     'Directory'.tl,
   ];
 
   String _selectedLanguage = 'zh_cn';
+  Map<String, String> _availableLanguages = {
+    'en_us': 'English (US)',
+    'zh_cn': '简体中文',
+    'zh_tw': '繁體中文',
+    'ja_jp': '日本語',
+    'ru_ru': 'Русский',
+  };
   List<String> _minecraftDirs = [];
+  final GlobalKey<AnimatedListState> _dirListKey = GlobalKey<AnimatedListState>();
 
   bool _isWaitingForLogin = false;
+  bool _loginSkipped = false;
   HttpServer? _authServer;
-  int _actualPort = 25253;
+  int _actualPort = 25254;
   Timer? _statusChecker;
 
   final ValueNotifier<bool> _isTokenValidNotifier = ValueNotifier<bool>(false);
@@ -72,7 +82,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _selectedLanguage = ConfigService.getLanguage();
     _initDefaults();
+    _loadLanguages();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateAppIcon();
       WindowBridge.init(context);
@@ -84,6 +96,15 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
     });
     _checkJavaEnvironment();
     _getLocalIp();
+  }
+
+  Future<void> _loadLanguages() async {
+    final langs = await I18n.getAvailableLanguages();
+    if (mounted) {
+      setState(() {
+        _availableLanguages = langs;
+      });
+    }
   }
 
   Future<void> _initDefaults() async {
@@ -582,8 +603,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
   Future<void> _startAuthServer() async {
     await _authServer?.close(force: true);
     try {
-      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25253);
-      _actualPort = 25253;
+      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25254);
+      _actualPort = 25254;
     } catch (_) {
       _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       _actualPort = _authServer!.port;
@@ -623,6 +644,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
 
             final syncResult = await PassportService.syncMinecraftAccounts();
             _isTokenValidNotifier.value = syncResult;
+            _loginSkipped = false;
             _syncStateToUi();
             showSuccess("Logged in successfully".tl);
             logger.info(
@@ -904,10 +926,12 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(5),
                       color: isCompleted
-                          ? Colors.green
+                          ? (index == 2 && _loginSkipped
+                              ? Colors.orange
+                              : Colors.green)
                           : (isCurrent
-                                ? theme.colorScheme.primary
-                                : theme.colorScheme.outlineVariant),
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outlineVariant),
                     ),
                   ),
                   if (!isPortrait) const SizedBox(height: 14),
@@ -922,7 +946,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: isCompleted
-                                ? Colors.green
+                                ? (index == 2 && _loginSkipped) ? Colors.orange : Colors.green
                                 : (isCurrent
                                       ? theme.colorScheme.primary
                                       : theme.colorScheme.onSurfaceVariant),
@@ -1050,15 +1074,16 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                 ),
               ),
               child: Win11Dropdown(
-                items: [
-                  Win11DropdownItem(label: "English (US)", value: "en_us"),
-                  Win11DropdownItem(label: "简体中文", value: "zh_cn"),
-                  Win11DropdownItem(label: "繁體中文", value: "zh_tw"),
-                  Win11DropdownItem(label: "日本語", value: "ja_jp"),
-                  Win11DropdownItem(label: "Русский", value: "ru_ru"),
-                ],
-                initialValue: 'zh_cn',
-                onChanged: (val) => setState(() => _selectedLanguage = val!),
+                items: _availableLanguages.entries.map((e) {
+                  return Win11DropdownItem(label: e.value, value: e.key);
+                }).toList(),
+                initialValue: _selectedLanguage,
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _selectedLanguage = val);
+                    ConfigService.setLanguage(val);
+                  }
+                },
               ),
             ),
           ],
@@ -1206,7 +1231,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  "Tip: You must log in to Bloret PassPort to continue.".tl,
+                  "Tip: You must log in to Bloret PassPort to get full service.".tl,
                   textAlign: TextAlign.center,
                   style: hintStyle,
                 ),
@@ -1221,14 +1246,13 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
         return Column(
           children: [
             Text(
-              "Sync Minecraft Accounts".tl,
+              "Minecraft Accounts".tl,
               textAlign: TextAlign.center,
               style: headerStyle,
             ),
             const SizedBox(height: 12),
             Text(
-              "Sync your Minecraft account information from Bloret PassPort."
-                  .tl,
+              "Add or sync your Minecraft accounts to start the game.".tl,
               textAlign: TextAlign.center,
               style: hintStyle,
             ),
@@ -1269,8 +1293,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 40),
                     child: Text(
-                      "Please go to passport.bloret.net first to add an account, then click the sync button here."
-                          .tl,
+                      "Please add an offline account or sync from Bloret PassPort.".tl,
                       textAlign: TextAlign.center,
                       style: hintStyle,
                     ),
@@ -1386,7 +1409,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                                             ),
                                             curve: Curves.easeOut,
                                             child:
-                                                const CircularProgressIndicator(),
+                                                Padding(
+                                                  padding: const EdgeInsetsGeometry.all(5),
+                                                  child: const CircularProgressIndicator(strokeWidth: 2,),
+                                                ),
                                           );
                                         },
                                         errorWidget:
@@ -1416,6 +1442,23 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                                   ),
                                   Row(
                                     children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: (account['type'] == 'Offline' ? Colors.orange : Colors.blue).withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: (account['type'] == 'Offline' ? Colors.orange : Colors.blue).withValues(alpha: 0.2)),
+                                        ),
+                                        child: Text(
+                                          (account['type'] == 'Offline' ? "Local".tl : "Cloud".tl),
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                            color: account['type'] == 'Offline' ? Colors.orange : Colors.blue,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
                                       Text(
                                         (account['type'] ?? "Offline")
                                             .toString()
@@ -1440,6 +1483,12 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                                 ],
                               ),
                             ),
+                            if (account['type'] == 'Offline')
+                              IconButton(
+                                onPressed: () => _deleteOfflineAccount(index, account['username'] ?? ""),
+                                icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                                visualDensity: VisualDensity.compact,
+                              ),
                             if (isSelected)
                               Icon(
                                 Icons.check_circle,
@@ -1473,47 +1522,50 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                 ),
               ),
             const SizedBox(height: 32),
-            AnimatedScale(
-              duration: const Duration(milliseconds: 400),
-              curve: Curves.easeOutBack,
-              scale: _isSyncingAccounts ? 0.9 : 1.0,
-              child: ElevatedButton.icon(
-                onPressed: _isSyncingAccounts
-                    ? null
-                    : () async {
-                        setState(() => _isSyncingAccounts = true);
-                        try {
-                          final success =
-                              await PassportService.syncMinecraftAccounts();
-                          if (success) {
-                            showSuccess("Sync complete".tl);
-                          } else {
-                            showError(
-                              "Sync failed. Please check your network or login status."
-                                  .tl,
-                            );
-                          }
-                        } catch (e) {
-                          showError("Sync failed".tl);
-                          logger.error("Welcome sync error: $e", .network);
-                        }
-                        if (mounted) setState(() => _isSyncingAccounts = false);
-                      },
-                icon: const Icon(Icons.sync),
-                label: Text(
-                  accounts.isEmpty ? "Sync Accounts".tl : "Resync".tl,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _addOfflineAccount,
+                  icon: const Icon(Icons.add),
+                  label: Text(
+                    "Add Offline".tl,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 16),
+                AnimatedScale(
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOutBack,
+                  scale: _isSyncingAccounts ? 0.9 : 1.0,
+                  child: OutlinedButton.icon(
+                    onPressed: _isSyncingAccounts ? null : _syncAccounts,
+                    icon: const Icon(Icons.sync),
+                    label: Text(
+                      accounts.isEmpty ? "Sync Accounts".tl : "Resync".tl,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         );
@@ -1794,56 +1846,17 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                     color: theme.dividerColor.withValues(alpha: 0.1),
                   ),
                 ),
-                child: ListView.separated(
+                child: AnimatedList(
+                  key: _dirListKey,
                   shrinkWrap: true,
                   padding: const EdgeInsets.all(8),
-                  itemCount: _minecraftDirs.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: theme.dividerColor.withValues(alpha: 0.1),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.folder,
-                            size: 20,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              _minecraftDirs[index],
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                fontFamily: 'monospace',
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () {
-                              setState(() => _minecraftDirs.removeAt(index));
-                            },
-                            icon: const Icon(
-                              Icons.remove_circle_outline,
-                              size: 20,
-                              color: Colors.red,
-                            ),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ],
-                      ),
+                  initialItemCount: _minecraftDirs.length,
+                  itemBuilder: (context, index, animation) {
+                    return _buildDirItem(
+                      _minecraftDirs[index],
+                      index,
+                      animation,
+                      theme,
                     );
                   },
                 ),
@@ -1851,14 +1864,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 onPressed: () async {
-                  String? selectedDirectory = await FilePicker.platform
-                      .getDirectoryPath();
+                  String? selectedDirectory =
+                      await FilePicker.platform.getDirectoryPath();
                   if (selectedDirectory != null) {
-                    setState(() {
-                      if (!_minecraftDirs.contains(selectedDirectory)) {
-                        _minecraftDirs.add(selectedDirectory);
-                      }
-                    });
+                    _addMinecraftDir(selectedDirectory);
                   }
                 },
                 icon: const Icon(Icons.add_location_alt_outlined),
@@ -1973,7 +1982,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
         case 1:
           return true;
         case 2:
-          return isLoggedIn && _isTokenValidNotifier.value;
+          return true; // Allow skip
         case 3:
           return _getAccounts().isNotEmpty;
         case 4:
@@ -2036,6 +2045,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                 ? null
                 : () async {
                     if (_currentStep < _totalSteps - 1) {
+                      if (_currentStep == 2 && !isLoggedIn) {
+                        setState(() => _loginSkipped = true);
+                      }
                       setState(() => _currentStep++);
                       if (_currentStep == 2) {
                         _checkTokenValidity();
@@ -2084,13 +2096,211 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                     }
                   },
             child: Text(
-              _currentStep == _totalSteps - 1 ? "Finish".tl : "Next".tl,
+              _currentStep == _totalSteps - 1
+                  ? "Finish".tl
+                  : (_currentStep == 2 && !isLoggedIn ? "Skip".tl : "Next".tl),
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildDirItem(
+    String dir,
+    int index,
+    Animation<double> animation,
+    ThemeData theme,
+  ) {
+    return FadeTransition(
+      opacity: animation,
+      child: SizeTransition(
+        sizeFactor: animation,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: theme.dividerColor.withValues(alpha: 0.1),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.folder, size: 20, color: theme.colorScheme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  dir,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: 'monospace',
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                onPressed: () => _removeMinecraftDir(index, theme),
+                icon: const Icon(
+                  Icons.remove_circle_outline,
+                  size: 20,
+                  color: Colors.red,
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _addMinecraftDir(String path) {
+    if (!_minecraftDirs.contains(path)) {
+      setState(() {
+        _minecraftDirs.add(path);
+        _dirListKey.currentState?.insertItem(
+          _minecraftDirs.length - 1,
+          duration: const Duration(milliseconds: 300),
+        );
+      });
+    }
+  }
+
+  void _removeMinecraftDir(int index, ThemeData theme) {
+    final String removedDir = _minecraftDirs[index];
+    _dirListKey.currentState?.removeItem(
+      index,
+      (context, animation) =>
+          _buildDirItem(removedDir, index, animation, theme),
+      duration: const Duration(milliseconds: 300),
+    );
+    setState(() {
+      _minecraftDirs.removeAt(index);
+    });
+  }
+
+  Future<void> _syncAccounts() async {
+    setState(() => _isSyncingAccounts = true);
+    try {
+      final success = await PassportService.syncMinecraftAccounts();
+      if (success) {
+        showSuccess("Sync complete".tl);
+        if (_loginSkipped &&
+            (ConfigService.get('Bloret_PassPort_Login') ?? false)) {
+          setState(() => _loginSkipped = false);
+        }
+      } else {
+        showError(
+          "Sync failed. Please check your network or login status.".tl,
+        );
+      }
+    } catch (e) {
+      showError("Sync failed".tl);
+      logger.error("Welcome sync error: $e", .network);
+    }
+    if (mounted) setState(() => _isSyncingAccounts = false);
+  }
+
+  Future<void> _deleteOfflineAccount(int index, String username) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Delete Account".tl),
+        content: Text("${"Are you sure you want to delete account".tl} '$username'?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text("Cancel".tl),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text("Delete".tl, style: const TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final currentAccounts = _getAccounts();
+      final int chosenIdx = _getChosenIndex();
+
+      currentAccounts.removeAt(index);
+
+      await ConfigService.set(
+        'MinecraftAccountList',
+        currentAccounts.map((e) => jsonEncode(e)).toList(),
+      );
+
+      if (chosenIdx == index) {
+        await ConfigService.set('MinecraftAccount_Chosen', currentAccounts.isEmpty ? -1 : 0);
+      } else if (chosenIdx > index) {
+        await ConfigService.set('MinecraftAccount_Chosen', chosenIdx - 1);
+      }
+
+      setState(() {});
+      showSuccess("Account deleted".tl);
+    }
+  }
+
+  void _addOfflineAccount() {
+    final TextEditingController controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Add Offline Account".tl),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            hintText: "Enter username".tl,
+          ),
+          autofocus: true,
+          onSubmitted: (val) => _performAddOffline(controller.text, context),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("Cancel".tl),
+          ),
+          TextButton(
+            onPressed: () => _performAddOffline(controller.text, context),
+            child: Text("Add".tl),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _performAddOffline(String name, BuildContext context) async {
+    final trimmedName = name.trim();
+    if (trimmedName.isNotEmpty) {
+      final newAccount = {
+        'username': trimmedName,
+        'uuid': UUIDUtils.generateOfflineUUID(trimmedName),
+        'type': 'Offline',
+        'login_time': DateTime.now().toString(),
+      };
+      final currentAccounts = _getAccounts();
+      currentAccounts.add(newAccount);
+
+      await ConfigService.set(
+        'MinecraftAccountList',
+        currentAccounts.map((e) => jsonEncode(e)).toList(),
+      );
+
+      if (currentAccounts.length == 1) {
+        await ConfigService.set('MinecraftAccount_Chosen', 0);
+      }
+
+      setState(() {});
+      if (context.mounted) {
+        if (Navigator.canPop(context)) Navigator.pop(context);
+      }
+      showSuccess("Account added".tl);
+    }
   }
 }
 

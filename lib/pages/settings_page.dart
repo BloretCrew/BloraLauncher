@@ -95,6 +95,16 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _checkTranslationApi() async {
+    final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
+    if (!isLoggedIn) {
+      if (mounted) {
+        setState(() {
+          _translationApiAvailable = false;
+          _isCheckingTranslationApi = false;
+        });
+      }
+      return;
+    }
     setState(() => _isCheckingTranslationApi = true);
     final available = await TranslateApi.checkApiStatus();
     if (mounted) {
@@ -141,6 +151,26 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _navigateToCategory(SettingCategory category) async {
+    final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
+    if (!isLoggedIn &&
+        (category == SettingCategory.ai ||
+            category == SettingCategory.bloriko)) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text("Permission Denied".tl),
+          content: Text("Please login to Bloret PassPort to access AI settings.".tl),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text("OK".tl),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _selectedCategory = category;
       _currentPageIndex = 1;
@@ -585,6 +615,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _buildDetail(ThemeData theme) {
+    final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
     final cat = _categories.firstWhere(
       (element) => element["id"] == _selectedCategory,
     );
@@ -680,16 +711,17 @@ class _SettingsPageState extends State<SettingsPage> {
                     children: [
                       ...appThemeColors.entries.map((e) {
                         final bool isHovered = _hoveredColorKey == e.key;
+                        final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
                         return Tooltip(
-                          message: e.key.tl,
+                          message: !isLoggedIn ? "Login required".tl : e.key.tl,
                           child: MouseRegion(
                             onEnter: (_) =>
                                 setState(() => _hoveredColorKey = e.key),
                             onExit: (_) =>
                                 setState(() => _hoveredColorKey = null),
-                            cursor: SystemMouseCursors.click,
+                            cursor: isLoggedIn ? SystemMouseCursors.click : SystemMouseCursors.forbidden,
                             child: GestureDetector(
-                              onTap: () async {
+                              onTap: !isLoggedIn ? () => showInfo("Please login to change theme color".tl) : () async {
                                 await ConfigService.set(
                                   "theme_color_key",
                                   e.key,
@@ -735,86 +767,89 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         );
                       }),
-                      Tooltip(
-                        message: "Custom Color".tl,
-                        child: MouseRegion(
-                          onEnter: (_) =>
-                              setState(() => _hoveredColorKey = "custom"),
-                          onExit: (_) =>
-                              setState(() => _hoveredColorKey = null),
-                          cursor: SystemMouseCursors.click,
-                          child: GestureDetector(
-                            onTap: () => _showColorPickerDialog(context),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                gradient: const LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    Colors.red,
-                                    Colors.yellow,
-                                    Colors.green,
-                                    Colors.blue,
-                                  ],
-                                ),
-                                boxShadow: _hoveredColorKey == "custom"
-                                    ? [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.2,
+                      Builder(builder: (context) {
+                        final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
+                        return Tooltip(
+                          message: !isLoggedIn ? "Login required".tl : "Custom Color".tl,
+                          child: MouseRegion(
+                            onEnter: (_) =>
+                                setState(() => _hoveredColorKey = "custom"),
+                            onExit: (_) =>
+                                setState(() => _hoveredColorKey = null),
+                            cursor: isLoggedIn ? SystemMouseCursors.click : SystemMouseCursors.forbidden,
+                            child: GestureDetector(
+                              onTap: !isLoggedIn ? () => showInfo("Please login to change theme color".tl) : () => _showColorPickerDialog(context),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(8),
+                                  gradient: const LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      Colors.red,
+                                      Colors.yellow,
+                                      Colors.green,
+                                      Colors.blue,
+                                    ],
+                                  ),
+                                  boxShadow: _hoveredColorKey == "custom"
+                                      ? [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.2,
+                                            ),
+                                            blurRadius: 8,
+                                            spreadRadius: 2,
                                           ),
-                                          blurRadius: 8,
-                                          spreadRadius: 2,
+                                        ]
+                                      : null,
+                                ),
+                                child: Opacity(
+                                  opacity: 0.4,
+                                  child: GridView.count(
+                                    crossAxisCount: 2,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    padding: const EdgeInsets.all(4),
+                                    children: [
+                                      Container(
+                                        margin: const EdgeInsets.all(2),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.white,
+                                          shape: BoxShape.circle,
                                         ),
-                                      ]
-                                    : null,
-                              ),
-                              child: Opacity(
-                                opacity: 0.4,
-                                child: GridView.count(
-                                  crossAxisCount: 2,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  padding: const EdgeInsets.all(4),
-                                  children: [
-                                    Container(
-                                      margin: const EdgeInsets.all(2),
-                                      decoration: const BoxDecoration(
-                                        color: Colors.white,
-                                        shape: BoxShape.circle,
                                       ),
-                                    ),
-                                    Container(
-                                      margin: const EdgeInsets.all(2),
-                                      decoration: const BoxDecoration(
-                                        color: Colors.white,
-                                        shape: BoxShape.circle,
+                                      Container(
+                                        margin: const EdgeInsets.all(2),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.white,
+                                          shape: BoxShape.circle,
+                                        ),
                                       ),
-                                    ),
-                                    Container(
-                                      margin: const EdgeInsets.all(2),
-                                      decoration: const BoxDecoration(
-                                        color: Colors.white,
-                                        shape: BoxShape.circle,
+                                      Container(
+                                        margin: const EdgeInsets.all(2),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.white,
+                                          shape: BoxShape.circle,
+                                        ),
                                       ),
-                                    ),
-                                    Container(
-                                      margin: const EdgeInsets.all(2),
-                                      decoration: const BoxDecoration(
-                                        color: Colors.white,
-                                        shape: BoxShape.circle,
+                                      Container(
+                                        margin: const EdgeInsets.all(2),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.white,
+                                          shape: BoxShape.circle,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
+                        );
+                      }),
                     ],
                   ),
                   Builder(
@@ -1184,7 +1219,25 @@ class _SettingsPageState extends State<SettingsPage> {
             sliderMin: 1,
             sliderMax: 128,
             onSliderChanged: (v) async {
-              await ConfigService.set("download_threads", v.toInt());
+              final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
+              if (!isLoggedIn && v > 16) {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: Text("High Performance Limitation".tl),
+                    content: Text("Setting more than 16 threads requires a Bloret PassPort login for performance optimization and abuse prevention.".tl),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text("OK".tl),
+                      ),
+                    ],
+                  ),
+                );
+                await ConfigService.set("download_threads", 16);
+              } else {
+                await ConfigService.set("download_threads", v.toInt());
+              }
               setState(() {});
             },
           ),
@@ -1241,6 +1294,11 @@ class _SettingsPageState extends State<SettingsPage> {
             trailing: BloretButton(
               text: "Open Editor".tl,
               onPressed: () {
+                final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
+                if (!isLoggedIn) {
+                   showInfo("Please login to Bloret PassPort to use 3D Editor".tl);
+                   return;
+                }
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const Fake3DEditorPage()),
@@ -1487,7 +1545,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                   initialValue:
                       ConfigService.get("translation_engine") ?? "auto",
-                  onChanged: (v) async {
+                  onChanged: !isLoggedIn ? (v) => showInfo("Please login to change translation engine".tl) : (v) async {
                     await ConfigService.set("translation_engine", v);
                     _checkTranslationApi();
                     setState(() {});
@@ -1881,165 +1939,168 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
         if (_selectedCategory == SettingCategory.control) ...[
           if (Platform.isWindows)
-            _buildSettingItem(
-              "Check for Updates".tl,
-              "${"Check and install hot update patches".tl} (${"Current".tl}: $_hotfixVersion)",
-              Icons.update,
-              trailing: _isCheckingUpdate
-                  ? Align(
-                      alignment: Alignment.centerRight,
-                      child: Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest
-                              .withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: theme.dividerColor.withValues(
-                              alpha: 0.1,
+            Builder(builder: (context) {
+              final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
+              return _buildSettingItem(
+                "Check for Updates".tl,
+                "${"Check and install hot update patches".tl} (${"Current".tl}: $_hotfixVersion)",
+                Icons.update,
+                trailing: _isCheckingUpdate
+                    ? Align(
+                        alignment: Alignment.centerRight,
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest
+                                .withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: theme.dividerColor.withValues(
+                                alpha: 0.1,
+                              ),
                             ),
                           ),
+                          padding: const EdgeInsets.all(8),
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2,
+                          ),
                         ),
-                        padding: const EdgeInsets.all(8),
-                        child: const CircularProgressIndicator(
-                          strokeWidth: 2,
-                        ),
-                      ),
-                    )
-                  : IconButton(
-                      icon: const Icon(Icons.refresh),
-                      onPressed: () async {
-                        setState(() => _isCheckingUpdate = true);
-                        try {
-                          final update = await UpdateManager.instance
-                              .checkUpdate();
-                          if (mounted) {
-                            if (update != null) {
-                              final confirm = await showDialog<bool>(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: Text("New Patch Found".tl),
-                                  content: Text(
-                                    "${"Version".tl}: ${update.version}\n${"Download and apply now?".tl}\n${"(Note: Requires app restart after application)".tl}",
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.refresh),
+                        onPressed: !isLoggedIn ? () => showInfo("Please login to use hot update".tl) : () async {
+                          setState(() => _isCheckingUpdate = true);
+                          try {
+                            final update = await UpdateManager.instance
+                                .checkUpdate();
+                            if (mounted) {
+                              if (update != null) {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: Text("New Patch Found".tl),
+                                    content: Text(
+                                      "${"Version".tl}: ${update.version}\n${"Download and apply now?".tl}\n${"(Note: Requires app restart after application)".tl}",
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: Text("Cancel".tl),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: Text("Install".tl),
+                                      ),
+                                    ],
                                   ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.pop(context, false),
-                                      child: Text("Cancel".tl),
-                                    ),
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.pop(context, true),
-                                      child: Text("Install".tl),
-                                    ),
-                                  ],
-                                ),
-                              );
+                                );
 
-                              if (confirm == true) {
-                                final progressController =
-                                    StreamController<double>();
+                                if (confirm == true) {
+                                  final progressController =
+                                      StreamController<double>();
 
-                                if (mounted) {
-                                  showDialog(
-                                    context: context,
-                                    barrierDismissible: false,
-                                    builder: (context) => StreamBuilder<double>(
-                                      stream: progressController.stream,
-                                      initialData: 0,
-                                      builder: (context, snapshot) {
-                                        final p = snapshot.data ?? 0;
-                                        final bool isIndeterminate = p > 1.0;
-                                        final String percentText =
-                                            isIndeterminate
-                                            ? "${(p - 1.0).toStringAsFixed(1)} MB"
-                                            : "${(p * 100).toInt()}%";
-
-                                        return AlertDialog(
-                                          title: Text("Updating patch".tl),
-                                          content: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const SizedBox(height: 8),
-                                              if (isIndeterminate)
-                                                const LinearProgressIndicator()
-                                              else
-                                                GoogleSquigglySlider(
-                                                  value: p * 100,
-                                                  max: 100,
-                                                ),
-                                              const SizedBox(height: 12),
-                                              Text(
-                                                percentText,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                              Text(
-                                                "Downloading and applying, please do not close the app..."
-                                                    .tl,
-                                                style: const TextStyle(
-                                                  fontSize: 12,
-                                                  color: Colors.grey,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  );
-                                }
-
-                                try {
-                                  final result = await UpdateManager.instance
-                                      .checkAndApplyUpdate(
-                                        context: context.mounted
-                                            ? context
-                                            : null,
-                                        onProgress: (p) =>
-                                            progressController.add(p),
-                                      );
-                                  if (mounted) Navigator.pop(context);
-                                  if (!result) return;
-                                  await _loadHotfixVersion();
                                   if (mounted) {
-                                    showSuccess(
-                                      "Patch installed, restart app to take effect."
-                                          .tl,
+                                    showDialog(
+                                      context: context,
+                                      barrierDismissible: false,
+                                      builder: (context) => StreamBuilder<double>(
+                                        stream: progressController.stream,
+                                        initialData: 0,
+                                        builder: (context, snapshot) {
+                                          final p = snapshot.data ?? 0;
+                                          final bool isIndeterminate = p > 1.0;
+                                          final String percentText =
+                                              isIndeterminate
+                                              ? "${(p - 1.0).toStringAsFixed(1)} MB"
+                                              : "${(p * 100).toInt()}%";
+
+                                          return AlertDialog(
+                                            title: Text("Updating patch".tl),
+                                            content: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const SizedBox(height: 8),
+                                                if (isIndeterminate)
+                                                  const LinearProgressIndicator()
+                                                else
+                                                  GoogleSquigglySlider(
+                                                    value: p * 100,
+                                                    max: 100,
+                                                  ),
+                                                const SizedBox(height: 12),
+                                                Text(
+                                                  percentText,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  "Downloading and applying, please do not close the app..."
+                                                      .tl,
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        },
+                                      ),
                                     );
                                   }
-                                } catch (e) {
-                                  if (mounted) Navigator.pop(context);
-                                  logger.error(
-                                    "[Update] Apply failed: $e",
-                                    LogSource.system,
-                                  );
-                                } finally {
-                                  progressController.close();
+
+                                  try {
+                                    final result = await UpdateManager.instance
+                                        .checkAndApplyUpdate(
+                                          context: context.mounted
+                                              ? context
+                                              : null,
+                                          onProgress: (p) =>
+                                              progressController.add(p),
+                                        );
+                                    if (mounted) Navigator.pop(context);
+                                    if (!result) return;
+                                    await _loadHotfixVersion();
+                                    if (mounted) {
+                                      showSuccess(
+                                        "Patch installed, restart app to take effect."
+                                            .tl,
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (mounted) Navigator.pop(context);
+                                    logger.error(
+                                      "[Update] Apply failed: $e",
+                                      LogSource.system,
+                                    );
+                                  } finally {
+                                    progressController.close();
+                                  }
                                 }
+                              } else {
+                                showInfo(
+                                  "You are already on the latest patch version."
+                                      .tl,
+                                );
                               }
-                            } else {
-                              showInfo(
-                                "You are already on the latest patch version."
-                                    .tl,
-                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              showError("${"Check error".tl}: $e");
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isCheckingUpdate = false);
                             }
                           }
-                        } catch (e) {
-                          if (mounted) {
-                            showError("${"Check error".tl}: $e");
-                          }
-                        } finally {
-                          if (mounted) {
-                            setState(() => _isCheckingUpdate = false);
-                          }
-                        }
-                      },
-                    ),
-            ),
+                        },
+                      ),
+              );
+            }),
           if (ConfigService.get("develop_mode") == true)
             ...[
               _buildSettingItem(
@@ -2449,14 +2510,35 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _buildPluginList() {
     final service = PluginService.instance;
+    final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
 
     return ListenableBuilder(
       listenable: service,
       builder: (context, _) {
         final plugins = service.plugins;
 
+        if (!isLoggedIn) {
+          // Schedule disabling enabled plugins to avoid build-time state modification
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            for (var p in plugins) {
+              if (p.isEnabled) service.togglePlugin(p.id, false);
+            }
+          });
+        }
+
         return Column(
           children: [
+            if (!isLoggedIn)
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Center(
+                  child: Text(
+                    "Plugins are disabled. Please login to Bloret PassPort to use extensions.".tl,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
             _buildPluginActionBar(),
             const SizedBox(height: 12),
             _buildSettingItem(
@@ -2464,7 +2546,7 @@ class _SettingsPageState extends State<SettingsPage> {
               "Automatically reload plugins when files change".tl,
               Icons.bolt,
               switchValue: service.isHotReloadEnabled,
-              onSwitchChanged: (v) => service.setHotReload(v),
+              onSwitchChanged: !isLoggedIn ? null : (v) => service.setHotReload(v),
             ),
             const SizedBox(height: 12),
             if (plugins.isEmpty)
@@ -2499,7 +2581,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               const SizedBox(height: 8),
-              ...plugins.map((plugin) => _buildPluginItem(plugin)),
+              ...plugins.map((plugin) => _buildPluginItem(plugin, isLoggedIn)),
             ],
           ],
         );
@@ -2581,7 +2663,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildPluginItem(BloretPlugin plugin) {
+  Widget _buildPluginItem(BloretPlugin plugin, bool isLoggedIn) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4.0),
       child: FluentCard(
@@ -2593,7 +2675,7 @@ class _SettingsPageState extends State<SettingsPage> {
               title: Text(plugin.translate(plugin.name), style: const TextStyle(fontWeight: FontWeight.bold)),
               subtitle: Text("${plugin.version} | ${plugin.author}"),
               trailing: Row(
-                mainAxisSize: .min,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
                     icon: Icon(Icons.delete, color: Colors.red,),
@@ -2621,7 +2703,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                   Switch(
                     value: plugin.isEnabled,
-                    onChanged: (v) => PluginService.instance.togglePlugin(plugin.id, v),
+                    onChanged: !isLoggedIn ? null : (v) => PluginService.instance.togglePlugin(plugin.id, v),
                   )
                 ],
               ),

@@ -399,7 +399,7 @@ class _ToolsPageState extends State<ToolsPage> with TickerProviderStateMixin {
               showSuccess("Cape URL copied to clipboard".tl);
             },
 
-            bottomWidget: skinImage != null
+            bottomWidget: ConfigService.get("Bloret_PassPort_Login") == true ? (skinImage != null
                 ? FadeTransition(
                     opacity: _skinViewAnimController,
                     child: SlideTransition(
@@ -568,7 +568,7 @@ class _ToolsPageState extends State<ToolsPage> with TickerProviderStateMixin {
                     padding: EdgeInsets.all(20),
                     child: Center(child: CircularProgressIndicator()),
                   )
-                : null,
+                : null) : null,
           ),
         ],
       ),

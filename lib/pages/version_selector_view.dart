@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../core/grammer_candy.dart';
 import '../core/i18n.dart';
+import '../services/config_service.dart';
 import '../services/download_service.dart';
 import '../services/launch_service.dart';
 import '../widgets/button.dart';
@@ -1546,11 +1547,12 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
   }) {
     final dateStr = DateFormat('yyyy-MM-dd').format(version.releaseTime);
     final bool isAprilFools = _isAprilFools(version.id);
+    final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 2, top: 2),
       child: InkWell(
-        onTap: () {
+        onTap: (!isLoggedIn && forceAccelerated) ? null : () {
           setState(() {
             _selectedVersion = version;
             _customNameController.text = version.id;
@@ -1638,7 +1640,7 @@ class _VersionSelectorViewState extends State<VersionSelectorView>
                 ),
               ),
               Icon(
-                Icons.chevron_right,
+                (!isLoggedIn && forceAccelerated) ? Icons.lock : Icons.chevron_right,
                 size: 18,
                 color: theme.colorScheme.outline.withValues(alpha: 0.5),
               ),

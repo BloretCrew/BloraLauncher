@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 
+import '../core/global.dart';
+import '../main.dart';
 import 'config_service.dart';
 
 class PassportService {
-  static const String baseUrl = 'http://bloret.net:20000';
+  static String baseUrl = 'http://$serverIP:20000';
   static const String appId = 'bp_300950b2630e250c';
   static const String appSecret = 'bs_6f6dfdf0fa563b10bb1d51389eab92a5d485cfd3d29f904c';
   static final Dio dio = Dio();
@@ -101,26 +103,58 @@ class PassportService {
 
       if (apiResult['status'] == 'success') {
         final List accounts = apiResult['accounts'] ?? [];
-        
+
+        final List<dynamic> currentList = ConfigService.get('MinecraftAccountList') as List<dynamic>? ?? [];
+        final List<dynamic> localAccounts = currentList.where((e) {
+          try {
+            final decoded = jsonDecode(e.toString());
+            return decoded['locate'] == 'Local';
+          } catch (_) {
+            return false;
+          }
+        }).toList();
+
+        final List<String> combinedList = [
+          ...localAccounts.map((e) => e.toString()),
+          ...accounts.map((e) => jsonEncode(e)),
+        ];
+
         final oldAccountData = ConfigService.get('MinecraftAccount');
         int oldChosen = 0;
+        String? chosenUuid;
+
         if (oldAccountData is String) {
           try {
-             oldChosen = jsonDecode(oldAccountData)['chosen'] ?? 0;
+             final decoded = jsonDecode(oldAccountData);
+             oldChosen = decoded['chosen'] ?? 0;
+             if (oldChosen >= 0 && oldChosen < currentList.length) {
+                chosenUuid = jsonDecode(currentList[oldChosen].toString())['uuid'];
+             }
           } catch (_) {}
-        } else if (oldAccountData is Map) {
-          oldChosen = oldAccountData['chosen'] ?? 0;
         }
 
-        int newChosen = (oldChosen >= 0 && oldChosen < accounts.length) ? oldChosen : (accounts.isNotEmpty ? 0 : -1);
+        await ConfigService.set('MinecraftAccountList', combinedList);
 
-        await ConfigService.set('MinecraftAccountList', accounts.map((e) => jsonEncode(e)).toList());
+        int newChosen = -1;
+        if (chosenUuid != null) {
+          for (int i = 0; i < combinedList.length; i++) {
+            if (jsonDecode(combinedList[i])['uuid'] == chosenUuid) {
+              newChosen = i;
+              break;
+            }
+          }
+        }
+        
+        if (newChosen == -1 && combinedList.isNotEmpty) {
+          newChosen = 0;
+        }
+        
         await ConfigService.set('MinecraftAccount_Chosen', newChosen);
 
         final newAccountData = {
           "logined": accounts.isNotEmpty,
           "chosen": newChosen,
-          "accounts": accounts
+          "accounts": combinedList.map((e) => jsonDecode(e)).toList(),
         };
         await ConfigService.set('MinecraftAccount', jsonEncode(newAccountData));
         
@@ -130,7 +164,9 @@ class PassportService {
         
         return true;
       }
-    } catch (_) {}
+    } catch (e) {
+      logger.error("Passport sync error: $e", .network);
+    }
     return false;
   }
 

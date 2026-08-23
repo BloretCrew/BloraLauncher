@@ -147,7 +147,7 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
               followerAnchor: showAbove 
                   ? (alignRight ? Alignment.bottomRight : Alignment.bottomLeft)
                   : (alignRight ? Alignment.topRight : Alignment.topLeft),
-              offset: Offset(0, showAbove ? -4 : 4),
+              offset: Offset(0, showAbove ? -1 : 1), // 减小偏移使边框更好衔接
               child: Material(
                 color: Colors.transparent,
                 child: IntrinsicWidth(
@@ -156,7 +156,7 @@ class _Win11DropdownState extends State<Win11Dropdown> with SingleTickerProvider
                     alignment: showAbove ? Alignment.bottomCenter : Alignment.topCenter,
                     child: _Win11MenuContent(
                       items: widget.items,
-                      width: widget.width,
+                      width: widget.width ?? size.width, // 确保菜单宽度与基底一致
                       selectedValue: _selectedValue,
                       themeColor: _getThemeColor(context),
                       onChanged: (val) {

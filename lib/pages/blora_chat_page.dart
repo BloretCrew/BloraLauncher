@@ -56,6 +56,7 @@ class _BloraChatPageState extends State<BloraChatPage>
 
   final List<File> _attachments = [];
   final GlobalKey<AnimatedListState> _listKey = GlobalKey<AnimatedListState>();
+  final TextEditingController _unlockKeyController = TextEditingController();
   bool _isDocumentMode = false;
   bool _isRecording = false;
   String _textBeforeSpeech = "";
@@ -154,6 +155,7 @@ class _BloraChatPageState extends State<BloraChatPage>
     }
     _inputController.dispose();
     _inputAnswerController.dispose();
+    _unlockKeyController.dispose();
     _msgScrollController.dispose();
     _inputScrollController.dispose();
     _answerScrollController.dispose();
@@ -2031,6 +2033,15 @@ class _BloraChatPageState extends State<BloraChatPage>
   Widget build(BuildContext context) {
     super.build(context);
     final theme = Theme.of(context);
+    
+    final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
+    final bool hasKey = (ConfigService.get('custom_ai_key')?.toString().isNotEmpty ?? false) || 
+                        (ConfigService.get('google_ai_key')?.toString().isNotEmpty ?? false);
+
+    if (!isLoggedIn && !hasKey) {
+      return _buildLockScreen(theme);
+    }
+
     final isPortrait =
         MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
     final borderColor = theme.dividerColor;
@@ -4737,6 +4748,137 @@ class _BloraChatPageState extends State<BloraChatPage>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildLockScreen(ThemeData theme) {
+    final textColor = theme.colorScheme.onSurface;
+    final secondaryTextColor = theme.colorScheme.onSurfaceVariant;
+
+    return Center(
+      child: Container(
+        width: 420,
+        padding: const EdgeInsets.all(40),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.5)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 30,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.lock_person_rounded,
+                size: 48,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              "Blora Agent Locked".tl,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: textColor,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              "Please login to Bloret PassPort or enter an API Key to continue using Blora Agent."
+                  .tl,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: secondaryTextColor,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 32),
+            TextField(
+              controller: _unlockKeyController,
+              decoration: InputDecoration(
+                labelText: "API Key".tl,
+                hintText: "sk-xxxxxx...",
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                prefixIcon: Padding(padding: const EdgeInsetsGeometry.only(left: 4), child: const Icon(Icons.key_rounded),),
+                suffixIcon: Padding(padding: const EdgeInsetsGeometry.only(right: 4), child: IconButton(
+                  icon: const Icon(Icons.check_circle_rounded),
+                  onPressed: () async {
+                    final key = _unlockKeyController.text.trim();
+                    if (key.isNotEmpty) {
+                      await ConfigService.set('custom_ai_key', key);
+                      await ConfigService.set('ai_provider', 'custom_api');
+                      setState(() {
+                        _currentProviderKey = 'custom_api';
+                        _loadModels();
+                      });
+                      showSuccess("Key saved, feature unlocked".tl);
+                    }
+                  },
+                ),),
+              ),
+              obscureText: true,
+              onSubmitted: (val) async {
+                 if (val.trim().isNotEmpty) {
+                    await ConfigService.set('custom_ai_key', val.trim());
+                    await ConfigService.set('ai_provider', 'custom_api');
+                    setState(() {
+                      _currentProviderKey = 'custom_api';
+                      _loadModels();
+                    });
+                    showSuccess("Key saved, feature unlocked".tl);
+                 }
+              },
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                const Expanded(child: Divider()),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text("OR".tl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+                const Expanded(child: Divider()),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: FilledButton.icon(
+                onPressed: () {
+                  // Navigate to Passport page or show login dialog
+                  // Here we can trigger a shell navigation if needed, 
+                  // but for simplicity we direct user to Passport service.
+                  showInfo("Please go to the Passport tab to log in".tl);
+                },
+                icon: const Icon(Icons.login_rounded),
+                label: Text(
+                  "Login with Bloret PassPort".tl,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

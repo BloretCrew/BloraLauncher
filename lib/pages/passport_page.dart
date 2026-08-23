@@ -6,6 +6,7 @@ import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/main.dart';
 import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/core/grammer_candy.dart';
+import 'package:bloret_launcher/core/uuid_utils.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -23,7 +24,7 @@ class _PassPortPageState extends State<PassPortPage> {
   bool _displayUuid = true;
   bool _isWaitingForLogin = false;
   HttpServer? _authServer;
-  int _actualPort = 25253;
+  int _actualPort = 25254;
   final ValueNotifier<bool> _isTokenValidNotifier = ValueNotifier<bool>(false);
 
   void _syncStateToUi() {
@@ -52,8 +53,8 @@ class _PassPortPageState extends State<PassPortPage> {
   Future<void> _startAuthServer() async {
     await _authServer?.close(force: true);
     try {
-      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25253);
-      _actualPort = 25253;
+      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25254);
+      _actualPort = 25254;
     } catch (_) {
       _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       _actualPort = _authServer!.port;
@@ -212,6 +213,203 @@ class _PassPortPageState extends State<PassPortPage> {
     });
   }
 
+  void _addOfflineAccount() {
+    final TextEditingController controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Add Offline Account".tl),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            hintText: "Enter username".tl,
+          ),
+          autofocus: true,
+          onSubmitted: (val) => _performAddOffline(controller.text, context),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("Cancel".tl),
+          ),
+          TextButton(
+            onPressed: () => _performAddOffline(controller.text, context),
+            child: Text("Add".tl),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _performAddOffline(String name, BuildContext context) async {
+    final trimmedName = name.trim();
+    if (trimmedName.isNotEmpty) {
+      final newAccount = {
+        'username': trimmedName,
+        'uuid': UUIDUtils.generateOfflineUUID(trimmedName),
+        'type': 'Offline',
+        'locate': 'Local',
+        'login_time': DateTime.now().toString(),
+      };
+      final rawData = ConfigService.get('MinecraftAccountList');
+      List<dynamic> currentAccounts = [];
+      if (rawData is List) {
+        currentAccounts = List.from(rawData);
+      }
+      
+      currentAccounts.add(jsonEncode(newAccount));
+
+      await ConfigService.set(
+        'MinecraftAccountList',
+        currentAccounts,
+      );
+
+      if (currentAccounts.length == 1) {
+        await ConfigService.set('MinecraftAccount_Chosen', 0);
+      }
+
+      setState(() {});
+      if (context.mounted) {
+        if (Navigator.canPop(context)) Navigator.pop(context);
+      }
+      showSuccess("Account added".tl);
+    }
+  }
+
+  Future<void> _deleteAccount(int originalIndex, String username) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Delete Account".tl),
+        content: Text("${"Are you sure you want to delete account".tl} '$username'?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text("Cancel".tl),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text("Delete".tl, style: const TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final rawData = ConfigService.get('MinecraftAccountList');
+      if (rawData is List) {
+        final List<dynamic> newList = List.from(rawData);
+        final int? chosenIdx = int.tryParse(ConfigService.get('MinecraftAccount_Chosen')?.toString() ?? "");
+        
+        newList.removeAt(originalIndex);
+        await ConfigService.set('MinecraftAccountList', newList);
+
+        if (chosenIdx != null) {
+          if (chosenIdx == originalIndex) {
+            await ConfigService.set('MinecraftAccount_Chosen', newList.isEmpty ? -1 : 0);
+          } else if (chosenIdx > originalIndex) {
+            await ConfigService.set('MinecraftAccount_Chosen', chosenIdx - 1);
+          }
+        }
+
+        setState(() {});
+        showSuccess("Account deleted".tl);
+      }
+    }
+  }
+
+  Widget _buildAccountItem(Map<String, String> account, int originalIndex, bool isDefault, ThemeData theme) {
+    final bool isOffline = account['type'] == 'Offline';
+    
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: FluentCard(
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: CachedNetworkImage(
+                imageUrl: account['avatarUrl'] ?? "https://mc-heads.net/avatar/${account['uuid']}/32",
+                width: 32,
+                height: 32,
+                placeholder: (context, _) => const Icon(Icons.account_circle, size: 32),
+                errorWidget: (_, _, _) => const Icon(Icons.account_circle, size: 32),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          account['username'] ?? "Unknown",
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (_displayUuid && account['uuid'] != null)
+                        Flexible(
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 6),
+                            child: Text(
+                              "(${account['uuid']})",
+                              style: theme.textTheme.bodySmall?.copyWith(fontSize: 10, color: theme.colorScheme.outline),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: (account['locate'] == 'Local' ? Colors.orange : Colors.blue).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: (account['locate'] == 'Local' ? Colors.orange : Colors.blue).withValues(alpha: 0.2)),
+                        ),
+                        child: Text(
+                          (account['locate'] == 'Local' ? "Local".tl : "Cloud".tl),
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: account['locate'] == 'Local' ? Colors.orange : Colors.blue,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text((account['type'] ?? "Offline").toString().tl, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (isOffline && account["locate"] == "Local")
+              IconButton(
+                onPressed: () => _deleteAccount(originalIndex, account['username'] ?? ""),
+                icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                tooltip: "Delete Account".tl,
+              ),
+            BloretButton(
+              onPressed: isDefault ? null : () async {
+                await ConfigService.set('MinecraftAccount_Chosen', originalIndex).then((_) {
+                  if (mounted) setState(() {});
+                });
+              },
+              text: isDefault ? "Using".tl : "Use This".tl,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -219,7 +417,21 @@ class _PassPortPageState extends State<PassPortPage> {
     final userName = ConfigService.get('Bloret_PassPort_UserName') ?? "Guest".tl;
     final avatar = ConfigService.get('Bloret_PassPort_Avatar') ?? "";
     
-    final accountData = (ConfigService.get('MinecraftAccountList') as List<dynamic>? ?? []).map((e) => (jsonDecode(e.toString()) as Map<String, dynamic>).map((k, v) => MapEntry(k, v.toString()))).toList();
+    final List<dynamic> rawAccountList = ConfigService.get('MinecraftAccountList') as List<dynamic>? ?? [];
+    final List<Map<String, String>> accountData = [];
+    
+    for (int i = 0; i < rawAccountList.length; i++) {
+      try {
+        final decoded = jsonDecode(rawAccountList[i].toString()) as Map<String, dynamic>;
+        final map = decoded.map((k, v) => MapEntry(k, v.toString()));
+        map['_index'] = i.toString();
+        accountData.add(map);
+      } catch (_) {}
+    }
+
+    final passportAccounts = accountData.where((a) => a['locate'] != 'Local').toList();
+    final localAccounts = accountData.where((a) => a['locate'] == 'Local').toList();
+    final chosenIndex = int.tryParse(ConfigService.get("MinecraftAccount_Chosen")?.toString() ?? "-1");
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -244,6 +456,10 @@ class _PassPortPageState extends State<PassPortPage> {
                 if (!isLoggedIn)
                   BloretButton(
                     onPressed: () async {
+                      if (_isWaitingForLogin) {
+                        await _authServer?.close();
+                        _authServer = null;
+                      }
                       await _loginBloretPassPort();
                     },
                     text: _isWaitingForLogin ? "Waiting...".tl : "Login".tl,
@@ -255,7 +471,43 @@ class _PassPortPageState extends State<PassPortPage> {
                       await ConfigService.set('Bloret_PassPort_UserName', '');
                       await ConfigService.set('Bloret_PassPort_Token', '');
                       await ConfigService.set('Bloret_PassPort_Avatar', '');
-                      await ConfigService.set('MinecraftAccountList', []);
+                      await ConfigService.set('Bloret_PassPort_BBBS_Session', '');
+                      await ConfigService.set('Bloret_PassPort_BBBS_Session.sig', '');
+
+                      final rawData = ConfigService.get('MinecraftAccountList');
+                      if (rawData is List) {
+                        int? currentChosenIdx = ConfigService.get('MinecraftAccount_Chosen');
+                        String? chosenUuid;
+                        if (currentChosenIdx != null && currentChosenIdx >= 0 && currentChosenIdx < rawData.length) {
+                           chosenUuid = jsonDecode(rawData[currentChosenIdx].toString())['uuid'];
+                        }
+
+                        final filtered = rawData.where((e) {
+                          try {
+                            final decoded = jsonDecode(e.toString());
+                            return decoded['locate'] == 'Local';
+                          } catch (_) {
+                            return false;
+                          }
+                        }).toList();
+                        await ConfigService.set('MinecraftAccountList', filtered);
+
+                        int newChosenIdx = -1;
+                        if (chosenUuid != null) {
+                           for (int i = 0; i < filtered.length; i++) {
+                              if (jsonDecode(filtered[i].toString())['uuid'] == chosenUuid) {
+                                 newChosenIdx = i;
+                                 break;
+                              }
+                           }
+                        }
+                        
+                        if (newChosenIdx == -1 && filtered.isNotEmpty) {
+                           newChosenIdx = 0;
+                        }
+                        await ConfigService.set('MinecraftAccount_Chosen', newChosenIdx);
+                      }
+
                       setState(() {});
                       showInfo("Logged out".tl);
                     },
@@ -279,74 +531,43 @@ class _PassPortPageState extends State<PassPortPage> {
                   setState(() => _displayUuid = !_displayUuid);
                 },
                 icon: !_displayUuid ? const Icon(Icons.visibility_off) : const Icon(Icons.visibility),
-              )
+              ),
+              IconButton(
+                onPressed: _addOfflineAccount,
+                icon: const Icon(Icons.add_circle_outline),
+                tooltip: "Add Offline Account".tl,
+              ),
             ],
           ),
           const SizedBox(height: 12),
-          if (!isLoggedIn)
-            Center(child: Padding(padding: const EdgeInsets.all(20), child: Text("Please log in first".tl, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 32))))
-          else if (accountData.isEmpty)
-            Center(child: Padding(padding: const EdgeInsets.all(20), child: Text("No accounts, please sync from cloud".tl, style: const TextStyle(fontWeight: FontWeight.w600))))
-          else
-            ...accountData.asMap().entries.map((entry) {
-              final index = entry.key;
-              final account = entry.value;
-              final isDefault = int.tryParse(ConfigService.get("MinecraftAccount_Chosen").toString()) == index;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: FluentCard(
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: CachedNetworkImage(imageUrl: account['avatarUrl'] ?? "https://mc-heads.net/avatar/${account['uuid']}/32", width: 32, height: 32, errorWidget: (_, _, _) => const Icon(Icons.account_circle, size: 32)),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    account['username'] ?? "Unknown",
-                                    style: const TextStyle(fontWeight: FontWeight.w700),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                if (_displayUuid && account['uuid'] != null)
-                                  Flexible(
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(left: 6),
-                                      child: Text(
-                                        "(${account['uuid']})",
-                                        style: theme.textTheme.bodySmall?.copyWith(fontSize: 10, color: theme.colorScheme.outline),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            Text((account['type'] ?? "Offline").toString().tl, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
-                          ],
-                        ),
-                      ),
-                      BloretButton(
-                        onPressed: isDefault ? null : () async {
-                          await ConfigService.set('MinecraftAccount_Chosen', index).then((_) {
-                            if (mounted) setState(() {});
-                          });
-                        },
-                        text: isDefault ? "Using".tl : "Use This".tl,
-                      ),
-                    ],
-                  ),
-                ),
-              );
+          
+          if (passportAccounts.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, left: 4),
+              child: Text("PassPort Accounts".tl, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
+            ),
+            ...passportAccounts.map((account) {
+              final idx = int.parse(account['_index']!);
+              return _buildAccountItem(account, idx, chosenIndex == idx, theme);
             }),
+            const SizedBox(height: 12),
+          ],
+
+          if (localAccounts.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, left: 4),
+              child: Text("Local Accounts".tl, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.bold, color: theme.colorScheme.secondary)),
+            ),
+            ...localAccounts.map((account) {
+              final idx = int.parse(account['_index']!);
+              return _buildAccountItem(account, idx, chosenIndex == idx, theme);
+            }),
+            const SizedBox(height: 12),
+          ],
+
+          if (accountData.isEmpty)
+            Center(child: Padding(padding: const EdgeInsets.all(20), child: Text("No accounts, please add or sync".tl, style: const TextStyle(fontWeight: FontWeight.w600)))),
+
           if (isLoggedIn) ...[
             const SizedBox(height: 12),
             FluentCard(

@@ -3281,8 +3281,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       listenable: Bloriko.instance,
       builder: (context, child) {
         final isBusy = Bloriko.instance.busy;
+        final isLogin = ConfigService.get("Bloret_PassPort_Login") ?? false;
         return IconButton.filled(
-          onPressed: isBusy
+          onPressed: isBusy || !isLogin
               ? null
               : () {
                   final value = homeInputController.text.trim();
@@ -3307,7 +3308,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     color: Colors.white70,
                   ),
                 )
-              : const Icon(Icons.send),
+              : ConfigService.get("Bloret_PassPort_Login") == true ? const Icon(Icons.send) : const Icon(Icons.lock),
         );
       },
     );
