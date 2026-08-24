@@ -264,9 +264,20 @@ class _PassPortPageState extends State<PassPortPage> {
         currentAccounts,
       );
 
+      final int currentChosen = ConfigService.get('MinecraftAccount_Chosen') ?? 0;
+      int newChosen = currentChosen;
       if (currentAccounts.length == 1) {
+        newChosen = 0;
         await ConfigService.set('MinecraftAccount_Chosen', 0);
       }
+
+      // Keep legacy blob in sync
+      final newAccountData = {
+        "logined": currentAccounts.any((e) => jsonDecode(e.toString())['locate'] != 'Local'),
+        "chosen": newChosen,
+        "accounts": currentAccounts.map((e) => jsonDecode(e.toString())).toList(),
+      };
+      await ConfigService.set('MinecraftAccount', jsonEncode(newAccountData));
 
       setState(() {});
       if (context.mounted) {
@@ -304,13 +315,23 @@ class _PassPortPageState extends State<PassPortPage> {
         newList.removeAt(originalIndex);
         await ConfigService.set('MinecraftAccountList', newList);
 
+        int newChosen = chosenIdx ?? 0;
         if (chosenIdx != null) {
           if (chosenIdx == originalIndex) {
-            await ConfigService.set('MinecraftAccount_Chosen', newList.isEmpty ? -1 : 0);
+            newChosen = newList.isEmpty ? -1 : 0;
           } else if (chosenIdx > originalIndex) {
-            await ConfigService.set('MinecraftAccount_Chosen', chosenIdx - 1);
+            newChosen = chosenIdx - 1;
           }
         }
+        await ConfigService.set('MinecraftAccount_Chosen', newChosen);
+
+        // Keep legacy blob in sync
+        final newAccountData = {
+          "logined": newList.any((e) => jsonDecode(e.toString())['locate'] != 'Local'),
+          "chosen": newChosen,
+          "accounts": newList.map((e) => jsonDecode(e.toString())).toList(),
+        };
+        await ConfigService.set('MinecraftAccount', jsonEncode(newAccountData));
 
         setState(() {});
         showSuccess("Account deleted".tl);
@@ -398,9 +419,18 @@ class _PassPortPageState extends State<PassPortPage> {
               ),
             BloretButton(
               onPressed: isDefault ? null : () async {
-                await ConfigService.set('MinecraftAccount_Chosen', originalIndex).then((_) {
-                  if (mounted) setState(() {});
-                });
+                await ConfigService.set('MinecraftAccount_Chosen', originalIndex);
+                
+                // Keep legacy blob in sync
+                final List<dynamic> rawAccounts = ConfigService.get('MinecraftAccountList') ?? [];
+                final newAccountData = {
+                  "logined": rawAccounts.any((e) => jsonDecode(e.toString())['locate'] != 'Local'),
+                  "chosen": originalIndex,
+                  "accounts": rawAccounts.map((e) => jsonDecode(e.toString())).toList(),
+                };
+                await ConfigService.set('MinecraftAccount', jsonEncode(newAccountData));
+
+                if (mounted) setState(() {});
               },
               text: isDefault ? "Using".tl : "Use This".tl,
             ),
@@ -506,6 +536,14 @@ class _PassPortPageState extends State<PassPortPage> {
                            newChosenIdx = 0;
                         }
                         await ConfigService.set('MinecraftAccount_Chosen', newChosenIdx);
+
+                        // Keep legacy blob in sync
+                        final newAccountData = {
+                          "logined": false,
+                          "chosen": newChosenIdx,
+                          "accounts": filtered.map((e) => jsonDecode(e.toString())).toList(),
+                        };
+                        await ConfigService.set('MinecraftAccount', jsonEncode(newAccountData));
                       }
 
                       setState(() {});

@@ -19,6 +19,7 @@ import '../main.dart';
 class RunningCore {
   final String id;
   final String version;
+  final String minecraftDir;
   final String loader;
   final String userName;
   final String? avatar;
@@ -32,6 +33,8 @@ class RunningCore {
   bool killOnExit;
   final DateTime startTime = DateTime.now();
   int? exitCode;
+  String? crashAnalysisResult;
+  List<String> crashLogFiles = [];
   bool isManuallyTerminated = false;
 
   bool isSuspended = false;
@@ -45,6 +48,7 @@ class RunningCore {
   RunningCore({
     required this.id,
     required this.version,
+    required this.minecraftDir,
     required this.loader,
     required this.userName,
     this.avatar,
@@ -138,24 +142,26 @@ class LaunchService extends ChangeNotifier {
         blData["versions"] = {};
       }
 
-      final Map<String, dynamic> versionsMap = Map<String, dynamic>.from(blData["versions"]);
-      final versionEntry = Map<String, dynamic>.from(versionsMap[versionId] ?? {});
+      final Map<String, dynamic> versionsMap =
+          Map<String, dynamic>.from(blData["versions"]);
+      final versionEntry =
+          Map<String, dynamic>.from(versionsMap[versionId] ?? {});
 
       if (fabricLoader != null) versionEntry["Fabric"] = fabricLoader;
       if (iconPath != null) versionEntry["icon"] = iconPath;
-      
+
       if (extra != null) {
         versionEntry.addAll(extra);
       }
 
       if (versionEntry["setup_time"] == null) {
-        versionEntry["setup_time"] = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        versionEntry["setup_time"] =
+            DateTime.now().millisecondsSinceEpoch ~/ 1000;
       }
-      
+
       if (versionEntry["version"] == null) {
-        final baseVersion = versionId.contains("-")
-            ? versionId.split("-")[0]
-            : versionId;
+        final baseVersion =
+            versionId.contains("-") ? versionId.split("-")[0] : versionId;
         versionEntry["version"] = baseVersion;
       }
 
@@ -163,9 +169,12 @@ class LaunchService extends ChangeNotifier {
       blData["versions"] = versionsMap;
 
       await Directory(p.dirname(blJsonPath)).create(recursive: true);
-      await file.writeAsString(JsonEncoder.withIndent("    ").convert(blData));
+      await file.writeAsString(
+        const JsonEncoder.withIndent("    ").convert(blData),
+        flush: true,
+      );
     } catch (e) {
-      stderr.writeln("Failed to update .BLF.json: $e");
+      logger.error("Failed to update .BLF.json: $e");
     }
   }
 
@@ -338,7 +347,6 @@ class LaunchService extends ChangeNotifier {
 
     var content = await file.readAsString();
     var decoded = jsonDecode(content);
-    // 兼容某些极其特殊、将 JSON 整个作为字符串二次编码的版本 JSON
     while (decoded is String) {
       decoded = jsonDecode(decoded);
     }
@@ -1217,8 +1225,7 @@ class LaunchService extends ChangeNotifier {
             jarPath = p.join(minecraftDir, relPath);
           }
         }
-        
-        // 如果没找到特定Native包，尝试从主Jar包提取（兼容旧版本）
+
         jarPath ??= _getLibraryPath(minecraftDir, libData);
 
         if (jarPath.isNotEmpty && await File(jarPath).exists()) {
@@ -1285,10 +1292,15 @@ class LaunchService extends ChangeNotifier {
        }
     }
 
-    final int minMem = blData['memory_mode'] == "Custom" ? 512 : (ConfigService.get('java_min_memory') ?? 512);
     final int maxMem = blData['memory_mode'] == "Custom" 
         ? (blData['custom_memory'] ?? 4096).toInt() 
         : (ConfigService.get('java_max_memory') ?? 4096);
+        
+    int minMem = blData['memory_mode'] == "Custom" ? 512 : (ConfigService.get('java_min_memory') ?? 512);
+    
+    // Safety check: ensure min <= max to avoid JVM init error
+    if (minMem > maxMem) minMem = maxMem;
+
     args.addAll(["-Xms${minMem}M", "-Xmx${maxMem}M"]);
 
     if (blData['jvm_args_header'] != null && blData['jvm_args_header'].toString().isNotEmpty) {
@@ -1484,7 +1496,6 @@ class LaunchService extends ChangeNotifier {
     return missing.isEmpty;
   }
 
-  /// 判断一个版本是否为“远古版本”
   Future<bool> isAncientVersion(String minecraftDir, String versionId) async {
     try {
       final versionData = await loadMergedVersionJson(minecraftDir, versionId);
@@ -1495,7 +1506,6 @@ class LaunchService extends ChangeNotifier {
           versionData['minecraftArguments'] != null ||
           versionId.startsWith(RegExp(r'^(rd-|a|b|c|inf-)'));
     } catch (_) {
-      // 降级判断：仅通过ID判断
       return versionId.startsWith(RegExp(r'^(rd-|a|b|c|inf-)'));
     }
   }

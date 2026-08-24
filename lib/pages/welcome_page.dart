@@ -2291,9 +2291,18 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
         currentAccounts.map((e) => jsonEncode(e)).toList(),
       );
 
+      final int currentChosen = ConfigService.get('MinecraftAccount_Chosen') ?? 0;
       if (currentAccounts.length == 1) {
         await ConfigService.set('MinecraftAccount_Chosen', 0);
       }
+      
+      // Keep legacy blob in sync
+      final newAccountData = {
+        "logined": currentAccounts.any((e) => e['locate'] != 'Local'),
+        "chosen": currentAccounts.length == 1 ? 0 : currentChosen,
+        "accounts": currentAccounts,
+      };
+      await ConfigService.set('MinecraftAccount', jsonEncode(newAccountData));
 
       setState(() {});
       if (context.mounted) {

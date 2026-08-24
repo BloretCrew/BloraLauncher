@@ -33,6 +33,7 @@ import '../core/theme_manager.dart';
 import '../services/bloriko.dart';
 import '../services/passport_service.dart';
 import '../services/download_service.dart';
+import '../shell/main_shell.dart';
 import 'fake_3d_editor_page.dart';
 
 enum SettingCategory {
@@ -657,6 +658,8 @@ class _SettingsPageState extends State<SettingsPage> {
               initialValue: ConfigService.getLanguage(),
               onChanged: (v) async {
                 await ConfigService.setLanguage(v ?? "zh_cn");
+                if (mounted) setState(() {});
+                MainShellState.instance?.refreshAllPages();
               },
             ),
           ),
@@ -1974,7 +1977,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           try {
                             final update = await UpdateManager.instance
                                 .checkUpdate();
-                            if (mounted) {
+                            if (context.mounted) {
                               if (update != null) {
                                 final confirm = await showDialog<bool>(
                                   context: context,
@@ -2002,7 +2005,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                   final progressController =
                                       StreamController<double>();
 
-                                  if (mounted) {
+                                  if (context.mounted) {
                                     showDialog(
                                       context: context,
                                       barrierDismissible: false,
@@ -2062,7 +2065,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                           onProgress: (p) =>
                                               progressController.add(p),
                                         );
-                                    if (mounted) Navigator.pop(context);
+                                    if (context.mounted) Navigator.pop(context);
                                     if (!result) return;
                                     await _loadHotfixVersion();
                                     if (mounted) {
@@ -2072,7 +2075,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                       );
                                     }
                                   } catch (e) {
-                                    if (mounted) Navigator.pop(context);
+                                    if (context.mounted) Navigator.pop(context);
                                     logger.error(
                                       "[Update] Apply failed: $e",
                                       LogSource.system,

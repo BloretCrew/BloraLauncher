@@ -16,9 +16,12 @@ class ConfigService {
   static Map<String, dynamic> _desktopConfig = {};
   static File? _file;
   static String? lastError;
+  static DateTime _lastSnapshotTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   static const String _fallbackKeySeed = "BLORET_INTERNAL_STABLE_KEY_2026";
   static const String _commonExportSeed = "BLORET_MIGRATION_COMMON_KEY";
+  static const int _snapshotIntervalMinutes = 10;
+  static const int _maxSnapshots = 3;
 
   static bool get _isMobile => Platform.isAndroid || Platform.isIOS;
 
@@ -45,31 +48,56 @@ class ConfigService {
       }
 
       if (await newDatFile.exists()) {
-        try {
-          String encryptedData = await newDatFile.readAsString();
-          String decrypted = await _decrypt(
-            encryptedData,
-            await _getEncryptionKey(),
-          );
-          _desktopConfig = jsonDecode(decrypted);
-        } catch (e) {
+        final success = await _loadConfigWithFallbacks();
+        if (!success) {
           lastError =
-              "Failed to decrypt the configuration file. Reset to default settings.";
-          try {
-            String encryptedData = await newDatFile.readAsString();
-            String decrypted = await _decrypt(
-              encryptedData,
-              _deriveKey(_fallbackKeySeed),
-            );
-            _desktopConfig = jsonDecode(decrypted);
-          } catch (e2) {
-            lastError =
-                "Failed to decrypt the configuration file: the hardware identifier may have changed or the file may be corrupted. Reset to default settings.";
-            _desktopConfig = {};
-          }
+              "Failed to decrypt the configuration file: the hardware identifier may have changed or the file may be corrupted. Reset to default settings.";
+          _desktopConfig = {};
         }
       }
     }
+  }
+
+  static Future<bool> _loadConfigWithFallbacks() async {
+    final List<File> filesToTry = [_file!];
+    for (int i = 1; i <= _maxSnapshots; i++) {
+      filesToTry.add(File("${_file!.path}_old_${i.toString().padLeft(3, '0')}"));
+    }
+
+    final key = await _getEncryptionKey();
+    final fallbackKey = _deriveKey(_fallbackKeySeed);
+
+    for (var file in filesToTry) {
+      if (!await file.exists()) continue;
+
+      try {
+        String data = await file.readAsString();
+        String? decrypted;
+        
+        try {
+          decrypted = await _decrypt(data, key);
+        } catch (_) {
+          try {
+            decrypted = await _decrypt(data, fallbackKey);
+          } catch (_) {
+            // Internal decryption failed for this file
+          }
+        }
+
+        if (decrypted != null) {
+          _desktopConfig = jsonDecode(decrypted);
+          // If we loaded from a backup, try to restore the main file
+          if (file.path != _file!.path) {
+            debugPrint("Restored config from snapshot: ${file.path}");
+            await _saveEncryptedDesktopConfig(skipSnapshot: true);
+          }
+          return true;
+        }
+      } catch (e) {
+        debugPrint("Failed to load config from ${file.path}: $e");
+      }
+    }
+    return false;
   }
 
   static Future<encrypt_lib.Key> _getEncryptionKey() async {
@@ -103,27 +131,46 @@ class ConfigService {
     final iv = encrypt_lib.IV.fromSecureRandom(16);
     final encrypter = encrypt_lib.Encrypter(encrypt_lib.AES(key));
     final encrypted = encrypter.encrypt(plainText, iv: iv);
-    return "${iv.base64}:${encrypted.base64}";
+    final payload = "${iv.base64}:${encrypted.base64}";
+    final hash = sha256.convert(utf8.encode(payload)).toString();
+    return "$hash:$payload";
   }
 
   static Future<String> _decrypt(
-    String cipherTextWithIv,
+    String data,
     encrypt_lib.Key key,
   ) async {
-    final parts = cipherTextWithIv.split(':');
-    if (parts.length != 2) throw Exception("Invalid format");
-    final iv = encrypt_lib.IV.fromBase64(parts[0]);
-    final encrypter = encrypt_lib.Encrypter(encrypt_lib.AES(key));
-    return encrypter.decrypt64(parts[1], iv: iv);
+    final parts = data.split(':');
+
+    if (parts.length == 3) {
+      final expectedHash = parts[0];
+      final payload = "${parts[1]}:${parts[2]}";
+      final actualHash = sha256.convert(utf8.encode(payload)).toString();
+      
+      if (expectedHash != actualHash) {
+        throw Exception("Config file hash mismatch - data may be corrupted");
+      }
+      
+      final iv = encrypt_lib.IV.fromBase64(parts[1]);
+      final encrypter = encrypt_lib.Encrypter(encrypt_lib.AES(key));
+      return encrypter.decrypt64(parts[2], iv: iv);
+    } else if (parts.length == 2) {
+      final iv = encrypt_lib.IV.fromBase64(parts[0]);
+      final encrypter = encrypt_lib.Encrypter(encrypt_lib.AES(key));
+      return encrypter.decrypt64(parts[1], iv: iv);
+    }
+    
+    throw Exception("Invalid config format");
   }
 
-  static Future<void> _saveEncryptedDesktopConfig() async {
+  static Future<void> _saveEncryptedDesktopConfig({bool skipSnapshot = false}) async {
     if (_file == null) return;
     try {
+      final key = await _getEncryptionKey();
       String plainText = const JsonEncoder.withIndent(
         "  ",
       ).convert(_desktopConfig);
-      String encrypted = await _encrypt(plainText, await _getEncryptionKey());
+      String encrypted = await _encrypt(plainText, key);
 
       final tmpFile = File("${_file!.path}.tmp");
       await tmpFile.writeAsString(encrypted, flush: true);
@@ -132,8 +179,38 @@ class ConfigService {
         await _file!.delete();
       }
       await tmpFile.rename(_file!.path);
+
+      if (!skipSnapshot && DateTime.now().difference(_lastSnapshotTime).inMinutes >= _snapshotIntervalMinutes) {
+        await _createSnapshot(encrypted, key);
+      }
     } catch (e) {
       debugPrint("Config save failed: $e");
+    }
+  }
+
+  static Future<void> _createSnapshot(String encryptedContent, encrypt_lib.Key key) async {
+    try {
+      try {
+        await _decrypt(encryptedContent, key);
+      } catch (e) {
+        debugPrint("Snapshot check failed, skipping backup: $e");
+        return;
+      }
+
+      for (int i = _maxSnapshots - 1; i >= 1; i--) {
+        final oldFile = File("${_file!.path}_old_${i.toString().padLeft(3, '0')}");
+        if (await oldFile.exists()) {
+          final nextFile = File("${_file!.path}_old_${(i + 1).toString().padLeft(3, '0')}");
+          await oldFile.rename(nextFile.path);
+        }
+      }
+
+      final snapshotFile = File("${_file!.path}_old_001");
+      await snapshotFile.writeAsString(encryptedContent, flush: true);
+      _lastSnapshotTime = DateTime.now();
+      debugPrint("Config snapshot created: ${snapshotFile.path}");
+    } catch (e) {
+      debugPrint("Failed to create config snapshot: $e");
     }
   }
 

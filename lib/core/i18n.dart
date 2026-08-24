@@ -66,22 +66,22 @@ class I18n extends ChangeNotifier {
   /// Expected asset path: assets/lang/{lang}.json OR appSupport/lang/{lang}.json
   static Future<void> load(String lang) async {
     try {
-      String jsonString;
-      final customDir = await getCustomLangDir();
-      final customFile = File(p.join(customDir.path, '$lang.json'));
+      final Map<String, String> mergedValues = {};
 
-      if (await customFile.exists()) {
-        jsonString = await customFile.readAsString();
-      } else {
-        jsonString = await rootBundle.loadString('assets/lang/$lang.json');
+      // 1. Fallback base: en_us
+      mergedValues.addAll(await _readLangMap('en_us'));
+
+      // 2. Mid-level fallback: zh_cn (for Chinese variants)
+      if (lang.startsWith('zh_') && lang != 'zh_cn') {
+        mergedValues.addAll(await _readLangMap('zh_cn'));
       }
 
-      final Map<String, dynamic> jsonMap = json.decode(jsonString);
+      // 3. Target language
+      if (lang != 'en_us') {
+        mergedValues.addAll(await _readLangMap(lang));
+      }
 
-      _localizedValues.clear();
-      _localizedValues = jsonMap.map(
-        (key, value) => MapEntry(key, value.toString()),
-      );
+      _localizedValues = mergedValues;
       _currentLang = lang;
 
       // Clear translation cache when language changes
@@ -96,6 +96,27 @@ class I18n extends ChangeNotifier {
         _currentLang = 'en_us';
         instance.notifyListeners();
       }
+    }
+  }
+
+  static Future<Map<String, String>> _readLangMap(String lang) async {
+    try {
+      String jsonString;
+      final customDir = await getCustomLangDir();
+      final customFile = File(p.join(customDir.path, '$lang.json'));
+
+      if (await customFile.exists()) {
+        jsonString = await customFile.readAsString();
+      } else {
+        jsonString = await rootBundle.loadString('assets/lang/$lang.json');
+      }
+
+      final Map<String, dynamic> jsonMap = json.decode(jsonString);
+      return jsonMap.map(
+        (key, value) => MapEntry(key, value.toString()),
+      );
+    } catch (_) {
+      return {};
     }
   }
 

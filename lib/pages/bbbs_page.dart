@@ -202,6 +202,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                         child: _isAuthenticated
                             ? const SizedBox.shrink()
                             : Container(
+                          width: double.infinity,
                           key: const ValueKey("login"),
                           padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(

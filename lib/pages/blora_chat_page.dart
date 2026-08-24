@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/core/logger.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
+import 'package:bloret_launcher/shell/main_shell.dart';
 import 'package:bloret_launcher/widgets/button.dart';
 import 'package:bloret_launcher/widgets/windows_widgets.dart';
 import 'package:dio/dio.dart';
@@ -117,16 +118,20 @@ class _BloraChatPageState extends State<BloraChatPage>
         _inputController.text = prompt;
         _sendMessage();
       } else {
-        _loadHistoryList().then((_) async {
-          await Future.delayed(const Duration(milliseconds: 400));
-          bool isNewSessionState =
-              ConfigService.get('blora_is_new_session_state') ?? false;
-          if (!isNewSessionState &&
-              _agent.messages.isEmpty &&
-              _historyList.isNotEmpty) {
-            _loadSession(_historyList.first['filename']);
-          }
-        });
+        final bool isLoggedIn =
+            ConfigService.get('Bloret_PassPort_Login') ?? false;
+        if (isLoggedIn) {
+          _loadHistoryList().then((_) async {
+            await Future.delayed(const Duration(milliseconds: 400));
+            bool isNewSessionState =
+                ConfigService.get('blora_is_new_session_state') ?? false;
+            if (!isNewSessionState &&
+                _agent.messages.isEmpty &&
+                _historyList.isNotEmpty) {
+              _loadSession(_historyList.first['filename']);
+            }
+          });
+        }
         if (_agent.messages.isNotEmpty) {
           Future.delayed(const Duration(milliseconds: 200), () {
             _scrollToBottom();
@@ -137,7 +142,14 @@ class _BloraChatPageState extends State<BloraChatPage>
   }
 
   void _onAgentStateChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (_agent.initialPrompt != null && !_agent.busy) {
+      final prompt = _agent.initialPrompt!;
+      _agent.initialPrompt = null;
+      _inputController.text = prompt;
+      _sendMessage();
+    }
+    setState(() {});
   }
 
   @override
@@ -459,7 +471,15 @@ class _BloraChatPageState extends State<BloraChatPage>
       _inputController.clear();
       return;
     }
-    if (_agent.busy || _currentModelId == null) return;
+    if (_agent.busy) return;
+
+    if (_currentModelId == null) {
+      if (_currentModels.isNotEmpty) {
+        _currentModelId = _currentModels[0]['id'];
+      } else {
+        _currentModelId = "default";
+      }
+    }
 
     final batchId = ++_agent.requestBatch;
 
@@ -636,6 +656,9 @@ class _BloraChatPageState extends State<BloraChatPage>
   }
 
   Future<void> _loadHistoryList() async {
+    final bool isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
+    if (!isLoggedIn) return;
+
     try {
       final dir = await _getHistoryDir();
       final List<FileSystemEntity> files = dir.listSync();
@@ -3000,6 +3023,7 @@ class _BloraChatPageState extends State<BloraChatPage>
                                                 key: ValueKey("empty"),
                                               ),
                                       );
+                                      // TODO: 可以合并成一个Container，里面左一个大图标，右面是标题，浅色的描述，还有个按钮来查看详情，另外，辅助截图Widget中，AI的回答没有上GptMarkdown，如果可以的话，用户的也上GptMarkdown
                                     } else if (role == 'user') {
                                       final content = msg['content'];
                                       final List<String> imageUrls = [];
@@ -4861,10 +4885,7 @@ class _BloraChatPageState extends State<BloraChatPage>
               height: 48,
               child: FilledButton.icon(
                 onPressed: () {
-                  // Navigate to Passport page or show login dialog
-                  // Here we can trigger a shell navigation if needed, 
-                  // but for simplicity we direct user to Passport service.
-                  showInfo("Please go to the Passport tab to log in".tl);
+                  MainShellState.instance?.jumpToPage(.passport);
                 },
                 icon: const Icon(Icons.login_rounded),
                 label: Text(

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:archive/archive.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +31,7 @@ import '../widgets/button.dart';
 import '../widgets/core_icon.dart';
 import '../widgets/process_picker_dialog.dart';
 import '../widgets/sliding_text.dart';
+import '../services/mod_crash.dart';
 import 'mods_page.dart';
 
 enum HomeState { normal, launching, running }
@@ -284,7 +287,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _listController.forward();
     _startStatsMonitoring();
     timer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      // 1. 同步小贴士配置
       if (config != null && sentences.length != config!.blTips.length) {
         setState(() {
           sentences.clear();
@@ -294,7 +296,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         });
       }
 
-      // 2. 核心状态自动回归逻辑：如果当前在运行页但没有运行中的核心，自动返回主页
       if (_homeState == HomeState.running &&
           CoreManager.instance.runningCores.isEmpty) {
         if (mounted) {
@@ -673,6 +674,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final runningCore = RunningCore(
           id: app.id,
           version: app.name,
+          minecraftDir: "",
           loader: "External".tl,
           userName: "Custom",
           avatar: app.iconPath,
@@ -702,25 +704,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   .transform(const LineSplitter())
                   .listen((line) {
                     _addLogToCore(runningCore, line);
+                    debugPrint(line);
                   });
               final sub2 = process.stderr
                   .transform(utf8.decoder)
                   .transform(const LineSplitter())
                   .listen((line) {
                     _addLogToCore(runningCore, line);
+                    debugPrint(line);
                   });
               runningCore.subscriptions = [sub1, sub2];
             } catch (e) {
-              _addLogToCore(
-                runningCore,
-                "Process output capture unavailable.".tl,
-              );
+              logger.warning("Process output capture unavailable.".tl);
             }
           } else {
-            _addLogToCore(
-              runningCore,
-              "Log capture disabled for detached application.".tl,
-            );
+            logger.warning("Log capture disabled for detached application.".tl);
           }
 
           if (!runningCore.isDetached) {
@@ -731,11 +729,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             });
           }
         } else {
-          _addLogToCore(
-            runningCore,
-            "Application running in independent mode (PID: %s). Log capture disabled."
-                .tl.format(pid),
-          );
+          logger.warning("Application running in independent mode (PID: %s). Log capture disabled."
+              .tl.format(pid));
         }
 
         _pageController.animateToPage(
@@ -745,30 +740,58 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         );
       }
     } catch (e) {
-      setState(() {
-        _launchError = e.toString();
-        _homeState = HomeState.normal;
-      });
-      if (_pageController.hasClients) {
-        _pageController.animateToPage(
-          0,
-          duration: const Duration(milliseconds: 700),
-          curve: Curves.easeOutExpo,
-        );
+      if (mounted) {
+        setState(() {
+          _launchError = e.toString();
+        });
+        showError("Failed to launch application - %s".tl.format(e));
       }
-      showError("Failed to launch application - %s".tl.format(e));
       rethrow;
     }
   }
 
   void _handleCoreExit(RunningCore core, int code, {CustomApp? app}) {
-    if (!mounted || core.exitCode != null) return;
-    
-    debugPrint("Core ${core.id} exited with code $code");
-    core.exitCode = code;
+    _handleCoreExitAsync(core, code, app: app);
+  }
 
+  Future<void> _handleCoreExitAsync(RunningCore core, int code,
+      {CustomApp? app}) async {
+    if (!mounted || core.exitCode != null) return;
+
+    debugPrint("Core ${core.id} exited with code $code");
+    
     final endTime = DateTime.now();
     final duration = endTime.difference(core.startTime).inSeconds;
+
+    // Heuristic: If it's a crash or potentially a silent crash, 
+    // we MUST wait for the async log streams to flush.
+    bool isPotentialCrash = code != 0 || (duration < 10 && !core.isManuallyTerminated);
+    
+    if (isPotentialCrash && !core.isManuallyTerminated) {
+      await Future.delayed(const Duration(milliseconds: 800));
+    }
+
+    bool isActualCrash =
+        (code != 0 || duration < 5) && !core.isManuallyTerminated;
+
+    if (!isActualCrash &&
+        duration < 15 && // Increased window for OOM cases
+        !core.isManuallyTerminated &&
+        code == 0) {
+      final logText = core.logs.join("\n");
+      if (logText.contains("Error occurred during initialization of VM") ||
+          logText.contains("Could not create the Java Virtual Machine") ||
+          logText.contains("Initial heap size set to a larger value") ||
+          logText.contains("Unrecognized option:") ||
+          logText.contains("java.lang.OutOfMemoryError") ||
+          logText.contains("Exception in thread \"main\"")) {
+        isActualCrash = true;
+      }
+    }
+
+    // Crucial: Set exitCode AFTER crash detection so we can override 0 with -2
+    core.exitCode = (isActualCrash && code == 0) ? -2 : code;
+
     StatsService.instance.addSession(
       SessionRecord(
         version: core.version,
@@ -778,16 +801,60 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
     );
 
-    final bool killOnExit = app?.killOnExit ?? core.killOnExit;
-    final bool isActualCrash = code != 0 && !core.isManuallyTerminated && killOnExit && !core.isDetached;
+    if (code == -1) {
+      core.crashAnalysisResult =
+          "You triggered this crash manually. There is no 'reason' other than your own finger clicking that button. Are you trying to test my patience or just bored? Either way, stop sabotaging me!"
+              .tl;
+    } else if (isActualCrash) {
+      if (core.minecraftDir.isEmpty) {
+        // External app or non-MC core
+        core.crashAnalysisResult =
+            "This is an external application or a custom core. Blora Launcher's crash analyzer only supports standard Minecraft cores. Please check the logs below for more information."
+                .tl;
+      } else {
+        final analyzer = CrashAnalyzer();
+        final versionPath = p.join(
+          core.minecraftDir,
+          'versions',
+          core.version,
+        );
+        analyzer.collect(versionPath, latestLog: core.logs);
+        if (analyzer.prepare()) {
+          analyzer.analyze();
+          core.crashAnalysisResult = analyzer.getAnalyzeResult(false);
+          core.crashLogFiles = List<String>.from(analyzer.outputFiles);
+        } else {
+          // Fallback for cases where analyzer found nothing but we know it's a crash
+          core.crashAnalysisResult =
+              "The game crashed during initialization, but no specific reason could be identified in the logs. This usually indicates a fatal JVM error or an incompatible environment.\n\nPlease check the full logs below or click 'View Logs' for more details."
+                  .tl;
+          // Standard MC log path fallback
+          final standardLog = p.join(core.minecraftDir, 'logs', 'latest.log');
+          if (!core.crashLogFiles.contains(standardLog)) {
+            core.crashLogFiles.add(standardLog);
+          }
+        }
+      }
+    }
 
     setState(() {
       if (isActualCrash) {
         _showLogsInRunning = true;
         _selectedCore = core;
         _showRunningHandle = true;
-        
-        if (_homeState == HomeState.normal && _pageController.hasClients) {
+
+        if (_homeState == HomeState.launching) {
+          // If it crashed during launch, transition to running state immediately
+          // so the user can see the logs and analysis result
+          _homeState = HomeState.running;
+          if (_pageController.hasClients) {
+            _pageController.animateToPage(
+              1, // In running state, index 1 is the running layout
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeOutExpo,
+            );
+          }
+        } else if (_homeState == HomeState.normal && _pageController.hasClients) {
           _homeState = HomeState.running;
           _pageController.animateToPage(
             1,
@@ -817,6 +884,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         }
       }
     });
+
+    if (isActualCrash) {
+      // Automatically scroll to the bottom of the logs so user sees the latest error
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _logScrollController.hasClients) {
+          _logScrollController.animateTo(
+            _logScrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.easeOutCubic,
+          );
+        }
+      });
+    }
   }
 
   Future<void> _showAttachProcessDialog() async {
@@ -830,6 +910,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           final runningCore = RunningCore(
             id: "attached_$pid",
             version: name,
+            minecraftDir: "",
             loader: "Attached".tl,
             userName: "System",
             accountType: "External",
@@ -951,6 +1032,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final bool syncSuccess = await PassportService.syncMinecraftAccounts();
         if (_isLaunchCancelled) return;
 
+        final List<dynamic> updatedList = ConfigService.get("MinecraftAccountList") ?? [];
+        final int updatedChosen = ConfigService.get("MinecraftAccount_Chosen") ?? 0;
+        if (updatedList.isNotEmpty && updatedChosen < updatedList.length) {
+          account = updatedList[updatedChosen] is String
+              ? jsonDecode(updatedList[updatedChosen])
+              : updatedList[updatedChosen];
+        }
+
         if (!syncSuccess &&
             (account['access_token'] == null ||
                 account['access_token'].isEmpty)) {
@@ -1045,6 +1134,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final newCore = RunningCore(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         version: displayVersion,
+        minecraftDir: _selectedVersionDir!,
         loader: displayLoader,
         userName: mcUsername,
         avatar: mcAvatar,
@@ -1074,6 +1164,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   _onWindowCreated();
                 }
               }
+              debugPrint(line);
             });
 
         final sub2 = process.stderr
@@ -1082,6 +1173,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             .listen((line) {
               _addLogToCore(newCore, line);
               _parseLogForProgress(line);
+              debugPrint(line);
             });
         newCore.subscriptions = [sub1, sub2];
       } catch (e) {
@@ -1880,7 +1972,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         width: 44,
                         height: 44,
                         child: const Icon(
-                          Icons.smart_toy_outlined,
+                          Icons.person,
                           color: Colors.white70,
                         ),
                       ),
@@ -2015,8 +2107,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final core = _selectedCore;
     if (core == null) return Center(child: Text("No running cores".tl));
     final isExited = core.exitCode != null;
-    final isCrashed =
-        isExited && core.exitCode != 0 && !core.isManuallyTerminated;
+    final isCrashed = isExited && core.exitCode != 0;
     final isSuspended = core.isSuspended;
     final isEfficiency = core.isEfficiencyMode;
 
@@ -2387,8 +2478,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Widget _buildProcessActions(ThemeData theme, RunningCore core) {
     final isExited = core.exitCode != null;
-    final isCrashed =
-        isExited && core.exitCode != 0 && !core.isManuallyTerminated;
+    final isCrashed = isExited && core.exitCode != 0;
     final isSuspended = core.isSuspended;
 
     return Stack(
@@ -2596,6 +2686,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                   showError("Process already terminated.".tl);
                                   return;
                                 }
+                                // Manually trigger exit handler with error code -1 to force UI to stay
+                                _handleCoreExit(core, -1);
+                                
                                 core.isManuallyTerminated = false;
                                 if (core.process != null) {
                                   core.process!.kill();
@@ -2716,8 +2809,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildRunningCoreItem(ThemeData theme, RunningCore core) {
     final isSelected = _selectedCore == core;
     final isExited = core.exitCode != null;
-    final isCrashed =
-        isExited && core.exitCode != 0 && !core.isManuallyTerminated;
+    final isCrashed = isExited && core.exitCode != 0;
     final bool hasStatus =
         isExited || core.isSuspended || core.isEfficiencyMode;
     final bool isDetached = core.process == null || core.isDetached;
@@ -2905,7 +2997,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final logs = List<String>.from(core?.logs ?? []);
     final exitCode = core?.exitCode;
     final isExited = exitCode != null;
-    final isCrashed = isExited && exitCode != 0 && !core!.isManuallyTerminated;
+    final isCrashed = isExited && exitCode != 0;
     final isSuspended = core?.isSuspended ?? false;
 
     final bool isLogUnavailable =
@@ -2914,7 +3006,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      height: _showLogsInRunning ? 400 : isCrashed ? 72 : 60,
+      height: _showLogsInRunning ? (isCrashed ? 500 : 400) : isCrashed ? 72 : 60,
       child: FluentCard(
         padding: EdgeInsets.zero,
         child: ClipRRect(
@@ -2989,29 +3081,114 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         ],
                         const Spacer(),
                         if (isCrashed)
-                          BloretButton(
-                            height: 40,
-                            onPressed: () {
-                              final lastLogs = logs.length > 30
-                                  ? logs.sublist(logs.length - 30).join("\n")
-                                  : logs.join("\n");
-                              final prompt =
-                                  "My Minecraft game crashed with exit code %s.\n\nHere are the last few lines of the log:\n```\n%s\n```\n\nCan you help me analyze why it crashed?"
-                                      .tl.format(exitCode, lastLogs);
-                              Bloriko.instance.startNewSession(prompt);
-                              context
-                                  .findAncestorStateOfType<MainShellState>()
-                                  ?.setState(() {
-                                    context
-                                            .findAncestorStateOfType<
-                                              MainShellState
-                                            >()
-                                            ?.selectedIndex =
-                                        1;
-                                  });
+                          ListenableBuilder(
+                            listenable: Bloriko.instance,
+                            builder: (context, child) {
+                              final bool isBusy = Bloriko.instance.busy;
+                              return BloretButton(
+                                height: 40,
+                                onPressed: isBusy
+                                    ? null
+                                    : () async {
+                                        final lastLogs = logs.length > 30
+                                            ? logs
+                                                .sublist(logs.length - 30)
+                                                .join("\n")
+                                            : logs.join("\n");
+
+                                        final analysisResult =
+                                            core?.crashAnalysisResult;
+
+                                        Map<String, dynamic> blData = {};
+                                        if (core?.minecraftDir.isNotEmpty ==
+                                            true) {
+                                          blData = await LaunchService.instance
+                                              .getBlVersionData(
+                                                core!.minecraftDir,
+                                                core.version,
+                                              );
+                                        }
+
+                                        String prompt = "";
+                                        final settingsStr = jsonEncode(blData);
+
+                                        if (analysisResult != null &&
+                                            analysisResult.isNotEmpty) {
+                                          prompt =
+                                              "My Minecraft game crashed.\n\n[Crash Analysis Result]\n%s\n\n[Version Settings]\n```json\n%s\n```\n\n[Last Log Lines]\n```\n%s\n```\n\nCan you explain this error further and suggest how to fix it?"
+                                                  .tl
+                                                  .format(
+                                                    analysisResult,
+                                                    settingsStr,
+                                                    lastLogs,
+                                                  );
+                                        } else if (core?.minecraftDir
+                                                .isNotEmpty ==
+                                            true) {
+                                          final analyzer = CrashAnalyzer();
+                                          final versionPath = p.join(
+                                            core!.minecraftDir,
+                                            'versions',
+                                            core.version,
+                                          );
+
+                                          analyzer.collect(
+                                            versionPath,
+                                            latestLog: logs,
+                                          );
+
+                                          if (analyzer.prepare()) {
+                                            analyzer.analyze();
+                                            final result = analyzer
+                                                .getAnalyzeResult(true);
+
+                                            prompt =
+                                                "My Minecraft game crashed.\n\n[Crash Analysis Result]\n%s\n\n[Version Settings]\n```json\n%s\n```\n\n[Last Log Lines]\n```\n%s\n```\n\nCan you explain this error further and suggest how to fix it?"
+                                                    .tl
+                                                    .format(
+                                                      result,
+                                                      settingsStr,
+                                                      lastLogs,
+                                                    );
+                                          } else {
+                                            prompt =
+                                                "My Minecraft game crashed with exit code %s.\n\n[Version Settings]\n```json\n%s\n```\n\nHere are the last few lines of the log:\n```\n%s\n```\n\nCan you help me analyze why it crashed?"
+                                                    .tl
+                                                    .format(
+                                                      exitCode,
+                                                      settingsStr,
+                                                      lastLogs,
+                                                    );
+                                          }
+                                        }
+
+                                        if (prompt.isNotEmpty) {
+                                          final Map<String, dynamic> crashInfo =
+                                              {
+                                                "version": core?.version,
+                                                "analysis":
+                                                    analysisResult ??
+                                                    "Unknown error",
+                                                "logs": lastLogs,
+                                                "settings": blData,
+                                                "prompt": prompt,
+                                              };
+
+                                          Bloriko.instance.startNewSession(
+                                            "<crash_card>${jsonEncode(crashInfo)}</crash_card>",
+                                          );
+                                        }
+
+                                        MainShellState.instance?.jumpToPage(
+                                          ShellPage.agent,
+                                        );
+                                      },
+                                icon: isBusy
+                                    ? Icons.hourglass_empty
+                                    : Icons.psychology_outlined,
+                                text: isBusy ? "Agent Busy...".tl : "Analyze".tl,
+                              );
                             },
-                            icon: Icons.psychology_outlined,
-                            text: "Analyze".tl,
                           ),
                         const SizedBox(width: 12),
                         Icon(
@@ -3074,26 +3251,184 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             ),
                           ),
                         )
-                      : ListView.builder(
-                          controller: _logScrollController,
-                          padding: const EdgeInsets.all(16),
-                          itemCount: logs.length,
-                          itemBuilder: (context, index) => Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: SelectableText(
-                              logs[index],
-                              style: TextStyle(
-                                color: isCrashed
-                                    ? Colors.redAccent.withValues(alpha: 0.8)
-                                    : theme.colorScheme.onSurface.withValues(
-                                        alpha: 0.8,
+                      : Column(
+                          children: [
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 500),
+                              curve: Curves.fastOutSlowIn,
+                              child: isCrashed &&
+                                      core?.crashAnalysisResult != null &&
+                                      core!.crashAnalysisResult!.isNotEmpty
+                                  ? TweenAnimationBuilder<double>(
+                                      duration:
+                                          const Duration(milliseconds: 800),
+                                      curve: Curves.easeOutBack,
+                                      tween: Tween(begin: 0.0, end: 1.0),
+                                      builder: (context, value, child) {
+                                        return Opacity(
+                                          opacity: value.clamp(0.0, 1.0),
+                                          child: Transform.translate(
+                                            offset:
+                                                Offset(0, -20 * (1 - value)),
+                                            child: child,
+                                          ),
+                                        );
+                                      },
+                                      child: Container(
+                                        width: double.infinity,
+                                        margin: const EdgeInsets.fromLTRB(
+                                          16,
+                                          16,
+                                          16,
+                                          0,
+                                        ),
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              Colors.redAccent.withValues(
+                                                alpha: 0.15,
+                                              ),
+                                              Colors.redAccent.withValues(
+                                                alpha: 0.05,
+                                              ),
+                                            ],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          border: Border.all(
+                                            color: Colors.redAccent.withValues(
+                                              alpha: 0.2,
+                                            ),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.auto_awesome,
+                                                  size: 16,
+                                                  color: Colors.redAccent,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  "Analysis Result".tl,
+                                                  style: const TextStyle(
+                                                    color: Colors.redAccent,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 8),
+                                            SelectableText(
+                                              core.crashAnalysisResult!,
+                                              style: const TextStyle(
+                                                color: Colors.redAccent,
+                                                fontSize: 12,
+                                                height: 1.5,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: [
+                                                if (core.crashLogFiles
+                                                    .isNotEmpty)
+                                                  _buildCrashActionButton(
+                                                    theme,
+                                                    icon: Icons
+                                                        .folder_zip_outlined,
+                                                    label:
+                                                        "Export Crash Log".tl,
+                                                    onTap: () =>
+                                                        _exportCrashLogs(core),
+                                                  ),
+                                                if (core.crashLogFiles.any(
+                                                  (f) => f.contains('crash-'),
+                                                ))
+                                                  _buildCrashActionButton(
+                                                    theme,
+                                                    icon: Icons
+                                                        .bug_report_outlined,
+                                                    label: "View Crash Log".tl,
+                                                    onTap: () {
+                                                      final f = core
+                                                          .crashLogFiles
+                                                          .firstWhere(
+                                                            (f) => f.contains(
+                                                              'crash-',
+                                                            ),
+                                                          );
+                                                      launchUrlString(
+                                                        p.toUri(f).toString(),
+                                                      );
+                                                    },
+                                                  ),
+                                                if (core.crashLogFiles.any(
+                                                  (f) =>
+                                                      f.contains('latest.log'),
+                                                ))
+                                                  _buildCrashActionButton(
+                                                    theme,
+                                                    icon: Icons
+                                                        .description_outlined,
+                                                    label: "View Logs".tl,
+                                                    onTap: () {
+                                                      final f = core
+                                                          .crashLogFiles
+                                                          .firstWhere(
+                                                            (f) => f.contains(
+                                                              'latest.log',
+                                                            ),
+                                                          );
+                                                      launchUrlString(
+                                                        p.toUri(f).toString(),
+                                                      );
+                                                    },
+                                                  ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                fontFamily: 'monospace',
-                                fontSize: 11,
-                                height: 1.4,
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
+                            Expanded(
+                              child: ListView.builder(
+                                controller: _logScrollController,
+                                padding: const EdgeInsets.all(16),
+                                itemCount: logs.length,
+                                itemBuilder:
+                                    (context, index) => Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: SelectableText(
+                                        logs[index],
+                                        style: TextStyle(
+                                          color:
+                                              isCrashed
+                                                  ? Colors.redAccent.withValues(
+                                                    alpha: 0.8,
+                                                  )
+                                                  : theme.colorScheme.onSurface
+                                                      .withValues(alpha: 0.8),
+                                          fontFamily: 'monospace',
+                                          fontSize: 11,
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ),
                               ),
                             ),
-                          ),
+                          ],
                         ),
                 ),
             ],
@@ -3101,6 +3436,75 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  Widget _buildCrashActionButton(
+    ThemeData theme, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: Colors.redAccent),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.redAccent, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportCrashLogs(RunningCore core) async {
+    if (core.crashLogFiles.isEmpty) return;
+
+    try {
+      final String? outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: "Export Crash Logs".tl,
+        fileName:
+            'crash_logs_${DateTime.now().millisecondsSinceEpoch}.zip',
+        type: FileType.custom,
+        allowedExtensions: ['zip'],
+      );
+
+      if (outputFile == null) return;
+
+      final encoder = ZipEncoder();
+      final archive = Archive();
+
+      for (var filePath in core.crashLogFiles) {
+        final file = File(filePath);
+        if (await file.exists()) {
+          final bytes = await file.readAsBytes();
+          archive.addFile(
+            ArchiveFile(
+              p.basename(filePath),
+              bytes.length,
+              bytes,
+            ),
+          );
+        }
+      }
+
+      final zipData = encoder.encode(archive);
+      await File(outputFile).writeAsBytes(zipData);
+      showSuccess("Crash logs exported successfully".tl);
+    } catch (e) {
+      showError("Export failed: $e".tl);
+    }
   }
 
   Widget _buildAgentInput(ThemeData theme, {bool isPortrait = false}) {

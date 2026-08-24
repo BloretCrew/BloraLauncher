@@ -114,22 +114,37 @@ class PassportService {
           }
         }).toList();
 
-        final List<String> combinedList = [
-          ...localAccounts.map((e) => e.toString()),
-          ...accounts.map((e) => jsonEncode(e)),
-        ];
+        // Use Set to prevent name collisions between local and cloud accounts with same type
+        final Map<String, String> uniqueAccounts = {};
+        
+        // Add cloud accounts first (they are more "official")
+        for (var acc in accounts) {
+          final String jsonStr = jsonEncode(acc);
+          final String key = "${acc['type']}_${acc['uuid']}";
+          uniqueAccounts[key] = jsonStr;
+        }
+        
+        // Add local accounts if they don't exist in cloud
+        for (var accStr in localAccounts) {
+          final acc = jsonDecode(accStr.toString());
+          final String key = "${acc['type']}_${acc['uuid']}";
+          if (!uniqueAccounts.containsKey(key)) {
+            uniqueAccounts[key] = accStr.toString();
+          }
+        }
 
-        final oldAccountData = ConfigService.get('MinecraftAccount');
-        int oldChosen = 0;
+        final List<String> combinedList = uniqueAccounts.values.toList();
+
+        // Get current chosen account info robustly
+        final int oldChosen = ConfigService.get('MinecraftAccount_Chosen') ?? 0;
         String? chosenUuid;
+        String? chosenType;
 
-        if (oldAccountData is String) {
+        if (oldChosen >= 0 && oldChosen < currentList.length) {
           try {
-             final decoded = jsonDecode(oldAccountData);
-             oldChosen = decoded['chosen'] ?? 0;
-             if (oldChosen >= 0 && oldChosen < currentList.length) {
-                chosenUuid = jsonDecode(currentList[oldChosen].toString())['uuid'];
-             }
+            final chosenAccount = jsonDecode(currentList[oldChosen].toString());
+            chosenUuid = chosenAccount['uuid'];
+            chosenType = chosenAccount['type'];
           } catch (_) {}
         }
 
@@ -138,7 +153,8 @@ class PassportService {
         int newChosen = -1;
         if (chosenUuid != null) {
           for (int i = 0; i < combinedList.length; i++) {
-            if (jsonDecode(combinedList[i])['uuid'] == chosenUuid) {
+            final acc = jsonDecode(combinedList[i]);
+            if (acc['uuid'] == chosenUuid && acc['type'] == chosenType) {
               newChosen = i;
               break;
             }
@@ -151,6 +167,7 @@ class PassportService {
         
         await ConfigService.set('MinecraftAccount_Chosen', newChosen);
 
+        // Keep legacy blob in sync
         final newAccountData = {
           "logined": accounts.isNotEmpty,
           "chosen": newChosen,

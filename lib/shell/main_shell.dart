@@ -27,20 +27,44 @@ import '../pages/home_page.dart';
 import '../pages/passport_page.dart';
 import '../pages/settings_page.dart';
 
+enum ShellPage {
+  home,
+  agent,
+  divider1,
+  download,
+  cores,
+  tools,
+  stats,
+  mods,
+  bbbs,
+  live,
+  divider2,
+  passport,
+  settings,
+  about
+}
+
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
+
+  static MainShellState? of(BuildContext context) {
+    return context.findAncestorStateOfType<MainShellState>();
+  }
 
   @override
   State<MainShell> createState() => MainShellState();
 }
 
 class MainShellState extends State<MainShell> with WidgetsBindingObserver {
-  int selectedIndex = 0;
+  static MainShellState? instance;
+
+  int selectedIndex = ShellPage.home.index;
   bool _isExtended = true;
   bool _isDownloadExpanded = false;
   Timer? _timer;
-  final Set<int> _renderedIndices = {0};
+  final Set<int> _renderedIndices = {ShellPage.home.index};
   final Map<int, Widget> _pageCache = {};
+  final Map<int, GlobalKey> pageKeys = {};
   Brightness? _lastBrightness;
 
   final _trayChannel = const BasicMessageChannel(
@@ -51,6 +75,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    instance = this;
     globalShellContext = context;
     WindowBridge.init(context);
 
@@ -97,6 +122,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    instance = null;
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
@@ -109,6 +135,26 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   bool get isExtended => _isExtended;
+
+  void jumpToPage(ShellPage page) {
+    final index = page.index;
+    if (index >= 0 && index < _pages.length && _pages[index] is! String) {
+      _onPageChanged(index);
+    }
+  }
+
+  void refreshPage(ShellPage page) {
+    final index = page.index;
+    if (pageKeys.containsKey(index)) {
+      pageKeys[index]!.currentState?.setState(() {});
+    }
+  }
+
+  void refreshAllPages() {
+    for (var key in pageKeys.values) {
+      key.currentState?.setState(() {});
+    }
+  }
 
   void setNavExtended(bool value) {
     if (mounted) {
@@ -210,7 +256,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: () => _onPageChanged(1),
+        onTap: () => _onPageChanged(ShellPage.agent.index),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
@@ -719,24 +765,24 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                         ),
                                         _AccountTile(
                                           isExtended: _isExtended,
-                                          isSelected: selectedIndex == 11,
+                                          isSelected: selectedIndex == ShellPage.passport.index,
                                           userName: userName,
                                           avatar: avatar,
-                                          onTap: () => _onPageChanged(11),
+                                          onTap: () => _onPageChanged(ShellPage.passport.index),
                                         ),
                                         _NavTile(
-                                          icon: _pages[12].$1.icon,
-                                          title: _pages[12].$1.title,
+                                          icon: _pages[ShellPage.settings.index].$1.icon,
+                                          title: _pages[ShellPage.settings.index].$1.title,
                                           isExtended: _isExtended,
-                                          isSelected: selectedIndex == 12,
-                                          onTap: () => _onPageChanged(12),
+                                          isSelected: selectedIndex == ShellPage.settings.index,
+                                          onTap: () => _onPageChanged(ShellPage.settings.index),
                                         ),
                                         _NavTile(
-                                          icon: _pages[13].$1.icon,
-                                          title: _pages[13].$1.title,
+                                          icon: _pages[ShellPage.about.index].$1.icon,
+                                          title: _pages[ShellPage.about.index].$1.title,
                                           isExtended: _isExtended,
-                                          isSelected: selectedIndex == 13,
-                                          onTap: () => _onPageChanged(13),
+                                          isSelected: selectedIndex == ShellPage.about.index,
+                                          onTap: () => _onPageChanged(ShellPage.about.index),
                                         ),
                                       ],
                                     ),
@@ -770,7 +816,13 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                             return const SizedBox.shrink();
                           }
 
-                          _pageCache[index] ??= (item.$2 as Widget Function())();
+                          if (_pageCache[index] == null) {
+                            pageKeys[index] ??= GlobalKey();
+                            _pageCache[index] = _PageStorageWrapper(
+                              key: pageKeys[index],
+                              builder: item.$2 as Widget Function(),
+                            );
+                          }
 
                           return AnimatedOpacity(
                             key: ValueKey(index),
@@ -810,7 +862,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 builder: (context, child) {
                   final showDownload =
                       DownloadService.instance.activeTasks.isNotEmpty;
-                  final showAgent = Bloriko.instance.busy && selectedIndex != 1;
+                  final showAgent = Bloriko.instance.busy && selectedIndex != ShellPage.agent.index;
 
                   return Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1155,4 +1207,17 @@ class _NavDestination {
     this.selectedIcon, {
     this.keepAlive = false,
   });
+}
+
+class _PageStorageWrapper extends StatefulWidget {
+  final Widget Function() builder;
+  const _PageStorageWrapper({super.key, required this.builder});
+
+  @override
+  State<_PageStorageWrapper> createState() => _PageStorageWrapperState();
+}
+
+class _PageStorageWrapperState extends State<_PageStorageWrapper> {
+  @override
+  Widget build(BuildContext context) => widget.builder();
 }

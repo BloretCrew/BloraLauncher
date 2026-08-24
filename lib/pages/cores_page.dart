@@ -3857,7 +3857,11 @@ class _CoreDetailViewState extends State<CoreDetailView> {
       children: [
         RadioGroup(
           groupValue: _memoryMode,
-          onChanged: (v) => setState(() => _memoryMode = v!),
+          onChanged: (v) {
+            if (v != null) {
+              _saveConfig('memory_mode', v);
+            }
+          },
           child: Radio<String>(
             value: value,
           ),
