@@ -620,6 +620,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         };
         final priorityStr = priorityMap[app.priority] ?? "Normal";
 
+        // TODO
         final psCmd =
             '\$p = Start-Process "${app.exePath}" -ArgumentList $argsString -WorkingDirectory "${app.workingDir ?? p.dirname(app.exePath)}" -Verb RunAs -PassThru; if (\$p) { \$p.PriorityClass = "$priorityStr"; \$p.Id }';
 
@@ -659,6 +660,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             "Realtime": 256,
           };
           final level = priorityMap[app.priority] ?? 32;
+          // TODO
           Process.run('wmic', [
             'process',
             'where',
