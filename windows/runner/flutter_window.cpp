@@ -11,6 +11,7 @@
 #include <flutter/standard_message_codec.h>
 #include <dwmapi.h>
 #include <psapi.h>
+#include <tlhelp32.h>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -412,6 +413,157 @@ extern "C" __declspec(dllexport) bool IsProcessAlive(uint32_t pid) {
 }
 
 extern "C" __declspec(dllexport) void DestroyApp() { c_terminate_process(); }
+
+extern "C" __declspec(dllexport)
+HANDLE LaunchNativeProcess(const wchar_t* exePath, const wchar_t* args, const wchar_t* workingDir, bool runAsAdmin, DWORD priority, DWORD* outPid) {
+    HANDLE hProcess = NULL;
+    if (runAsAdmin) {
+        SHELLEXECUTEINFOW sei = { sizeof(sei) };
+        sei.cbSize = sizeof(sei);
+        sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_UNICODE | SEE_MASK_NOASYNC;
+        sei.lpVerb = L"runas";
+        sei.lpFile = exePath;
+        sei.lpParameters = args;
+        sei.lpDirectory = workingDir;
+        sei.nShow = SW_HIDE;
+        if (ShellExecuteExW(&sei)) {
+            hProcess = sei.hProcess;
+            if (outPid && hProcess) *outPid = GetProcessId(hProcess);
+        }
+    } else {
+        STARTUPINFOW si = { sizeof(si) };
+        si.cb = sizeof(si);
+        PROCESS_INFORMATION pi = { 0 };
+        std::wstring cmd = L"\"";
+        cmd += exePath;
+        cmd += L"\"";
+        if (args && wcslen(args) > 0) {
+            cmd += L" ";
+            cmd += args;
+        }
+
+        std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
+        cmdBuf.push_back(0);
+
+        DWORD creationFlags = CREATE_UNICODE_ENVIRONMENT;
+        if (priority != 0) creationFlags |= priority;
+
+        if (CreateProcessW(NULL, cmdBuf.data(), NULL, NULL, FALSE, creationFlags, NULL, workingDir, &si, &pi)) {
+            hProcess = pi.hProcess;
+            if (pi.hThread) CloseHandle(pi.hThread);
+            if (outPid) *outPid = pi.dwProcessId;
+        }
+    }
+
+    if (hProcess && priority != 0 && runAsAdmin) {
+        SetPriorityClass(hProcess, priority);
+    }
+
+    return hProcess;
+}
+
+extern "C" __declspec(dllexport)
+void CloseNativeHandle(HANDLE handle) {
+    if (handle && handle != INVALID_HANDLE_VALUE) {
+        CloseHandle(handle);
+    }
+}
+
+extern "C" __declspec(dllexport)
+int64_t GetNativeProcessExitCode(HANDLE handle) {
+    DWORD exitCode = 0;
+    if (handle == NULL || handle == INVALID_HANDLE_VALUE) return -2;
+    if (GetExitCodeProcess(handle, &exitCode)) {
+        if (exitCode == STILL_ACTIVE) return -1;
+        return (int64_t)exitCode;
+    }
+    return -2;
+}
+
+extern "C" __declspec(dllexport)
+DWORD WaitNativeProcess(HANDLE handle) {
+    if (handle == NULL || handle == INVALID_HANDLE_VALUE) return 0;
+    if (WaitForSingleObject(handle, INFINITE) == WAIT_OBJECT_0) {
+        DWORD exitCode = 0;
+        if (GetExitCodeProcess(handle, &exitCode)) {
+            return exitCode;
+        }
+    }
+    return 0;
+}
+
+extern "C" __declspec(dllexport)
+void TerminateNativeProcess(HANDLE handle) {
+    if (handle && handle != INVALID_HANDLE_VALUE) {
+        TerminateProcess(handle, 0);
+    }
+}
+
+extern "C" __declspec(dllexport)
+void SetNativeProcessPriority(HANDLE handle, DWORD priority) {
+    if (handle && handle != INVALID_HANDLE_VALUE) {
+        SetPriorityClass(handle, priority);
+    }
+}
+
+extern "C" __declspec(dllexport)
+void SetNativeProcessPriorityById(DWORD pid, DWORD priority) {
+    HANDLE hProcess = OpenProcess(PROCESS_SET_INFORMATION, FALSE, pid);
+    if (hProcess) {
+        SetPriorityClass(hProcess, priority);
+        CloseHandle(hProcess);
+    }
+}
+
+extern "C" __declspec(dllexport)
+const wchar_t* ListProcessesNative() {
+    static std::wstring result;
+    result = L"[";
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W pe32;
+        pe32.dwSize = sizeof(pe32);
+        if (Process32FirstW(hSnapshot, &pe32)) {
+            bool first = true;
+            do {
+                if (!first) result += L",";
+                first = false;
+                result += L"{\"ProcessId\":" + std::to_wstring(pe32.th32ProcessID) + L",";
+
+                std::wstring name = pe32.szExeFile;
+                // Basic JSON escaping
+                size_t pos = 0;
+                while ((pos = name.find(L'\\', pos)) != std::wstring::npos) { name.replace(pos, 1, L"\\\\"); pos += 2; }
+                pos = 0;
+                while ((pos = name.find(L'\"', pos)) != std::wstring::npos) { name.replace(pos, 1, L"\\\""); pos += 2; }
+
+                result += L"\"Name\":\"" + name + L"\",";
+
+                std::wstring pathStr = L"";
+                HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe32.th32ProcessID);
+                if (hProcess) {
+                    wchar_t path[MAX_PATH];
+                    DWORD size = MAX_PATH;
+                    if (QueryFullProcessImageNameW(hProcess, 0, path, &size)) {
+                        pathStr = path;
+                        pos = 0;
+                        while ((pos = pathStr.find(L'\\', pos)) != std::wstring::npos) { pathStr.replace(pos, 1, L"\\\\"); pos += 2; }
+                        pos = 0;
+                        while ((pos = pathStr.find(L'\"', pos)) != std::wstring::npos) { pathStr.replace(pos, 1, L"\\\""); pos += 2; }
+                    }
+                    CloseHandle(hProcess);
+                }
+
+                result += L"\"ExecutablePath\":\"" + pathStr + L"\",";
+                result += L"\"ParentProcessId\":" + std::to_wstring(pe32.th32ParentProcessID) + L"}";
+            } while (Process32NextW(hSnapshot, &pe32));
+        }
+        CloseHandle(hSnapshot);
+    }
+    result += L"]";
+    return result.c_str();
+}
+
 extern "C" __declspec(dllexport) void HideApp() { if (g_flutter_window) g_flutter_window->Hide(); }
 
 static struct {

@@ -9,6 +9,7 @@ import 'package:bloret_launcher/core/i18n.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/download_service.dart';
 import 'package:bloret_launcher/services/external_app_service.dart';
+import 'package:bloret_launcher/services/windows_native_process.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/ffi_proxy.dart';
@@ -29,6 +30,7 @@ class RunningCore {
   final List<double> cpuUsage = List.generate(30, (_) => 0.0);
   final List<double> memUsage = List.generate(30, (_) => 0.0);
   final Process? process;
+  final NativeProcess? nativeProcess;
   final int? pid;
   bool killOnExit;
   final DateTime startTime = DateTime.now();
@@ -55,12 +57,13 @@ class RunningCore {
     required this.accountType,
     required this.identityName,
     this.process,
+    this.nativeProcess,
     this.pid,
     this.killOnExit = false,
     this.exitCode,
   });
 
-  int get effectivePid => process?.pid ?? pid ?? 0;
+  int get effectivePid => process?.pid ?? nativeProcess?.pid ?? pid ?? 0;
 }
 
 class CoreManager {
@@ -80,6 +83,7 @@ class CoreManager {
   }
 
   void removeCore(RunningCore core) {
+    core.nativeProcess?.dispose();
     _runningCores.remove(core);
     _coresController.add(runningCores);
   }
@@ -89,10 +93,13 @@ class CoreManager {
       if (core.killOnExit) {
         final pid = core.effectivePid;
         if (pid != 0 && WinProcess.isAlive(pid)) {
-          if (core.process != null) {
+          if (core.nativeProcess != null) {
+            core.nativeProcess!.terminate();
+            core.nativeProcess!.dispose();
+          } else if (core.process != null) {
             core.process!.kill();
-          } else {
-            Process.run('taskkill', ['/F', '/PID', '$pid']);
+          } else if (Platform.isWindows) {
+            WindowsNativeProcessService.terminateByPid(pid);
           }
         }
       }
@@ -1481,7 +1488,8 @@ class LaunchService extends ChangeNotifier {
     // logger.info("Launch arguments: ${args.join(' ')}", LogSource.system);
 
     onStatus?.call("Launching Minecraft...".tl, 0.95);
-    return await Process.start(
+    
+    final process = await Process.start(
       javaExe,
       args,
       workingDirectory: variables['game_directory'],
@@ -1489,6 +1497,27 @@ class LaunchService extends ChangeNotifier {
           ? ProcessStartMode.normal
           : ProcessStartMode.detachedWithStdio,
     );
+
+    if (Platform.isWindows) {
+      final priorityMap = {
+        "Idle": IDLE_PRIORITY_CLASS,
+        "BelowNormal": BELOW_NORMAL_PRIORITY_CLASS,
+        "Normal": NORMAL_PRIORITY_CLASS,
+        "AboveNormal": ABOVE_NORMAL_PRIORITY_CLASS,
+        "High": HIGH_PRIORITY_CLASS,
+        "Realtime": REALTIME_PRIORITY_CLASS,
+      };
+      final priority = priorityMap[blData['priority_class']] ?? priorityMap[ConfigService.get("minecraft_priority")] ?? NORMAL_PRIORITY_CLASS;
+
+      // 瞬时创建一个 NativeProcess 进行优先级设置和句柄锁定
+      final native = NativeProcess.fromPid(process.pid);
+      if (priority != NORMAL_PRIORITY_CLASS) {
+        native.setPriority(priority);
+      }
+      // 注意：这里我们不 dispose，因为 RunningCore 还需要它
+    }
+
+    return process;
   }
 
   Future<bool> isVersionComplete(String minecraftDir, String versionId) async {

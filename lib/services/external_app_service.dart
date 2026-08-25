@@ -1,6 +1,6 @@
-import 'dart:convert';
 import 'dart:io';
 
+import 'package:bloret_launcher/services/windows_native_process.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -116,13 +116,8 @@ class ExternalAppService {
   static Future<List<Map<String, dynamic>>> _listProcessesTask(
     dynamic _,
   ) async {
-    final psCommand =
-        'Get-CimInstance Win32_Process | Select-Object ProcessId, Name, ExecutablePath, ParentProcessId | ConvertTo-Json';
-    final result = await Process.run('powershell', ['-Command', psCommand]);
-
-    if (result.exitCode == 0) {
-      final List<dynamic> data = jsonDecode(result.stdout);
-      return data.map((e) => Map<String, dynamic>.from(e)).toList();
+    if (Platform.isWindows) {
+      return WindowsNativeProcessService.listProcesses();
     }
     return [];
   }
@@ -162,21 +157,6 @@ class ExternalAppService {
     final result = WinProcess.extractHighResIcon(exePath, iconPath);
     if (result == 0) return true;
 
-    // Fallback in isolate
-    final psCommand =
-        '''
-Add-Type -AssemblyName System.Drawing
-try {
-  [System.Drawing.Icon]::ExtractAssociatedIcon("${exePath.replaceAll('"', '`"')}").ToBitmap().Save("${iconPath.replaceAll('"', '`"')}", [System.Drawing.Imaging.ImageFormat]::Png)
-  exit 0
-} catch {
-  exit 1
-}
-''';
-    final fallbackResult = await Process.run('powershell', [
-      '-Command',
-      psCommand,
-    ]);
-    return fallbackResult.exitCode == 0;
+    return false;
   }
 }

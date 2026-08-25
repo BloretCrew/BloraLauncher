@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:bloret_launcher/core/ffi_proxy.dart';
+import 'package:bloret_launcher/core/ffi_reg_op.dart';
 import 'package:bloret_launcher/core/window_bridge.dart';
 import 'package:bloret_launcher/pages/about_page.dart';
 import 'package:bloret_launcher/pages/bbbs_page.dart';
@@ -14,8 +16,10 @@ import 'package:bloret_launcher/pages/tools_page.dart';
 import 'package:bloret_launcher/services/bloriko.dart';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/download_service.dart';
+import 'package:bloret_launcher/services/plugin_install_server.dart';
 import 'package:bloret_launcher/tools/server_info.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher_string.dart';
@@ -78,6 +82,12 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     instance = this;
     globalShellContext = context;
     WindowBridge.init(context);
+    PluginInstallServer.start();
+
+    if (!kDebugMode && Platform.isWindows && !WindowsRegedit.isBloraProtocolAvailable()) {
+      final exePath = Platform.resolvedExecutable;
+      WindowsRegedit.registerProtocol(exePath);
+    }
 
     _trayChannel.setMessageHandler((message) async {
       if (message == null) return null;

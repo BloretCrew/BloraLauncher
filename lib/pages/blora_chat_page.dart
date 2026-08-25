@@ -152,6 +152,10 @@ class _BloraChatPageState extends State<BloraChatPage>
     setState(() {});
   }
 
+  Widget _buildCrashCard(Map<String, dynamic> data, ThemeData theme) {
+    return BloraCrashCard(data: data, theme: theme);
+  }
+
   @override
   void deactivate() {
     if (_isRecording) {
@@ -2717,6 +2721,7 @@ class _BloraChatPageState extends State<BloraChatPage>
                                         ),
                                       );
                                     }
+
                                     final msg = _agent.messages[index];
                                     final role = msg['role'];
                                     final isSelected = _selectedMessageIndices
@@ -2727,8 +2732,6 @@ class _BloraChatPageState extends State<BloraChatPage>
 
                                     if (role == 'security') {
                                       final String cmd = msg['command'] ?? "";
-                                      final bool isWaiting =
-                                          msg['status'] == 'waiting';
 
                                       void hideSecurityCard() {
                                         setState(() {
@@ -2777,565 +2780,401 @@ class _BloraChatPageState extends State<BloraChatPage>
                                                             child: child,
                                                           ),
                                                     ),
-                                                child: Container(
-                                                  margin: const EdgeInsets.only(
-                                                    left: 48,
-                                                    right: 16,
-                                                    bottom: 12,
-                                                    top: 12,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: isWaiting
-                                                        ? Colors.orange
-                                                              .withValues(
-                                                                alpha: 0.1,
-                                                              )
-                                                        : altColor.withValues(
-                                                            alpha: 0.5,
-                                                          ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          12,
-                                                        ),
-                                                    border: Border.all(
-                                                      color: isWaiting
-                                                          ? Colors.orange
-                                                                .withValues(
-                                                                  alpha: 0.3,
-                                                                )
-                                                          : borderColor,
-                                                    ),
-                                                  ),
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      Container(
-                                                        padding:
-                                                            const EdgeInsets.symmetric(
-                                                              horizontal: 12,
-                                                              vertical: 8,
-                                                            ),
-                                                        decoration: BoxDecoration(
-                                                          color: isWaiting
-                                                              ? Colors.orange
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.2,
-                                                                    )
-                                                              : Colors.grey
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.1,
-                                                                    ),
-                                                          borderRadius:
-                                                              const BorderRadius.vertical(
-                                                                top:
-                                                                    Radius.circular(
-                                                                      12,
-                                                                    ),
-                                                              ),
-                                                        ),
-                                                        child: Row(
-                                                          children: [
-                                                            Icon(
-                                                              Icons
-                                                                  .security_rounded,
-                                                              size: 16,
-                                                              color: isWaiting
-                                                                  ? Colors
-                                                                        .orange
-                                                                  : secondaryTextColor,
-                                                            ),
-                                                            const SizedBox(
-                                                              width: 8,
-                                                            ),
-                                                            Text(
-                                                              "Security Block: External Command Execution Request"
-                                                                  .tl,
-                                                              style: TextStyle(
-                                                                fontSize: 12,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .bold,
-                                                                color: isWaiting
-                                                                    ? Colors
-                                                                          .orange
-                                                                          .shade900
-                                                                    : secondaryTextColor,
-                                                              ),
-                                                            ),
-                                                            const Spacer(),
-                                                            if (!isWaiting)
-                                                              Icon(
-                                                                Icons
-                                                                    .check_circle_rounded,
-                                                                size: 14,
-                                                                color: Colors
-                                                                    .green
-                                                                    .shade400,
-                                                              ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                      Padding(
-                                                        padding:
-                                                            const EdgeInsets.all(
-                                                              12,
-                                                            ),
-                                                        child: Column(
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .start,
-                                                          children: [
-                                                            Text(
-                                                              "LLM is attempting to execute the following system command:"
-                                                                  .tl,
-                                                              style:
-                                                                  const TextStyle(
-                                                                    fontSize:
-                                                                        12,
-                                                                  ),
-                                                            ),
-                                                            const SizedBox(
-                                                              height: 8,
-                                                            ),
-                                                            Container(
-                                                              width: double
-                                                                  .infinity,
-                                                              padding:
-                                                                  const EdgeInsets.all(
-                                                                    10,
-                                                                  ),
-                                                              decoration: BoxDecoration(
-                                                                color: Colors
-                                                                    .black
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.05,
-                                                                    ),
-                                                                borderRadius:
-                                                                    BorderRadius.circular(
-                                                                      6,
-                                                                    ),
-                                                              ),
-                                                              child: SelectableText(
-                                                                cmd,
-                                                                style: const TextStyle(
-                                                                  fontFamily:
-                                                                      'monospace',
-                                                                  fontSize: 12,
-                                                                ),
-                                                              ),
-                                                            ),
-                                                            const SizedBox(
-                                                              height: 16,
-                                                            ),
-                                                            if (isWaiting)
-                                                              Wrap(
-                                                                spacing: 8,
-                                                                runSpacing: 8,
-                                                                alignment:
-                                                                    WrapAlignment
-                                                                        .end,
-                                                                crossAxisAlignment:
-                                                                    WrapCrossAlignment
-                                                                        .center,
-                                                                children: [
-                                                                  TextButton(
-                                                                    onPressed: () {
-                                                                      hideSecurityCard();
-                                                                      _agent.handleSecurityAction(
-                                                                        'deny',
-                                                                      );
-                                                                    },
-                                                                    child: Text(
-                                                                      "Deny".tl,
-                                                                      style: const TextStyle(
-                                                                        color: Colors
-                                                                            .redAccent,
-                                                                      ),
-                                                                    ),
-                                                                  ),
-                                                                  OutlinedButton(
-                                                                    onPressed: () {
-                                                                      hideSecurityCard();
-                                                                      _agent.handleSecurityAction(
-                                                                        'allow',
-                                                                      );
-                                                                    },
-                                                                    child: Text(
-                                                                      "Allow Once"
-                                                                          .tl,
-                                                                    ),
-                                                                  ),
-                                                                  FilledButton.icon(
-                                                                    onPressed: () {
-                                                                      hideSecurityCard();
-                                                                      _agent.handleSecurityAction(
-                                                                        'always',
-                                                                        command:
-                                                                            cmd,
-                                                                      );
-                                                                    },
-                                                                    icon: const Icon(
-                                                                      Icons
-                                                                          .verified_user_rounded,
-                                                                      size: 16,
-                                                                    ),
-                                                                    label: Text(
-                                                                      "Always Allow"
-                                                                          .tl,
-                                                                    ),
-                                                                  ),
-                                                                ],
-                                                              )
-                                                            else
-                                                              Text(
-                                                                msg['result'] ==
-                                                                        'allow'
-                                                                    ? "Execution manually authorized."
-                                                                          .tl
-                                                                    : msg['result'] ==
-                                                                          'deny'
-                                                                    ? "Execution of the command refused."
-                                                                          .tl
-                                                                    : "Permanently added to whitelist."
-                                                                          .tl,
-                                                                style: TextStyle(
-                                                                  fontSize: 11,
-                                                                  fontStyle:
-                                                                      FontStyle
-                                                                          .italic,
-                                                                  color:
-                                                                      secondaryTextColor,
-                                                                ),
-                                                              ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
+                                                child: BloraSecurityCard(
+                                                  msg: msg,
+                                                  theme: theme,
+                                                  onDeny: () {
+                                                    hideSecurityCard();
+                                                    _agent.handleSecurityAction(
+                                                      'deny',
+                                                    );
+                                                  },
+                                                  onAllowOnce: () {
+                                                    hideSecurityCard();
+                                                    _agent.handleSecurityAction(
+                                                      'allow',
+                                                    );
+                                                  },
+                                                  onAlwaysAllow: () {
+                                                    hideSecurityCard();
+                                                    _agent.handleSecurityAction(
+                                                      'always',
+                                                      command: cmd,
+                                                    );
+                                                  },
                                                 ),
                                               )
                                             : const SizedBox.shrink(
                                                 key: ValueKey("empty"),
                                               ),
                                       );
-                                      // TODO: 可以合并成一个Container，里面左一个大图标，右面是标题，浅色的描述，还有个按钮来查看详情，另外，辅助截图Widget中，AI的回答没有上GptMarkdown，如果可以的话，用户的也上GptMarkdown
                                     } else if (role == 'user') {
-                                      final content = msg['content'];
-                                      final List<String> imageUrls = [];
-                                      final List<Map<String, dynamic>> files =
-                                          [];
+                                      final rawContent =
+                                          msg['content']?.toString() ?? "";
+                                      final crashRegExp = RegExp(
+                                        r'<crash_card>(.*?)</crash_card>',
+                                        dotAll: true,
+                                      );
+                                      final crashMatch = crashRegExp.firstMatch(
+                                        rawContent,
+                                      );
 
-                                      if (content is List) {
-                                        for (var part in content) {
-                                          if (part is Map) {
-                                            if (part['type'] == 'input_image' ||
-                                                part['type'] == 'image_url') {
-                                              imageUrls.add(
-                                                part['image_url']?.toString() ??
-                                                    "",
-                                              );
-                                            } else if (part['type'] ==
-                                                'input_file') {
-                                              files.add(
-                                                Map<String, dynamic>.from(part),
-                                              );
+                                      if (crashMatch != null) {
+                                        try {
+                                          final data = jsonDecode(
+                                            crashMatch.group(1)!,
+                                          );
+                                          messageWidget = Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 12,
+                                              horizontal: 16,
+                                            ),
+                                            child: _buildCrashCard(data, theme),
+                                          );
+                                        } catch (e) {
+                                          messageWidget = const Text(
+                                            "Error parsing crash card",
+                                          );
+                                        }
+                                      } else {
+                                        final content = msg['content'];
+                                        final List<String> imageUrls = [];
+                                        final List<Map<String, dynamic>> files =
+                                            [];
+
+                                        if (content is List) {
+                                          for (var part in content) {
+                                            if (part is Map) {
+                                              if (part['type'] ==
+                                                      'input_image' ||
+                                                  part['type'] ==
+                                                      'image_url') {
+                                                imageUrls.add(
+                                                  part['image_url']
+                                                          ?.toString() ??
+                                                      "",
+                                                );
+                                              } else if (part['type'] ==
+                                                  'input_file') {
+                                                files.add(
+                                                  Map<String, dynamic>.from(
+                                                    part,
+                                                  ),
+                                                );
+                                              }
                                             }
                                           }
                                         }
-                                      }
 
-                                      messageWidget = Align(
-                                        alignment: Alignment.centerRight,
-                                        child: Container(
-                                          margin: const EdgeInsets.symmetric(
-                                            vertical: 8,
-                                            horizontal: 16,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 10,
-                                            horizontal: 14,
-                                          ),
-                                          constraints: BoxConstraints(
-                                            maxWidth:
-                                                MediaQuery.of(
-                                                  context,
-                                                ).size.width *
-                                                0.8,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: accentColor,
-                                            borderRadius:
-                                                const BorderRadius.only(
-                                                  topLeft: Radius.circular(16),
-                                                  topRight: Radius.circular(16),
-                                                  bottomLeft: Radius.circular(
-                                                    16,
+                                        messageWidget = Align(
+                                          alignment: Alignment.centerRight,
+                                          child: Container(
+                                            margin: const EdgeInsets.symmetric(
+                                              vertical: 8,
+                                              horizontal: 16,
+                                            ),
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 10,
+                                              horizontal: 14,
+                                            ),
+                                            constraints: BoxConstraints(
+                                              maxWidth:
+                                                  MediaQuery.of(
+                                                    context,
+                                                  ).size.width *
+                                                  0.8,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: accentColor,
+                                              borderRadius:
+                                                  const BorderRadius.only(
+                                                    topLeft: Radius.circular(
+                                                      16,
+                                                    ),
+                                                    topRight: Radius.circular(
+                                                      16,
+                                                    ),
+                                                    bottomLeft: Radius.circular(
+                                                      16,
+                                                    ),
+                                                    bottomRight: Radius.circular(
+                                                      4,
+                                                    ),
                                                   ),
-                                                  bottomRight: Radius.circular(
-                                                    4,
-                                                  ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black
+                                                      .withValues(alpha: 0.05),
+                                                  blurRadius: 4,
+                                                  offset: const Offset(0, 2),
                                                 ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black.withValues(
-                                                  alpha: 0.05,
-                                                ),
-                                                blurRadius: 4,
-                                                offset: const Offset(0, 2),
-                                              ),
-                                            ],
-                                          ),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.end,
-                                            children: [
-                                              if (imageUrls.isNotEmpty)
-                                                Padding(
-                                                  padding:
-                                                      const EdgeInsets.only(
-                                                        bottom: 8,
-                                                      ),
-                                                  child: Wrap(
-                                                    spacing: 4,
-                                                    runSpacing: 4,
-                                                    children: (content as List)
-                                                        .asMap()
-                                                        .entries
-                                                        .where(
-                                                          (e) =>
-                                                              e.value is Map &&
-                                                              (e.value['type'] ==
-                                                                      'input_image' ||
-                                                                  e.value['type'] ==
-                                                                      'image_url'),
-                                                        )
-                                                        .map((e) {
-                                                          final imgIdx = e.key;
-                                                          final part =
-                                                              e.value as Map;
-                                                          final url =
-                                                              part['image_url']
-                                                                  ?.toString() ??
-                                                              "";
-                                                          if (!url.startsWith(
-                                                            'data:image',
-                                                          )) {
-                                                            return const SizedBox.shrink();
-                                                          }
-                                                          final heroTag =
-                                                              'msg_${index}_img_$imgIdx';
+                                              ],
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.end,
+                                              children: [
+                                                if (imageUrls.isNotEmpty)
+                                                  Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          bottom: 8,
+                                                        ),
+                                                    child: Wrap(
+                                                      spacing: 4,
+                                                      runSpacing: 4,
+                                                      children: (content
+                                                              as List)
+                                                          .asMap()
+                                                          .entries
+                                                          .where(
+                                                            (e) =>
+                                                                e.value is Map &&
+                                                                (e.value['type'] ==
+                                                                        'input_image' ||
+                                                                    e.value['type'] ==
+                                                                        'image_url'),
+                                                          )
+                                                          .map((e) {
+                                                            final imgIdx = e.key;
+                                                            final part =
+                                                                e.value as Map;
+                                                            final url =
+                                                                part['image_url']
+                                                                    ?.toString() ??
+                                                                "";
+                                                            if (!url.startsWith(
+                                                              'data:image',
+                                                            )) {
+                                                              return const SizedBox.shrink();
+                                                            }
+                                                            final heroTag =
+                                                                'msg_${index}_img_$imgIdx';
 
-                                                          return GestureDetector(
-                                                            onTap: () =>
-                                                                _showImageDialog(
-                                                                  context,
-                                                                  url,
-                                                                  heroTag,
+                                                            return GestureDetector(
+                                                              onTap: () =>
+                                                                  _showImageDialog(
+                                                                    context,
+                                                                    url,
+                                                                    heroTag,
+                                                                  ),
+                                                              child: Hero(
+                                                                tag: heroTag,
+                                                                child: ClipRRect(
+                                                                  borderRadius:
+                                                                      BorderRadius
+                                                                          .circular(
+                                                                            8,
+                                                                          ),
+                                                                  child:
+                                                                      part['_decodedBytes'] !=
+                                                                          null
+                                                                      ? Image.memory(
+                                                                          Uint8List.fromList(
+                                                                            (part['_decodedBytes']
+                                                                                    as List)
+                                                                                .cast(),
+                                                                          ),
+                                                                          width:
+                                                                              100,
+                                                                          height:
+                                                                              100,
+                                                                          fit: BoxFit
+                                                                              .cover,
+                                                                          gaplessPlayback:
+                                                                              true,
+                                                                          key: ValueKey(
+                                                                            url,
+                                                                          ),
+                                                                        )
+                                                                      : Image.memory(
+                                                                          base64Decode(
+                                                                            url
+                                                                                .split(
+                                                                                  ',',
+                                                                                )
+                                                                                .last,
+                                                                          ),
+                                                                          width:
+                                                                              100,
+                                                                          height:
+                                                                              100,
+                                                                          fit: BoxFit
+                                                                              .cover,
+                                                                          gaplessPlayback:
+                                                                              true,
+                                                                          key: ValueKey(
+                                                                            url,
+                                                                          ),
+                                                                        ),
                                                                 ),
-                                                            child: Hero(
-                                                              tag: heroTag,
-                                                              child: ClipRRect(
-                                                                borderRadius:
-                                                                    BorderRadius.circular(
-                                                                      8,
-                                                                    ),
-                                                                child:
-                                                                    part['_decodedBytes'] !=
-                                                                        null
-                                                                    ? Image.memory(
-                                                                        Uint8List.fromList(
-                                                                          (part['_decodedBytes']
-                                                                                  as List)
-                                                                              .cast(),
-                                                                        ),
-                                                                        width:
-                                                                            100,
-                                                                        height:
-                                                                            100,
-                                                                        fit: BoxFit
-                                                                            .cover,
-                                                                        gaplessPlayback:
-                                                                            true,
-                                                                        key: ValueKey(
-                                                                          url,
-                                                                        ),
-                                                                      )
-                                                                    : Image.memory(
-                                                                        base64Decode(
-                                                                          url
-                                                                              .split(
-                                                                                ',',
-                                                                              )
-                                                                              .last,
-                                                                        ),
-                                                                        width:
-                                                                            100,
-                                                                        height:
-                                                                            100,
-                                                                        fit: BoxFit
-                                                                            .cover,
-                                                                        gaplessPlayback:
-                                                                            true,
-                                                                        key: ValueKey(
-                                                                          url,
-                                                                        ),
-                                                                      ),
                                                               ),
-                                                            ),
-                                                          );
-                                                        })
-                                                        .toList(),
+                                                            );
+                                                          })
+                                                          .toList(),
+                                                    ),
                                                   ),
-                                                ),
-                                              if (files.isNotEmpty)
-                                                Column(
-                                                  children: files.map((file) {
-                                                    final isLongText =
-                                                        file['filename'] ==
-                                                        "long_text.txt";
-                                                    return Container(
-                                                      margin:
-                                                          const EdgeInsets.only(
-                                                            bottom: 8,
-                                                          ),
-                                                      padding:
-                                                          const EdgeInsets.all(
-                                                            10,
-                                                          ),
-                                                      decoration: BoxDecoration(
-                                                        color: Colors.white
-                                                            .withValues(
-                                                              alpha: 0.15,
-                                                            ),
-                                                        borderRadius:
-                                                            BorderRadius.circular(
+                                                if (files.isNotEmpty)
+                                                  Column(
+                                                    children: files.map((file) {
+                                                      final isLongText =
+                                                          file['filename'] ==
+                                                          "long_text.txt";
+                                                      return Container(
+                                                        margin: const EdgeInsets
+                                                            .only(bottom: 8),
+                                                        padding:
+                                                            const EdgeInsets.all(
                                                               10,
                                                             ),
-                                                        border: Border.all(
-                                                          color: Colors.white
-                                                              .withValues(
-                                                                alpha: 0.2,
-                                                              ),
-                                                        ),
-                                                      ),
-                                                      child: Row(
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
-                                                        children: [
-                                                          const Icon(
-                                                            Icons
-                                                                .insert_drive_file_rounded,
-                                                            color: Colors.white,
-                                                            size: 24,
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 10,
-                                                          ),
-                                                          Flexible(
-                                                            child: Column(
-                                                              crossAxisAlignment:
-                                                                  CrossAxisAlignment
-                                                                      .start,
-                                                              children: [
-                                                                Text(
-                                                                  file['filename'] ??
-                                                                      "Unknown",
-                                                                  style: const TextStyle(
-                                                                    color: Colors
-                                                                        .white,
-                                                                    fontSize:
-                                                                        13,
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .bold,
+                                                        decoration:
+                                                            BoxDecoration(
+                                                              color: Colors
+                                                                  .white
+                                                                  .withValues(
+                                                                    alpha: 0.15,
                                                                   ),
-                                                                  maxLines: 1,
-                                                                  overflow:
-                                                                      TextOverflow
-                                                                          .ellipsis,
-                                                                ),
-                                                                if (isLongText)
-                                                                  TextButton(
-                                                                    style: TextButton.styleFrom(
-                                                                      visualDensity:
-                                                                          VisualDensity
-                                                                              .compact,
-                                                                      padding:
-                                                                          EdgeInsets
-                                                                              .zero,
-                                                                      minimumSize:
-                                                                          const Size(
-                                                                            0,
-                                                                            0,
-                                                                          ),
-                                                                    ),
-                                                                    onPressed: () {
-                                                                      try {
-                                                                        final decoded = utf8.decode(
-                                                                          base64Decode(
-                                                                            file['file_data'],
-                                                                          ),
-                                                                        );
-                                                                        setState(() {
-                                                                          _inputController.text =
-                                                                              decoded;
-                                                                          _agent.messages.removeAt(
-                                                                            index,
-                                                                          );
-                                                                        });
-                                                                        _focusNode
-                                                                            .requestFocus();
-                                                                      } catch (
-                                                                        _
-                                                                      ) {}
-                                                                    },
-                                                                    child: Text(
-                                                                      "Restore to Input Box"
-                                                                          .tl,
-                                                                      style: const TextStyle(
-                                                                        color: Colors
-                                                                            .white70,
-                                                                        fontSize:
-                                                                            11,
-                                                                        decoration:
-                                                                            TextDecoration.underline,
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                        10,
+                                                                      ),
+                                                              border: Border
+                                                                  .all(
+                                                                    color: Colors
+                                                                        .white
+                                                                        .withValues(
+                                                                          alpha:
+                                                                              0.2,
+                                                                        ),
+                                                                  ),
+                                                            ),
+                                                        child: Row(
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          children: [
+                                                            const Icon(
+                                                              Icons
+                                                                  .insert_drive_file_rounded,
+                                                              color: Colors
+                                                                  .white,
+                                                              size: 24,
+                                                            ),
+                                                            const SizedBox(
+                                                              width: 10,
+                                                            ),
+                                                            Flexible(
+                                                              child: Column(
+                                                                crossAxisAlignment:
+                                                                    CrossAxisAlignment
+                                                                        .start,
+                                                                children: [
+                                                                  Text(
+                                                                    file['filename'] ??
+                                                                        "Unknown",
+                                                                    style:
+                                                                        const TextStyle(
+                                                                          color:
+                                                                              Colors
+                                                                                  .white,
+                                                                          fontSize:
+                                                                              13,
+                                                                          fontWeight:
+                                                                              FontWeight
+                                                                                  .bold,
+                                                                          fontFamily:
+                                                                              'sans-serif',
+                                                                        ),
+                                                                    maxLines: 1,
+                                                                    overflow:
+                                                                        TextOverflow
+                                                                            .ellipsis,
+                                                                  ),
+                                                                  if (isLongText)
+                                                                    TextButton(
+                                                                      style: TextButton.styleFrom(
+                                                                        visualDensity:
+                                                                            VisualDensity
+                                                                                .compact,
+                                                                        padding:
+                                                                            EdgeInsets
+                                                                                .zero,
+                                                                        minimumSize:
+                                                                            const Size(
+                                                                              0,
+                                                                              0,
+                                                                            ),
+                                                                      ),
+                                                                      onPressed:
+                                                                          () {
+                                                                            try {
+                                                                              final decoded =
+                                                                                  utf8.decode(
+                                                                                    base64Decode(
+                                                                                      file['file_data'],
+                                                                                    ),
+                                                                                  );
+                                                                              setState(
+                                                                                () {
+                                                                                  _inputController
+                                                                                          .text =
+                                                                                      decoded;
+                                                                                  _agent
+                                                                                      .messages
+                                                                                      .removeAt(
+                                                                                        index,
+                                                                                      );
+                                                                                },
+                                                                              );
+                                                                              _focusNode
+                                                                                  .requestFocus();
+                                                                            } catch (
+                                                                              _
+                                                                            ) {}
+                                                                          },
+                                                                      child: Text(
+                                                                        "Restore to Input Box"
+                                                                            .tl,
+                                                                        style:
+                                                                            const TextStyle(
+                                                                              color:
+                                                                                  Colors
+                                                                                      .white70,
+                                                                              fontSize:
+                                                                                  11,
+                                                                              decoration:
+                                                                                  TextDecoration
+                                                                                      .underline,
+                                                                            ),
                                                                       ),
                                                                     ),
-                                                                  ),
-                                                              ],
+                                                                ],
+                                                              ),
                                                             ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    );
-                                                  }).toList(),
+                                                          ],
+                                                        ),
+                                                      );
+                                                    }).toList(),
+                                                  ),
+                                                GptMarkdown(
+                                                  msg['displayText'] ??
+                                                      (msg['content'] is String
+                                                          ? msg['content']
+                                                          : "[Attachment]".tl),
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    color:
+                                                        theme
+                                                            .colorScheme
+                                                            .onPrimary,
+                                                    height: 1.35,
+                                                  ),
                                                 ),
-                                              SelectableText(
-                                                msg['displayText'] ??
-                                                    (msg['content'] is String
-                                                        ? msg['content']
-                                                        : "[Attachment]".tl),
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  color: theme
-                                                      .colorScheme
-                                                      .onPrimary,
-                                                  height: 1.35,
-                                                ),
-                                                selectionColor: theme
-                                                    .colorScheme
-                                                    .onPrimary
-                                                    .withValues(alpha: 0.2),
-                                              ),
-                                            ],
+                                              ],
+                                            ),
                                           ),
-                                        ),
-                                      );
+                                        );
+                                      }
                                     } else if (role == 'assistant') {
                                       bool showAvatar = true;
                                       if (isPortrait) {
@@ -3615,7 +3454,8 @@ class _BloraChatPageState extends State<BloraChatPage>
                                           ),
                                         ),
                                       );
-                                    } else if (role == 'system') {
+                                    } 
+else if (role == 'system') {
                                       if (msg['tool'] == 'set_user_identity') {
                                         return const SizedBox.shrink();
                                       }
@@ -5246,6 +5086,300 @@ class _BloraChatPageState extends State<BloraChatPage>
   }
 }
 
+class BloraCrashCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final ThemeData theme;
+
+  const BloraCrashCard({super.key, required this.data, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    final version = data['version'] ?? "Unknown";
+    final analysis = data['analysis'] ?? "No analysis available";
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.bug_report_rounded,
+              color: Colors.redAccent,
+              size: 32,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "${"Crash Analysis: ".tl}$version",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  analysis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontSize: 13,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: Text("${"Crash Details: ".tl}$version"),
+                        content: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                "Analysis Result".tl,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(analysis),
+                              const Divider(height: 24),
+                              Text(
+                                "Version Settings".tl,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.05),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: SelectableText(
+                                  const JsonEncoder.withIndent("  ").convert(
+                                    data['settings'] ?? {},
+                                  ),
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text("OK"),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.info_outline_rounded, size: 14),
+                  label: Text("View Details".tl),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white24),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class BloraSecurityCard extends StatelessWidget {
+  final Map<String, dynamic> msg;
+  final ThemeData theme;
+  final bool isScreenshot;
+  final VoidCallback? onDeny;
+  final VoidCallback? onAllowOnce;
+  final VoidCallback? onAlwaysAllow;
+
+  const BloraSecurityCard({
+    super.key,
+    required this.msg,
+    required this.theme,
+    this.isScreenshot = false,
+    this.onDeny,
+    this.onAllowOnce,
+    this.onAlwaysAllow,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final String cmd = msg['command'] ?? "";
+    final bool isWaiting = msg['status'] == 'waiting';
+    final Color borderColor = theme.dividerColor;
+    final Color altColor = theme.colorScheme.surfaceContainerHighest;
+    final Color secondaryTextColor = theme.colorScheme.onSurfaceVariant;
+
+    return Container(
+      margin: isScreenshot
+          ? EdgeInsets.zero
+          : const EdgeInsets.only(left: 48, right: 16, bottom: 12, top: 12),
+      decoration: BoxDecoration(
+        color: isWaiting
+            ? Colors.orange.withValues(alpha: 0.1)
+            : altColor.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isWaiting ? Colors.orange.withValues(alpha: 0.3) : borderColor,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: isWaiting
+                  ? Colors.orange.withValues(alpha: 0.2)
+                  : Colors.grey.withValues(alpha: 0.1),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.security_rounded,
+                  size: 16,
+                  color: isWaiting ? Colors.orange : secondaryTextColor,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  "Security Block: External Command Execution Request".tl,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color:
+                        isWaiting ? Colors.orange.shade900 : secondaryTextColor,
+                  ),
+                ),
+                const Spacer(),
+                if (!isWaiting)
+                  Icon(
+                    Icons.check_circle_rounded,
+                    size: 14,
+                    color: Colors.green.shade400,
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "LLM is attempting to execute the following system command:".tl,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: SelectableText(
+                    cmd,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (isWaiting && !isScreenshot)
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      TextButton(
+                        onPressed: onDeny,
+                        child: Text(
+                          "Deny".tl,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: onAllowOnce,
+                        child: Text("Allow Once".tl),
+                      ),
+                      FilledButton.icon(
+                        onPressed: onAlwaysAllow,
+                        icon: const Icon(Icons.verified_user_rounded, size: 16),
+                        label: Text("Always Allow".tl),
+                      ),
+                    ],
+                  )
+                else if (!isWaiting)
+                  Text(
+                    msg['result'] == 'allow'
+                        ? "Execution manually authorized.".tl
+                        : msg['result'] == 'deny'
+                            ? "Execution of the command refused.".tl
+                            : "Permanently added to whitelist.".tl,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                      color: secondaryTextColor,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _LongTextEditorDialog extends StatefulWidget {
   final String initialText;
   const _LongTextEditorDialog({required this.initialText});
@@ -5393,12 +5527,53 @@ class _ScreenshotGeneratorState extends State<_ScreenshotGenerator> {
                   const SizedBox(height: 16),
                   ...sortedIndices.map((idx) {
                     final msg = widget.messages[idx];
-                    final isUser = msg['role'] == 'user';
+                    final role = msg['role'];
+                    final isUser = role == 'user';
                     final agentType = msg['agentType'] ?? "default";
                     final agentName =
                         (agentType == "bloriko" || agentType == "bloriko_r18")
                         ? "Bloriko".tl
                         : "Blora Agent".tl;
+
+                    final rawContent = msg['content']?.toString() ?? "";
+                    final crashRegExp = RegExp(
+                      r'<crash_card>(.*?)</crash_card>',
+                      dotAll: true,
+                    );
+                    final crashMatch = crashRegExp.firstMatch(rawContent);
+
+                    Widget contentWidget;
+                    bool isSpecialCard = false;
+
+                    if (role == 'security') {
+                      isSpecialCard = true;
+                      contentWidget = BloraSecurityCard(
+                        msg: msg,
+                        theme: theme,
+                        isScreenshot: true,
+                      );
+                    } else if (crashMatch != null) {
+                      isSpecialCard = true;
+                      try {
+                        final data = jsonDecode(crashMatch.group(1)!);
+                        contentWidget = BloraCrashCard(data: data, theme: theme);
+                      } catch (e) {
+                        contentWidget = const Text("Error parsing crash card");
+                      }
+                    } else {
+                      contentWidget = GptMarkdown(
+                        msg['displayText'] ??
+                            (msg['content'] is String
+                                ? msg['content']
+                                : "[${"Attachment".tl}]"),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isUser
+                              ? theme.colorScheme.onPrimary
+                              : theme.colorScheme.onSurface,
+                        ),
+                      );
+                    }
 
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -5441,25 +5616,20 @@ class _ScreenshotGeneratorState extends State<_ScreenshotGenerator> {
                             ],
                           ),
                           const SizedBox(height: 4),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: isUser
-                                  ? theme.colorScheme.primary
-                                  : theme.colorScheme.surfaceContainerHighest
-                                        .withValues(alpha: 0.5),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              msg['content']?.toString() ?? "",
-                              style: TextStyle(
-                                fontSize: 13,
+                          if (isSpecialCard)
+                            contentWidget
+                          else
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
                                 color: isUser
-                                    ? theme.colorScheme.onPrimary
-                                    : theme.colorScheme.onSurface,
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.surfaceContainerHighest
+                                          .withValues(alpha: 0.5),
+                                borderRadius: BorderRadius.circular(12),
                               ),
+                              child: contentWidget,
                             ),
-                          ),
                         ],
                       ),
                     );

@@ -5,6 +5,7 @@ import 'dart:ui';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:bloret_launcher/services/windows_native_process.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -347,10 +348,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             final pid = core.effectivePid;
             if (pid == 0) continue;
 
-            final isAlive = WinProcess.isAlive(pid);
-            if (!isAlive || core.exitCode != null) {
-              if (!isAlive && core.exitCode == null) {
-                _handleCoreExit(core, 0);
+            final isExited = core.nativeProcess != null
+                ? core.nativeProcess!.hasExited
+                : !WinProcess.isAlive(pid);
+
+            if (isExited || core.exitCode != null) {
+              if (core.exitCode == null) {
+                _handleCoreExit(core, core.nativeProcess?.exitCode ?? 0);
               }
               continue;
             }
@@ -608,38 +612,28 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       }
 
       Process? process;
+      NativeProcess? nativeProcess;
       int? pid;
 
-      if (app.runAsAdmin && Platform.isWindows) {
-        final argsString = argsList.map((a) => "'$a'").join(",");
-        final priorityMap = {
-          "Idle": "Idle",
-          "Normal": "Normal",
-          "High": "High",
-          "Realtime": "RealtimeProcess",
-        };
-        final priorityStr = priorityMap[app.priority] ?? "Normal";
+      final priorityMap = {
+        "Idle": IDLE_PRIORITY_CLASS,
+        "Normal": NORMAL_PRIORITY_CLASS,
+        "High": HIGH_PRIORITY_CLASS,
+        "Realtime": REALTIME_PRIORITY_CLASS,
+      };
+      final priorityValue = priorityMap[app.priority] ?? NORMAL_PRIORITY_CLASS;
 
-        // TODO
-        final psCmd =
-            '\$p = Start-Process "${app.exePath}" -ArgumentList $argsString -WorkingDirectory "${app.workingDir ?? p.dirname(app.exePath)}" -Verb RunAs -PassThru; if (\$p) { \$p.PriorityClass = "$priorityStr"; \$p.Id }';
-
-        final result = await Process.run('powershell', [
-          '-Command',
-          '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $psCmd',
-        ]);
-
-        if (result.exitCode == 0) {
-          pid = int.tryParse(result.stdout.toString().trim());
-          if (pid != null) {
-            showInfo(
-              "Elevated process started (PID: %s). Console output capture limited."
-                  .tl.format(pid),
-            );
-          }
-        } else {
-          throw Exception("Elevation failed: ${result.stderr}");
-        }
+      if (Platform.isWindows) {
+        nativeProcess = await WindowsNativeProcessService.launchProcess(
+          executable: app.exePath,
+          arguments: argsList,
+          workingDirectory: (app.workingDir?.isEmpty ?? true) ? null : app.workingDir,
+          runAsAdmin: app.runAsAdmin,
+          priority: priorityValue,
+          environment: env,
+          detached: !app.killOnExit,
+        );
+        pid = nativeProcess.pid;
       } else {
         process = await Process.start(
           app.exePath,
@@ -651,96 +645,76 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               : ProcessStartMode.detached,
         );
         pid = process.pid;
-
-        if (Platform.isWindows && app.priority != "Normal") {
-          final priorityMap = {
-            "Idle": 64,
-            "Normal": 32,
-            "High": 128,
-            "Realtime": 256,
-          };
-          final level = priorityMap[app.priority] ?? 32;
-          // TODO
-          Process.run('wmic', [
-            'process',
-            'where',
-            'ProcessId=${process.pid}',
-            'CALL',
-            'setpriority',
-            '$level',
-          ]);
-        }
       }
 
-      if (pid != null) {
-        final runningCore = RunningCore(
-          id: app.id,
-          version: app.name,
-          minecraftDir: "",
-          loader: "External".tl,
-          userName: "Custom",
-          avatar: app.iconPath,
-          accountType: "External",
-          identityName: "User",
-          process: process,
-          pid: pid,
-          killOnExit: app.killOnExit,
-        );
+      final runningCore = RunningCore(
+        id: app.id,
+        version: app.name,
+        minecraftDir: "",
+        loader: "External".tl,
+        userName: "Custom",
+        avatar: app.iconPath,
+        accountType: "External",
+        identityName: "User",
+        process: process,
+        nativeProcess: nativeProcess,
+        pid: pid,
+        killOnExit: app.killOnExit,
+      );
 
-        if (!app.killOnExit || process == null) {
-          runningCore.isDetached = true;
-        }
+      if (!app.killOnExit || process == null) {
+        runningCore.isDetached = true;
+      }
 
-        setState(() {
-          CoreManager.instance.addCore(runningCore);
-          _selectedCore = runningCore;
-          _homeState = HomeState.running;
-          _showRunningHandle = true;
-        });
+      setState(() {
+        CoreManager.instance.addCore(runningCore);
+        _selectedCore = runningCore;
+        _homeState = HomeState.running;
+        _showRunningHandle = true;
+      });
 
-        if (process != null) {
-          if (!runningCore.isDetached) {
-            try {
-              final sub1 = process.stdout
-                  .transform(utf8.decoder)
-                  .transform(const LineSplitter())
-                  .listen((line) {
-                    _addLogToCore(runningCore, line);
-                    debugPrint(line);
-                  });
-              final sub2 = process.stderr
-                  .transform(utf8.decoder)
-                  .transform(const LineSplitter())
-                  .listen((line) {
-                    _addLogToCore(runningCore, line);
-                    debugPrint(line);
-                  });
-              runningCore.subscriptions = [sub1, sub2];
-            } catch (e) {
-              logger.warning("Process output capture unavailable.".tl);
-            }
-          } else {
-            logger.warning("Log capture disabled for detached application.".tl);
-          }
-
-          if (!runningCore.isDetached) {
-            process.exitCode.then((code) {
-              _handleCoreExit(runningCore, code, app: app);
-            }).catchError((e) {
-              logger.error("Process exit tracking error: $e");
-            });
+      if (process != null) {
+        if (!runningCore.isDetached) {
+          try {
+            final sub1 = process.stdout
+                .transform(utf8.decoder)
+                .transform(const LineSplitter())
+                .listen((line) {
+                  _addLogToCore(runningCore, line);
+                  debugPrint(line);
+                });
+            final sub2 = process.stderr
+                .transform(utf8.decoder)
+                .transform(const LineSplitter())
+                .listen((line) {
+                  _addLogToCore(runningCore, line);
+                  debugPrint(line);
+                });
+            runningCore.subscriptions = [sub1, sub2];
+          } catch (e) {
+            logger.warning("Process output capture unavailable.".tl);
           }
         } else {
-          logger.warning("Application running in independent mode (PID: %s). Log capture disabled."
-              .tl.format(pid));
+          logger.warning("Log capture disabled for detached application.".tl);
         }
 
-        _pageController.animateToPage(
-          1,
-          duration: const Duration(milliseconds: 700),
-          curve: Curves.easeOutExpo,
-        );
+        if (!runningCore.isDetached) {
+          process.exitCode.then((code) {
+            _handleCoreExit(runningCore, code, app: app);
+          }).catchError((e) {
+            logger.error("Process exit tracking error: $e");
+          });
+        }
+      } else {
+        logger.warning("Application running in independent mode (PID: %s). Log capture disabled."
+            .tl.format(pid));
       }
+
+      _pageController.animateToPage(
+        1,
+        duration: const Duration(milliseconds: 700),
+        curve: Curves.easeOutExpo,
+      );
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -1111,8 +1085,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         },
       );
 
-      _activeLaunchingProcess = process;
+      final native = NativeProcess.fromPid(process.pid);
+
       if (_isLaunchCancelled) {
+        native.terminate();
+        native.dispose();
         process.kill();
         return;
       }
@@ -1143,6 +1120,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         accountType: mcType,
         identityName: identityName,
         process: process,
+        nativeProcess: native,
         pid: process.pid,
         killOnExit: true,
       );
@@ -2575,8 +2553,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                 return;
                               }
                               core.isManuallyTerminated = true;
-                              // 统一使用缓存的 PID 进行系统级强杀
-                              Process.run('taskkill', ['/F', '/PID', '$pid']);
+                              if (core.nativeProcess != null) {
+                                core.nativeProcess!.terminate();
+                              } else if (Platform.isWindows) {
+                                WindowsNativeProcessService.terminateByPid(pid);
+                              } else if (core.process != null) {
+                                core.process!.kill();
+                              }
                               showSuccess(
                                 "${"Terminating game process...".tl} (PID: $pid)",
                               );
@@ -2692,14 +2675,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                 _handleCoreExit(core, -1);
                                 
                                 core.isManuallyTerminated = false;
-                                if (core.process != null) {
+                                if (core.nativeProcess != null) {
+                                  core.nativeProcess!.terminate();
+                                } else if (Platform.isWindows) {
+                                  WindowsNativeProcessService.terminateByPid(pid);
+                                } else if (core.process != null) {
                                   core.process!.kill();
-                                } else {
-                                  Process.run('taskkill', [
-                                    '/F',
-                                    '/PID',
-                                    '$pid',
-                                  ]);
                                 }
                                 showWarning(
                                   "Process crash triggered manually (Dev Mode)."

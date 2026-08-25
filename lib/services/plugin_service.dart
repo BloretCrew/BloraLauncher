@@ -163,6 +163,29 @@ class PluginService extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> installPlugin(Map<String, dynamic> manifest, {List<String>? grantedPermissions}) async {
+    try {
+      final plugin = BloretPlugin.fromJson(manifest);
+      if (grantedPermissions != null) {
+        plugin.grantedPermissions = grantedPermissions;
+      }
+      await _savePluginConfig(plugin);
+
+      final dir = await getPluginsDir();
+      final pluginDir = Directory(p.join(dir.path, plugin.id));
+      if (!await pluginDir.exists()) {
+        await pluginDir.create(recursive: true);
+      }
+      
+      final manifestFile = File(p.join(pluginDir.path, 'manifest.json'));
+      await manifestFile.writeAsString(json.encode(manifest));
+      
+      await scanPlugins();
+    } catch (e) {
+      logger.error("[PluginService] Install failed: $e", LogSource.system);
+    }
+  }
   
   Future<void> deletePlugin(String id) async {
     final index = _plugins.indexWhere((p) => p.id == id);
