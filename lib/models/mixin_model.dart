@@ -162,3 +162,30 @@ class MixinConfig {
     this.server = const [],
   });
 }
+
+class MixinExtraction {
+  final String? sourceFile;
+  final bool isMixin;
+  final List<MixinInjectionInfo> injections;
+
+  const MixinExtraction({
+    this.sourceFile,
+    required this.isMixin,
+    this.injections = const [],
+  });
+}
+
+class MixinInjectionInfo {
+  final String annotation;
+
+  final String? method;
+  final String? at;
+  final bool? cancellable;
+
+  const MixinInjectionInfo({
+    required this.annotation,
+    this.method,
+    this.at,
+    this.cancellable,
+  });
+}

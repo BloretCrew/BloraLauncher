@@ -13,9 +13,41 @@ import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import android.os.Bundle
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ObjectAnimator
+import android.view.View
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.xxyxxdmc.bloret_launcher"
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
+
+        splashScreen.setOnExitAnimationListener { splashScreenView ->
+
+            val fadeOut = ObjectAnimator.ofFloat(
+                splashScreenView.view,
+                View.ALPHA,
+                1f,
+                0f
+            )
+
+            fadeOut.duration = 300L
+
+            fadeOut.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    splashScreenView.remove()
+                }
+            })
+
+            fadeOut.start()
+        }
+
+        super.onCreate(savedInstanceState)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

@@ -50,6 +50,7 @@ dependencies {
     implementation("dev.rikka.shizuku:api:12.2.0")
     implementation("dev.rikka.shizuku:provider:12.2.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.5.1")
+    implementation("androidx.core:core-splashscreen:1.0.0")
 }
 
 kotlin {

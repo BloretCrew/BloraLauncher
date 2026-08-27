@@ -65,6 +65,7 @@ dependencies:
   device_info_plus: ^11.3.0
   encrypt: ^5.0.3
   string_width: ^0.1.5
+  system_fonts: ^1.0.1
 
 dependency_overrides:
   pointycastle: ^4.0.0
@@ -97,7 +98,6 @@ flutter:
     - assets/
     - assets/icons/
     - assets/lang/
-    - fonts/
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
 
@@ -112,11 +112,6 @@ flutter:
   # "family" key with the font family name, and a "fonts" key with a
   # list giving the asset and other descriptors for the font. For
   # example:
-  fonts:
-     - family: Microsoft
-       fonts:
-         - asset: fonts/Microsoft.ttf
-           weight: 500
   #       - asset: fonts/Schyler-Italic.ttf
   #         style: italic
   #   - family: Trajan Pro

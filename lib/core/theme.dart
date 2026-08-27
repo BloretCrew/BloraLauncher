@@ -57,8 +57,14 @@ ThemeData buildAppTheme(Color seedColor, Brightness brightness) {
         ),
       ),
     ),
-    fontFamily: "Microsoft",
-    textTheme: const TextTheme().apply(fontFamily: "Microsoft"),
+    fontFamily: "Microsoft YaHei",
+    textTheme: const TextTheme().apply(fontFamily: "Microsoft YaHei"),
+    fontFamilyFallback: const [
+      "Microsoft YaHei",
+      "PingFang SC",
+      "Noto Sans CJK SC",
+      "sans-serif"
+    ],
     appBarTheme: AppBarTheme(
       backgroundColor: scheme.surface,
       foregroundColor: scheme.onSurface,
