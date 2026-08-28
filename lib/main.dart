@@ -16,6 +16,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import 'core/global.dart';
+import 'core/global_background.dart';
 import 'core/network_config.dart';
 import 'core/theme_manager.dart';
 import 'pages/welcome_page.dart';
@@ -79,11 +80,13 @@ class BloraLauncherApp extends StatelessWidget {
           theme: ThemeManager.instance.getTheme(Brightness.light),
           darkTheme: ThemeManager.instance.getTheme(Brightness.dark),
           themeMode: ThemeManager.instance.themeMode,
-          home: Semantics(
-            container: true,
-            child: ConfigService.isFirstRun()
-                ? const WelcomeSetupScreen()
-                : AgentOverlayWidget(child: MainShell()),
+          home: GlobalBackground(
+            child: Semantics(
+              container: true,
+              child: ConfigService.isFirstRun()
+                  ? const WelcomeSetupScreen()
+                  : AgentOverlayWidget(child: MainShell()),
+            ),
           ),
         );
       },

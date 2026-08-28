@@ -14,36 +14,62 @@ import rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import android.os.Bundle
+import android.os.Build
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ObjectAnimator
 import android.view.View
+import kotlin.math.max
+import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
 
-class MainActivity : FlutterActivity() {
+open class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.xxyxxdmc.bloret_launcher"
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashStart = SystemClock.uptimeMillis()
+
         val splashScreen = installSplashScreen()
 
         splashScreen.setOnExitAnimationListener { splashScreenView ->
 
-            val fadeOut = ObjectAnimator.ofFloat(
-                splashScreenView.view,
-                View.ALPHA,
-                1f,
-                0f
-            )
+            val animationDuration =
+                splashScreenView.iconAnimationDurationMillis ?: 0L
 
-            fadeOut.duration = 300L
+            val elapsed =
+                SystemClock.uptimeMillis() - splashStart
 
-            fadeOut.addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    splashScreenView.remove()
-                }
-            })
+            val remainingAnimation =
+                max(animationDuration - elapsed, 0L)
 
-            fadeOut.start()
+            val waitDuration = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                remainingAnimation
+            } else {
+                max(800L - elapsed, 0L)
+            }
+
+            Handler(Looper.getMainLooper()).postDelayed({
+
+                val fadeOut = ObjectAnimator.ofFloat(
+                    splashScreenView.view,
+                    View.ALPHA,
+                    1f,
+                    0f
+                )
+
+                fadeOut.duration = 300L
+
+                fadeOut.addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        splashScreenView.remove()
+                    }
+                })
+
+                fadeOut.start()
+
+            }, waitDuration)
         }
 
         super.onCreate(savedInstanceState)

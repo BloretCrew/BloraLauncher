@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'theme_manager.dart';
 
 final Map<String, Color> appThemeColors = {
   "classic_blue": const Color(0xFF0078D4),
@@ -30,14 +31,19 @@ ThemeData buildAppTheme(Color seedColor, Brightness brightness) {
     surface: tintedBg,
   );
 
+  final hasGlobalBg = ThemeManager.instance.backgroundImage != null && 
+                      ThemeManager.instance.backgroundImage!.isNotEmpty;
+
   return ThemeData(
     useMaterial3: true,
     brightness: brightness,
     colorScheme: scheme,
-    scaffoldBackgroundColor: tintedBg,
+    scaffoldBackgroundColor: hasGlobalBg ? Colors.transparent : tintedBg,
     cardTheme: CardTheme(
       elevation: 0,
-      color: isDark ? null : Colors.white,
+      color: hasGlobalBg 
+          ? (isDark ? Colors.black.withValues(alpha: 0.7) : Colors.white.withValues(alpha: 0.8))
+          : (isDark ? null : Colors.white),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(

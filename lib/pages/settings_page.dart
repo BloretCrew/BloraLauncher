@@ -943,6 +943,76 @@ class _SettingsPageState extends State<SettingsPage> {
                 },
               ),
             ),
+          _buildSettingItem(
+            "Custom Background".tl,
+            "Set a custom image as the launcher background".tl,
+            Icons.image_outlined,
+            itemKey: "custom_bg",
+            expandedChild: Column(
+              children: [
+                _buildSimpleItem(
+                  "Background Image".tl,
+                  ConfigService.get("bg_image") != null ? p.basename(ConfigService.get("bg_image")) : "None".tl,
+                  icon: Icons.file_open_outlined,
+                  onTap: () async {
+                    FilePickerResult? result = await FilePicker.platform.pickFiles(
+                      type: FileType.image,
+                    );
+                    if (result != null) {
+                      await ThemeManager.instance.setBackgroundConfig(image: result.files.single.path);
+                      setState(() {});
+                    }
+                  },
+                  trailing: ConfigService.get("bg_image") != null ? IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    onPressed: () async {
+                      await ConfigService.set("bg_image", null);
+                      ThemeManager.instance.updateTheme();
+                      setState(() {});
+                    },
+                  ) : null,
+                ),
+                if (ConfigService.get("bg_image") != null) ...[
+                  _buildSliderItem(
+                    "Blur".tl,
+                    ThemeManager.instance.backgroundBlur,
+                    0, 20,
+                    (v) => ThemeManager.instance.setBackgroundConfig(blur: v),
+                  ),
+                  _buildSliderItem(
+                    "Opacity".tl,
+                    ThemeManager.instance.backgroundOpacity,
+                    0, 1,
+                    (v) => ThemeManager.instance.setBackgroundConfig(opacity: v),
+                  ),
+                  _buildSliderItem(
+                    "Scale".tl,
+                    ThemeManager.instance.backgroundScale,
+                    0.5, 3.0,
+                    (v) => ThemeManager.instance.setBackgroundConfig(scale: v),
+                  ),
+                  _buildSliderItem(
+                    "Rotation".tl,
+                    ThemeManager.instance.backgroundRotation,
+                    -3.14, 3.14,
+                    (v) => ThemeManager.instance.setBackgroundConfig(rotation: v),
+                  ),
+                  _buildSliderItem(
+                    "Offset X".tl,
+                    ThemeManager.instance.backgroundOffsetX,
+                    -500, 500,
+                    (v) => ThemeManager.instance.setBackgroundConfig(offsetX: v),
+                  ),
+                  _buildSliderItem(
+                    "Offset Y".tl,
+                    ThemeManager.instance.backgroundOffsetY,
+                    -500, 500,
+                    (v) => ThemeManager.instance.setBackgroundConfig(offsetY: v),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ],
         if (_selectedCategory == SettingCategory.minecraft) ...[
           _buildSettingItem(
@@ -2843,6 +2913,50 @@ class _SettingsPageState extends State<SettingsPage> {
       case "eye": return Icons.visibility;
       default: return Icons.settings;
     }
+  }
+
+  Widget _buildSliderItem(String title, double value, double min, double max, ValueChanged<double> onChanged) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(child: Text(title, style: const TextStyle(fontSize: 13))),
+          SizedBox(
+            width: 200,
+            child: Slider(
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              onChanged: (v) {
+                onChanged(v);
+                setState(() {});
+              },
+            ),
+          ),
+          SizedBox(
+            width: 40,
+            child: Text(
+              value.toStringAsFixed(1),
+              style: TextStyle(fontSize: 11, color: theme.colorScheme.primary),
+              textAlign: Alignment.centerRight.x == 1 ? TextAlign.right : TextAlign.center,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSimpleItem(String title, String value, {IconData? icon, VoidCallback? onTap, Widget? trailing}) {
+    final _ = Theme.of(context);
+    return ListTile(
+      dense: true,
+      leading: icon != null ? Icon(icon, size: 18) : null,
+      title: Text(title, style: const TextStyle(fontSize: 13)),
+      subtitle: Text(value, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      onTap: onTap,
+      trailing: trailing,
+    );
   }
 
   Widget _buildSettingItem(

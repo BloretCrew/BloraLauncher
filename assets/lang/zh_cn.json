@@ -1045,5 +1045,22 @@
   "The following is the last part of the game output": "以下为游戏输出的最后一段内容",
   "Launcher log.txt": "启动器日志.txt",
   "Blora Launcher log.txt": "Blora Launcher 启动器日志.txt",
-  "Game output before crash.txt": "游戏崩溃前的输出.txt"
+  "Game output before crash.txt": "游戏崩溃前的输出.txt",
+  "Plugin Proposal": "插件安装请求",
+  "Author": "作者",
+  "Requested Permissions:": "请求的权限：",
+  "Please ensure you trust the source of this plugin.": "请确保您信任该插件的来源。",
+  "No permissions requested": "未请求任何权限",
+  "Plugin installed successfully": "插件安装成功",
+  "Custom Background": "自定义背景",
+  "Set a custom image as the launcher background": "设置一张自定义图片作为启动器背景",
+  "Background Image": "背景图片",
+  "Blur": "模糊",
+  "Opacity": "透明度",
+  "Scale": "缩放",
+  "Rotation": "旋转",
+  "Offset X": "水平偏移",
+  "Offset Y": "垂直偏移",
+  "None": "无",
+  "Crash Analysis: ": "崩溃分析: "
 }

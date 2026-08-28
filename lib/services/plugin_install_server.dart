@@ -72,7 +72,11 @@ class _PluginProposeDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final manifest = payload['manifest'] ?? payload;
+    final dynamic rawManifest = payload['manifest'] ?? payload;
+    final Map<String, dynamic> manifest = rawManifest is String 
+        ? json.decode(rawManifest) 
+        : Map<String, dynamic>.from(rawManifest);
+
     final String name = manifest['name'] ?? "Unknown Plugin";
     final String version = manifest['version'] ?? "1.0.0";
     final String author = manifest['author'] ?? "Unknown";
