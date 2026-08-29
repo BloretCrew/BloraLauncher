@@ -698,7 +698,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
         MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
     final userName =
-        ConfigService.get('Bloret_PassPort_UserName') ?? "Guest".tl;
+        ConfigService.get('Bloret_PassPort_NickName') ?? (ConfigService.get('Bloret_PassPort_UserName') ?? "Guest".tl);
     final avatar = ConfigService.get('Bloret_PassPort_Avatar') ?? "";
 
     return Scaffold(

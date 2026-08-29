@@ -70,6 +70,7 @@ class _PassPortPageState extends State<PassPortPage> {
           if (userInfo != null) {
             await ConfigService.set('Bloret_PassPort_Login', true);
             await ConfigService.set('Bloret_PassPort_UserName', userInfo['username']);
+            await ConfigService.set('Bloret_PassPort_NickName', userInfo['nickname']);
             await ConfigService.set('Bloret_PassPort_Avatar', userInfo['avatar']);
             await ConfigService.set('Bloret_PassPort_Email', userInfo['email']);
             await ConfigService.set('Bloret_PassPort_Token', userInfo['apptoken']);
@@ -444,7 +445,7 @@ class _PassPortPageState extends State<PassPortPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isLoggedIn = ConfigService.get('Bloret_PassPort_Login') ?? false;
-    final userName = ConfigService.get('Bloret_PassPort_UserName') ?? "Guest".tl;
+    final nickName = ConfigService.get('Bloret_PassPort_NickName') ?? "Guest".tl;
     final avatar = ConfigService.get('Bloret_PassPort_Avatar') ?? "";
     
     final List<dynamic> rawAccountList = ConfigService.get('MinecraftAccountList') as List<dynamic>? ?? [];
@@ -482,7 +483,7 @@ class _PassPortPageState extends State<PassPortPage> {
                       : SizedBox(width: 48, height: 48, child: Image.asset(Theme.of(context).brightness == Brightness.dark ? "assets/bloret_dark.png" : "assets/bloret_light.png")),
                 ),
                 const SizedBox(width: 16),
-                Expanded(child: Text(userName, style: const TextStyle(fontWeight: FontWeight.w700))),
+                Expanded(child: Text(nickName, style: const TextStyle(fontWeight: FontWeight.w700))),
                 if (!isLoggedIn)
                   BloretButton(
                     onPressed: () async {
@@ -499,6 +500,7 @@ class _PassPortPageState extends State<PassPortPage> {
                     onPressed: () async {
                       await ConfigService.set('Bloret_PassPort_Login', false);
                       await ConfigService.set('Bloret_PassPort_UserName', '');
+                      await ConfigService.set('Bloret_PassPort_NickName', '');
                       await ConfigService.set('Bloret_PassPort_Token', '');
                       await ConfigService.set('Bloret_PassPort_Avatar', '');
                       await ConfigService.set('Bloret_PassPort_BBBS_Session', '');

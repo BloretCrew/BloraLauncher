@@ -7,6 +7,7 @@ class BbbsPost {
   final String title;
   final String content;
   final String author;
+  final String? authorNickname;
   final String? authorAvatar;
   final String? authorTitle;
   final dynamic time;
@@ -37,6 +38,7 @@ class BbbsPost {
     required this.title,
     required this.content,
     required this.author,
+    this.authorNickname,
     this.authorAvatar,
     this.authorTitle,
     required this.time,
@@ -57,6 +59,66 @@ class BbbsPost {
     this.ipLocation,
   });
 
+  BbbsPost copyWith({
+    String? filename,
+    String? board,
+    String? section,
+    String? boardName,
+    String? sectionName,
+    String? title,
+    String? content,
+    String? author,
+    String? authorNickname,
+    String? authorAvatar,
+    String? authorTitle,
+    dynamic time,
+    dynamic lastActiveTime,
+    List<String>? tags,
+    List<dynamic>? likes,
+    int? shares,
+    dynamic pinned,
+    int? views,
+    String? status,
+    int? commentsCount,
+    List<BbbsComment>? comments,
+    int? heat,
+    bool? userHasVoted,
+    Map<String, dynamic>? votes,
+    int? recommendationScore,
+    String? recommendationReason,
+    String? ipLocation,
+  }) {
+    return BbbsPost(
+      filename: filename ?? this.filename,
+      board: board ?? this.board,
+      section: section ?? this.section,
+      boardName: boardName ?? this.boardName,
+      sectionName: sectionName ?? this.sectionName,
+      title: title ?? this.title,
+      content: content ?? this.content,
+      author: author ?? this.author,
+      authorNickname: authorNickname ?? this.authorNickname,
+      authorAvatar: authorAvatar ?? this.authorAvatar,
+      authorTitle: authorTitle ?? this.authorTitle,
+      time: time ?? this.time,
+      lastActiveTime: lastActiveTime ?? this.lastActiveTime,
+      tags: tags ?? this.tags,
+      likes: likes ?? this.likes,
+      shares: shares ?? this.shares,
+      pinned: pinned ?? this.pinned,
+      views: views ?? this.views,
+      status: status ?? this.status,
+      commentsCount: commentsCount ?? this.commentsCount,
+      comments: comments ?? this.comments,
+      heat: heat ?? this.heat,
+      userHasVoted: userHasVoted ?? this.userHasVoted,
+      votes: votes ?? this.votes,
+      recommendationScore: recommendationScore ?? this.recommendationScore,
+      recommendationReason: recommendationReason ?? this.recommendationReason,
+      ipLocation: ipLocation ?? this.ipLocation,
+    );
+  }
+
   factory BbbsPost.fromJson(Map<String, dynamic> json) {
     return BbbsPost(
       filename: json['filename'] ?? '',
@@ -67,6 +129,7 @@ class BbbsPost {
       title: json['title'] ?? '',
       content: json['content'] ?? '',
       author: json['author'] ?? '',
+      authorNickname: json['author_nickname'],
       authorAvatar: json['author_avatar'] ?? json['authorAvatar'],
       authorTitle: json['author_title'] ?? json['authorTitle'],
       time: json['time'],
@@ -94,6 +157,7 @@ class BbbsPost {
 class BbbsComment {
   final int id;
   final String author;
+  final String? authorNickname;
   final String? authorAvatar;
   final String content;
   final dynamic time;
@@ -105,6 +169,7 @@ class BbbsComment {
   BbbsComment({
     required this.id,
     required this.author,
+    this.authorNickname,
     this.authorAvatar,
     required this.content,
     required this.time,
@@ -118,6 +183,7 @@ class BbbsComment {
     return BbbsComment(
       id: json['id'] ?? json['commentId'] ?? 0,
       author: json['author'] ?? '',
+      authorNickname: json['author_nickname'],
       authorAvatar: json['author_avatar'],
       content: json['content'] ?? '',
       time: json['time'],

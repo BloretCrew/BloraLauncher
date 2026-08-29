@@ -625,6 +625,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
               userInfo['username'],
             );
             await ConfigService.set(
+              'Bloret_PassPort_NickName',
+              userInfo['nickname'],
+            );
+            await ConfigService.set(
               'Bloret_PassPort_Avatar',
               userInfo['avatar'],
             );

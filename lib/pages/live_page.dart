@@ -326,6 +326,7 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
     final text = _chatController.text.trim();
     if (text.isEmpty) return;
 
+    // TODO: username -> nickname
     final message = {
       "from": ConfigService.get("Bloret_PassPort_UserName"),
       "payload": {"msg": text},

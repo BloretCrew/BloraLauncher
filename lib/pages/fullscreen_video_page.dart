@@ -134,6 +134,7 @@ class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
     final text = _chatController.text.trim();
     if (text.isEmpty || widget.spaceId == null) return;
 
+    // TODO: username -> nickname
     final msg = {
       "from": ConfigService.get("Bloret_PassPort_UserName"),
       "payload": {"msg": text},

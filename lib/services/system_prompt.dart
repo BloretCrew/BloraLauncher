@@ -588,7 +588,7 @@ String buildSystemPrompt(
   sections.add(buildEnvironmentHints());
 
   final now = DateTime.now();
-  final userName = ConfigService.get("Bloret_PassPort_UserName") ?? "Guest";
+  final userName = ConfigService.get('Bloret_PassPort_NickName') ?? ConfigService.get("Bloret_PassPort_UserName") ?? "Guest";
 
   String envInfo;
   if (lang.startsWith('ja')) {

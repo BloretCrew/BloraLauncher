@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
+import 'package:html/parser.dart' as html_parser;
 import '../core/i18n.dart';
 import '../core/grammer_candy.dart';
 import '../core/logger.dart';
@@ -637,7 +638,6 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () {
-          // 确保 item 包含 filename 才能跳转
           if (item['filename'] != null) {
             Navigator.push(
               context,
@@ -678,6 +678,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
               ),
               const SizedBox(width: 15),
               Expanded(
+                flex: 2,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -698,34 +699,44 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                         fontSize: 12,
                         color: secondaryColor,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 8),
-              Row(
-                children: [
-                  _statItem(
-                    Icons.favorite_outline,
-                    item['likesCount'] ?? item['likes'] ?? 0,
-                    "Likes".tl,
-                    secondaryColor,
+              Flexible(
+                flex: 3,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      _statItem(
+                        Icons.favorite_outline,
+                        item['likesCount'] ?? item['likes'] ?? 0,
+                        "Likes".tl,
+                        secondaryColor,
+                      ),
+                      const SizedBox(width: 8),
+                      _statItem(
+                        Icons.chat_bubble_outline,
+                        item['commentsCount'] ?? item['comments'] ?? 0,
+                        "Comments".tl,
+                        secondaryColor,
+                      ),
+                      const SizedBox(width: 8),
+                      _statItem(
+                        Icons.visibility_outlined,
+                        item['views'] ?? 0,
+                        "Views".tl,
+                        secondaryColor,
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  _statItem(
-                    Icons.chat_bubble_outline,
-                    item['commentsCount'] ?? item['comments'] ?? 0,
-                    "Comments".tl,
-                    secondaryColor,
-                  ),
-                  const SizedBox(width: 12),
-                  _statItem(
-                    Icons.visibility_outlined,
-                    item['views'] ?? 0,
-                    "Views".tl,
-                    secondaryColor,
-                  ),
-                ],
+                ),
               ),
             ],
           ),
@@ -743,7 +754,8 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
       Color borderColor,
       Color tagColor
       ) {
-    final author = item.author;
+    final author = item.authorNickname ?? item.author;
+    final imageUrl = _getFirstImageUrl(item.content);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -752,167 +764,401 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: borderColor),
       ),
-      child: InkWell(
+      child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
-        mouseCursor: SystemMouseCursors.click,
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => BbbsDetailPage(post: item),
-            ),
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 16,
-                    backgroundImage: item.authorAvatar != null && item.authorAvatar!.isNotEmpty
-                        ? CachedNetworkImageProvider(item.authorAvatar!)
-                        : null,
-                    child: (item.authorAvatar == null || item.authorAvatar!.isEmpty)
-                        ? Text(
-                      author.isEmpty ? '?' : author.substring(0, 1).toUpperCase(),
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    )
-                        : null,
+        child: Stack(
+          children: [
+            if (imageUrl != null)
+              Positioned.fill(
+                child: ShaderMask(
+                  shaderCallback: (rect) {
+                    return const LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [Colors.transparent, Colors.black],
+                      stops: [0.0, 0.8],
+                    ).createShader(rect);
+                  },
+                  blendMode: BlendMode.dstIn,
+                  child: Opacity(
+                    opacity: 0.25,
+                    child: CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      fit: BoxFit.cover,
+                      alignment: Alignment.centerRight,
+                      errorWidget: (context, url, error) => const SizedBox.shrink(),
+                    ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
+            InkWell(
+              borderRadius: BorderRadius.circular(12),
+              mouseCursor: SystemMouseCursors.click,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => BbbsDetailPage(post: item),
+                  ),
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Text(
-                          author,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: textColor,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        CircleAvatar(
+                          radius: 16,
+                          backgroundImage: item.authorAvatar != null && item.authorAvatar!.isNotEmpty
+                              ? CachedNetworkImageProvider(item.authorAvatar!)
+                              : null,
+                          child: (item.authorAvatar == null || item.authorAvatar!.isEmpty)
+                              ? Text(
+                            author.isEmpty ? '?' : author.substring(0, 1).toUpperCase(),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          )
+                              : null,
                         ),
-                        Row(
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                author,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: textColor,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Row(
+                                children: [
+                                  Icon(Icons.schedule, size: 12, color: secondaryColor),
+                                  const SizedBox(width: 4),
+                                  Flexible(
+                                    child: Text(
+                                      _formatTime(item.time),
+                                      style: TextStyle(fontSize: 11, color: secondaryColor),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Spacer(),
+                        if (item.board.isNotEmpty)
+                          Container(
+                            margin: const EdgeInsets.only(left: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: tagColor,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              item.board,
+                              style: TextStyle(fontSize: 11, color: secondaryColor),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        const SizedBox(width: 8),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      item.title,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                    ),
+                    if (item.recommendationReason != null && item.recommendationReason!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Row(
                           children: [
-                            Icon(Icons.schedule, size: 12, color: secondaryColor),
+                            const Icon(Icons.auto_awesome, size: 12, color: Colors.blue),
                             const SizedBox(width: 4),
-                            Flexible(
+                            Expanded(
                               child: Text(
-                                _formatTime(item.time),
-                                style: TextStyle(fontSize: 11, color: secondaryColor),
+                                item.recommendationReason!,
+                                style: const TextStyle(fontSize: 11, color: Colors.blue, fontStyle: FontStyle.italic),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
-                  if (item.board.isNotEmpty)
-                    Container(
-                      margin: const EdgeInsets.only(left: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: tagColor,
-                        borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Text(
-                        item.board,
-                        style: TextStyle(fontSize: 11, color: secondaryColor),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  const SizedBox(width: 8),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                item.title,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: textColor,
-                ),
-              ),
-              if (item.recommendationReason != null && item.recommendationReason!.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.auto_awesome, size: 12, color: Colors.blue),
-                      const SizedBox(width: 4),
-                      Text(
-                        item.recommendationReason!,
-                        style: const TextStyle(fontSize: 11, color: Colors.blue, fontStyle: FontStyle.italic),
+                    if (item.content.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 100),
+                        child: ClipRect(
+                          child: Builder(
+                              builder: (context) {
+                                final theme = Theme.of(context);
+                                String displayContent = item.content.trim();
+                                final lines = displayContent.split('\n');
+
+                                if (lines.isNotEmpty) {
+                                  final String firstLine = lines.first.trim();
+                                  final String cleanFirstLine = firstLine.replaceFirst(RegExp(r'^#+\s*'), '').trim();
+
+                                  if (cleanFirstLine == item.title.trim()) {
+                                    displayContent = lines.skip(1).join('\n').trim();
+                                  } else if (displayContent.startsWith(item.title)) {
+                                    displayContent = displayContent.substring(item.title.length).trim();
+                                  }
+                                }
+
+                                if (displayContent.isEmpty) return const SizedBox.shrink();
+
+                                return _buildParsedPreview(displayContent, secondaryColor.withValues(alpha: 0.8), theme, excludeImageUrl: imageUrl);
+                              }
+                          ),
+                        ),
                       ),
                     ],
-                  ),
-                ),
-              if (item.content.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 100),
-                  child: ClipRect(
-                    child: Builder(
-                        builder: (context) {
-                          String displayContent = item.content.trim();
-                          final lines = displayContent.split('\n');
-
-                          if (lines.isNotEmpty) {
-                            final String firstLine = lines.first.trim();
-                            final String cleanFirstLine = firstLine.replaceFirst(RegExp(r'^#+\s*'), '').trim();
-
-                            if (cleanFirstLine == item.title.trim()) {
-                              displayContent = lines.skip(1).join('\n').trim();
-                            } else if (displayContent.startsWith(item.title)) {
-                              displayContent = displayContent.substring(item.title.length).trim();
-                            }
-                          }
-
-                          if (displayContent.isEmpty) return const SizedBox.shrink();
-
-                          return GptMarkdown(
-                            displayContent,
-                            style: TextStyle(fontSize: 13, color: secondaryColor.withValues(alpha: 0.8)),
-                          );
-                        }
+                    const SizedBox(height: 10),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const NeverScrollableScrollPhysics(),
+                      child: Row(
+                        children: [
+                          _statItemIconOnly(
+                            Icons.favorite_outline,
+                            _formatCount(item.likes),
+                            secondaryColor,
+                          ),
+                          const SizedBox(width: 15),
+                          _statItemIconOnly(
+                            Icons.chat_bubble_outline,
+                            _formatCount(item.commentsCount),
+                            secondaryColor,
+                          ),
+                          const SizedBox(width: 15),
+                          _statItemIconOnly(
+                            Icons.visibility_outlined,
+                            "${item.views}",
+                            secondaryColor,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  _statItemIconOnly(
-                    Icons.favorite_outline,
-                    _formatCount(item.likes),
-                    secondaryColor,
-                  ),
-                  const SizedBox(width: 15),
-                  _statItemIconOnly(
-                    Icons.chat_bubble_outline,
-                    _formatCount(item.commentsCount),
-                    secondaryColor,
-                  ),
-                  const SizedBox(width: 15),
-                  _statItemIconOnly(
-                    Icons.visibility_outlined,
-                    "${item.views}",
-                    secondaryColor,
-                  ),
-                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildParsedPreview(String content, Color textColor, ThemeData theme, {String? excludeImageUrl}) {
+    final combinedRegex = RegExp(
+      r'(<!DOCTYPE html>[\s\S]*?</html>|<iframe[\s\S]*?</iframe>)|```投票\s*\n([\s\S]*?)\n```|!\[.*?\]\((.*?)\)',
+      caseSensitive: false
+    );
+    
+    final List<Widget> widgets = [];
+    int lastMatchEnd = 0;
+    int itemsCount = 0;
+    const int maxItems = 2;
+    bool addedMultiImageIndicator = false;
+    bool addedBilibiliIndicator = false;
+
+    for (final match in combinedRegex.allMatches(content)) {
+      if (match.start > lastMatchEnd && itemsCount < maxItems) {
+        final text = content.substring(lastMatchEnd, match.start).trim();
+        if (text.isNotEmpty) {
+          widgets.add(Text(
+            text, 
+            style: TextStyle(fontSize: 13, color: textColor),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ));
+          itemsCount++;
+        }
+      }
+
+      bool isExcludedImage = false;
+      if (match.group(3) != null) {
+        final url = match.group(3)!;
+        if (url.trim() == excludeImageUrl?.trim()) {
+          isExcludedImage = true;
+        }
+      }
+
+      if (!isExcludedImage && itemsCount < maxItems) {
+        if (match.group(1) != null) {
+          final matchText = match.group(1)!;
+          if (matchText.toLowerCase().contains('<iframe') && matchText.contains('bilibili.com')) {
+            if (!addedBilibiliIndicator) {
+              widgets.add(_buildBilibiliIndicator(theme));
+              addedBilibiliIndicator = true;
+              itemsCount++;
+            }
+          } else {
+            widgets.add(_buildHtmlPreview(matchText, theme));
+            itemsCount++;
+          }
+        } else if (match.group(2) != null) {
+          widgets.add(_buildVotePreview(match.group(2)!, theme));
+          itemsCount++;
+        } else if (match.group(3) != null) {
+          if (!addedMultiImageIndicator) {
+            widgets.add(_buildMultiImageIndicator(theme));
+            addedMultiImageIndicator = true;
+            itemsCount++;
+          }
+        }
+      }
+
+      lastMatchEnd = match.end;
+      
+      // Make sure we break only if we finished adding items or correctly processed the "eaten" tag
+      if (itemsCount >= maxItems) {
+        // Continue loop only if we need to "eat" remaining tags of the same type or already added type
+        // For simplicity, we can break if we've reached maxItems and processed the current match
+        break;
+      }
+    }
+
+    if (lastMatchEnd < content.length && itemsCount < maxItems) {
+      final text = content.substring(lastMatchEnd).trim();
+      if (text.isNotEmpty) {
+        widgets.add(Text(
+          text, 
+          style: TextStyle(fontSize: 13, color: textColor),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ));
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: widgets,
+    );
+  }
+
+  Widget _buildMultiImageIndicator(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.collections_outlined, size: 14, color: theme.colorScheme.secondary),
+          const SizedBox(width: 6),
+          Text(
+            "More Images".tl,
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.secondary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBilibiliIndicator(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.pinkAccent.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.pinkAccent.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.live_tv, size: 14, color: Colors.pinkAccent),
+          const SizedBox(width: 6),
+          Text(
+            "Bilibili Video".tl,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.pinkAccent,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHtmlPreview(String htmlContent, ThemeData theme) {
+    try {
+      final document = html_parser.parse(htmlContent);
+      final text = document.body?.text.trim() ?? "";
+      return Row(
+        children: [
+          Icon(Icons.code, size: 12, color: theme.colorScheme.primary.withValues(alpha: 0.6)),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              text.length > 100 ? "${text.substring(0, 100)}..." : text,
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.primary.withValues(alpha: 0.7), fontStyle: FontStyle.italic),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      );
+    } catch (_) {
+      return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildVotePreview(String voteContent, ThemeData theme) {
+    final lines = voteContent.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+    if (lines.isEmpty) return const SizedBox.shrink();
+    
+    String question = lines[0].toLowerCase().startsWith('title:') ? lines[0].substring(6).trim() : lines[0];
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.poll_rounded, size: 12, color: theme.colorScheme.primary),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              "${"Vote".tl}: $question",
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.bold),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -975,5 +1221,11 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
     } catch (e) {
       return t.toString();
     }
+  }
+
+  String? _getFirstImageUrl(String content) {
+    final imageRegex = RegExp(r'!\[.*?\]\((.*?)\)', caseSensitive: false);
+    final match = imageRegex.firstMatch(content);
+    return match?.group(1)?.trim();
   }
 }

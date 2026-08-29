@@ -32,8 +32,8 @@ class GlobalBackground extends StatelessWidget {
                 child: Transform(
                   alignment: Alignment.center,
                   transform: Matrix4.identity()
-                    ..translate(config.backgroundOffsetX, config.backgroundOffsetY)
-                    ..scale(config.backgroundScale)
+                    ..translateByDouble(config.backgroundOffsetX, config.backgroundOffsetY, 0.0, 1.0)
+                    ..scaleByDouble(config.backgroundScale, config.backgroundScale, config.backgroundScale, 1.0)
                     ..rotateZ(config.backgroundRotation),
                   child: Opacity(
                     opacity: config.backgroundOpacity.clamp(0.0, 1.0),

@@ -1,5 +1,6 @@
 class BbbsUser {
   final String username;
+  final String? nickname;
   final String? avatar;
   final String? email;
   final List<String> tags;
@@ -10,6 +11,7 @@ class BbbsUser {
 
   BbbsUser({
     required this.username,
+    this.nickname,
     this.avatar,
     this.email,
     required this.tags,
@@ -22,6 +24,7 @@ class BbbsUser {
   factory BbbsUser.fromJson(Map<String, dynamic> json) {
     return BbbsUser(
       username: json['username'] ?? '',
+      nickname: json['nickname'],
       avatar: json['avatar'],
       email: json['email'],
       tags: List<String>.from(json['tags'] ?? []),

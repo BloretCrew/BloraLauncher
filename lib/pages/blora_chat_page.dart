@@ -5596,7 +5596,7 @@ class _ScreenshotGeneratorState extends State<_ScreenshotGenerator> {
                               if (!isUser) const SizedBox(width: 4),
                               Text(
                                 isUser
-                                    ? ConfigService.get(
+                                    ? ConfigService.get('Bloret_PassPort_NickName') ?? ConfigService.get(
                                             "Bloret_PassPort_UserName",
                                           ) ??
                                           "Me".tl
