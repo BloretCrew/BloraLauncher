@@ -1,13 +1,16 @@
+import 'dart:convert';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:html/parser.dart' as html_parser;
-import '../core/i18n.dart';
+
 import '../core/grammer_candy.dart';
+import '../core/i18n.dart';
 import '../core/logger.dart';
 import '../main.dart';
-import '../services/bbbs.dart';
 import '../models/bbbs_post.dart';
+import '../services/bbbs.dart';
 import 'bbbs_detail_page.dart';
 
 class BbbsPage extends StatefulWidget {
@@ -87,9 +90,11 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
         _summaryData = summary ?? {};
         _leaderboardData = leaderboard;
         _allPostsData = allPosts.map((e) => BbbsPost.fromJson(e)).toList();
-        
+
         if (todayFeed != null) {
-          _todayFeedData = (todayFeed['items'] as List? ?? []).map((e) => BbbsPost.fromJson(e)).toList();
+          _todayFeedData = (todayFeed['items'] as List? ?? [])
+              .map((e) => BbbsPost.fromJson(e))
+              .toList();
         }
 
         _isLoading = false;
@@ -203,38 +208,36 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                         child: _isAuthenticated
                             ? const SizedBox.shrink()
                             : Container(
-                          width: double.infinity,
-                          key: const ValueKey("login"),
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: cardColor,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: borderColor),
-                          ),
-                          child: Column(
-                            children: [
-                              const Icon(
-                                Icons.lock_outline,
-                                size: 40,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                "Please log in to Bloret PassPort".tl,
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: textColor,
+                                width: double.infinity,
+                                key: const ValueKey("login"),
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  color: cardColor,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: borderColor),
+                                ),
+                                child: Column(
+                                  children: [
+                                    const Icon(Icons.lock_outline, size: 40),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      "Please log in to Bloret PassPort".tl,
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: textColor,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      "Log in to see summary, trending posts and latest content"
+                                          .tl,
+                                      style: TextStyle(color: secondaryColor),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 10),
-                              Text(
-                                "Log in to see summary, trending posts and latest content".tl,
-                                style: TextStyle(color: secondaryColor),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ),
-                        ),
                       ),
                       if (_isAuthenticated) ...[
                         const SizedBox(height: 16),
@@ -244,7 +247,9 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                             return SegmentedButton<int>(
                               style: SegmentedButton.styleFrom(
                                 padding: isCompact ? EdgeInsets.zero : null,
-                                visualDensity: isCompact ? VisualDensity.compact : null,
+                                visualDensity: isCompact
+                                    ? VisualDensity.compact
+                                    : null,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(8),
                                 ),
@@ -252,23 +257,51 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                               segments: [
                                 ButtonSegment(
                                   value: 0,
-                                  icon: isCompact ? null : const Icon(Icons.explore_outlined),
-                                  label: isCompact ? Text("Feed".tl, style: const TextStyle(fontSize: 10),) : Text("Today Feed".tl),
+                                  icon: isCompact
+                                      ? null
+                                      : const Icon(Icons.explore_outlined),
+                                  label: isCompact
+                                      ? Text(
+                                          "Feed".tl,
+                                          style: const TextStyle(fontSize: 10),
+                                        )
+                                      : Text("Today Feed".tl),
                                 ),
                                 ButtonSegment(
                                   value: 1,
-                                  icon: isCompact ? null : const Icon(Icons.auto_awesome),
-                                  label: isCompact ? Text("Sum".tl, style: const TextStyle(fontSize: 10),) : Text("Daily Summary".tl),
+                                  icon: isCompact
+                                      ? null
+                                      : const Icon(Icons.auto_awesome),
+                                  label: isCompact
+                                      ? Text(
+                                          "Sum".tl,
+                                          style: const TextStyle(fontSize: 10),
+                                        )
+                                      : Text("Daily Summary".tl),
                                 ),
                                 ButtonSegment(
                                   value: 2,
-                                  icon: isCompact ? null : const Icon(Icons.local_fire_department),
-                                  label: isCompact ? Text("Hot".tl, style: const TextStyle(fontSize: 10),) : Text("Trending".tl),
+                                  icon: isCompact
+                                      ? null
+                                      : const Icon(Icons.local_fire_department),
+                                  label: isCompact
+                                      ? Text(
+                                          "Hot".tl,
+                                          style: const TextStyle(fontSize: 10),
+                                        )
+                                      : Text("Trending".tl),
                                 ),
                                 ButtonSegment(
                                   value: 3,
-                                  icon: isCompact ? null : const Icon(Icons.schedule),
-                                  label: isCompact ? Text("New".tl, style: const TextStyle(fontSize: 10),) : Text("Latest Posts".tl),
+                                  icon: isCompact
+                                      ? null
+                                      : const Icon(Icons.schedule),
+                                  label: isCompact
+                                      ? Text(
+                                          "New".tl,
+                                          style: const TextStyle(fontSize: 10),
+                                        )
+                                      : Text("Latest Posts".tl),
                                 ),
                               ],
                               selected: {_currentTab},
@@ -278,7 +311,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                                 });
                               },
                             );
-                          }
+                          },
                         ),
                       ],
                     ],
@@ -299,9 +332,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
             Positioned.fill(
               child: Container(
                 color: Colors.black.withValues(alpha: 0.1),
-                child: const Center(
-                  child: CircularProgressIndicator(),
-                ),
+                child: const Center(child: CircularProgressIndicator()),
               ),
             ),
         ],
@@ -311,11 +342,11 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
   }
 
   Widget _buildSliverContent(
-      Color textColor,
-      Color secondaryColor,
-      Color cardColor,
-      Color borderColor,
-      ) {
+    Color textColor,
+    Color secondaryColor,
+    Color cardColor,
+    Color borderColor,
+  ) {
     switch (_currentTab) {
       case 0:
         if (_todayFeedData.isEmpty) {
@@ -334,9 +365,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                     const SizedBox(height: 10),
                     Text(
                       "No recommended content".tl,
-                      style: TextStyle(
-                        color: secondaryColor,
-                      ),
+                      style: TextStyle(color: secondaryColor),
                     ),
                   ],
                 ),
@@ -349,25 +378,36 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
           padding: const EdgeInsets.symmetric(horizontal: 24),
           sliver: SliverList(
             key: const ValueKey("today_feed_list"),
-            delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                final item = _todayFeedData[index];
-                final card = _buildPostCard(item, textColor, secondaryColor, cardColor, borderColor, tagColor);
-                
-                return TweenAnimationBuilder<double>(
-                  key: ValueKey("feed_${item.filename.isEmpty ? index : item.filename}"),
-                  tween: Tween(begin: 0, end: 1),
-                  duration: Duration(milliseconds: 300 + (index < 10 ? index * 40 : 0)),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, value, child) => Opacity(
-                    opacity: value,
-                    child: Transform.translate(offset: Offset(0, 20 * (1 - value)), child: child),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              final item = _todayFeedData[index];
+              final card = _buildPostCard(
+                item,
+                textColor,
+                secondaryColor,
+                cardColor,
+                borderColor,
+                tagColor,
+              );
+
+              return TweenAnimationBuilder<double>(
+                key: ValueKey(
+                  "feed_${item.filename.isEmpty ? index : item.filename}",
+                ),
+                tween: Tween(begin: 0, end: 1),
+                duration: Duration(
+                  milliseconds: 300 + (index < 10 ? index * 40 : 0),
+                ),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) => Opacity(
+                  opacity: value,
+                  child: Transform.translate(
+                    offset: Offset(0, 20 * (1 - value)),
+                    child: child,
                   ),
-                  child: card,
-                );
-              },
-              childCount: _todayFeedData.length,
-            ),
+                ),
+                child: card,
+              );
+            }, childCount: _todayFeedData.length),
           ),
         );
 
@@ -401,10 +441,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                   children: [
                     Row(
                       children: [
-                        const Icon(
-                          Icons.auto_awesome,
-                          size: 20,
-                        ),
+                        const Icon(Icons.auto_awesome, size: 20),
                         const SizedBox(width: 8),
                         Text(
                           "AI Daily Summary".tl,
@@ -421,13 +458,10 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                       _summaryData.isEmpty
                           ? "No summary available".tl
                           : (_summaryData['text'] ??
-                          _summaryData['content'] ??
-                          _summaryData['summary'] ??
-                          _summaryData.toString()),
-                      style: TextStyle(
-                        color: textColor,
-                        height: 1.6,
-                      ),
+                                _summaryData['content'] ??
+                                _summaryData['summary'] ??
+                                _summaryData.toString()),
+                      style: TextStyle(color: textColor, height: 1.6),
                     ),
                   ],
                 ),
@@ -453,9 +487,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                     const SizedBox(height: 10),
                     Text(
                       "No trending data".tl,
-                      style: TextStyle(
-                        color: secondaryColor,
-                      ),
+                      style: TextStyle(color: secondaryColor),
                     ),
                   ],
                 ),
@@ -467,25 +499,34 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
           padding: const EdgeInsets.symmetric(horizontal: 24),
           sliver: SliverList(
             key: const ValueKey("leaderboard_list"),
-            delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                final item = _leaderboardData[index];
-                final card = _buildLeaderboardItem(index, item, textColor, secondaryColor, cardColor, borderColor);
-                
-                return TweenAnimationBuilder<double>(
-                  key: ValueKey("leaderboard_${item['id'] ?? index}"),
-                  tween: Tween(begin: 0, end: 1),
-                  duration: Duration(milliseconds: 300 + (index < 10 ? index * 50 : 0)),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, value, child) => Opacity(
-                    opacity: value,
-                    child: Transform.translate(offset: Offset(0, 20 * (1 - value)), child: child),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              final item = _leaderboardData[index];
+              final card = _buildLeaderboardItem(
+                index,
+                item,
+                textColor,
+                secondaryColor,
+                cardColor,
+                borderColor,
+              );
+
+              return TweenAnimationBuilder<double>(
+                key: ValueKey("leaderboard_${item['id'] ?? index}"),
+                tween: Tween(begin: 0, end: 1),
+                duration: Duration(
+                  milliseconds: 300 + (index < 10 ? index * 50 : 0),
+                ),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) => Opacity(
+                  opacity: value,
+                  child: Transform.translate(
+                    offset: Offset(0, 20 * (1 - value)),
+                    child: child,
                   ),
-                  child: card,
-                );
-              },
-              childCount: _leaderboardData.length,
-            ),
+                ),
+                child: card,
+              );
+            }, childCount: _leaderboardData.length),
           ),
         );
 
@@ -499,7 +540,11 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.forum_outlined, size: 64, color: secondaryColor.withValues(alpha: 0.3)),
+                        Icon(
+                          Icons.forum_outlined,
+                          size: 64,
+                          color: secondaryColor.withValues(alpha: 0.3),
+                        ),
                         const SizedBox(height: 16),
                         Text(
                           "Chat with Bloriko".tl,
@@ -511,7 +556,10 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                 )
               : SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (context, index) => _buildBlorikoMessageItem(_blorikoMessages[index], Theme.of(context)),
+                    (context, index) => _buildBlorikoMessageItem(
+                      _blorikoMessages[index],
+                      Theme.of(context),
+                    ),
                     childCount: _blorikoMessages.length,
                   ),
                 ),
@@ -535,9 +583,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                     const SizedBox(height: 10),
                     Text(
                       "No posts available".tl,
-                      style: TextStyle(
-                        color: secondaryColor,
-                      ),
+                      style: TextStyle(color: secondaryColor),
                     ),
                   ],
                 ),
@@ -550,31 +596,45 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
           padding: const EdgeInsets.symmetric(horizontal: 24),
           sliver: SliverList(
             key: const ValueKey("posts_list"),
-            delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                final item = _allPostsData[index];
-                final card = _buildPostCard(item, textColor, secondaryColor, cardColor, borderColor, tagColor);
-                
-                return TweenAnimationBuilder<double>(
-                  key: ValueKey("post_${item.filename.isEmpty ? index : item.filename}"),
-                  tween: Tween(begin: 0, end: 1),
-                  duration: Duration(milliseconds: 300 + (index < 10 ? index * 40 : 0)),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, value, child) => Opacity(
-                    opacity: value,
-                    child: Transform.translate(offset: Offset(0, 20 * (1 - value)), child: child),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              final item = _allPostsData[index];
+              final card = _buildPostCard(
+                item,
+                textColor,
+                secondaryColor,
+                cardColor,
+                borderColor,
+                tagColor,
+              );
+
+              return TweenAnimationBuilder<double>(
+                key: ValueKey(
+                  "post_${item.filename.isEmpty ? index : item.filename}",
+                ),
+                tween: Tween(begin: 0, end: 1),
+                duration: Duration(
+                  milliseconds: 300 + (index < 10 ? index * 40 : 0),
+                ),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) => Opacity(
+                  opacity: value,
+                  child: Transform.translate(
+                    offset: Offset(0, 20 * (1 - value)),
+                    child: child,
                   ),
-                  child: card,
-                );
-              },
-              childCount: _allPostsData.length,
-            ),
+                ),
+                child: card,
+              );
+            }, childCount: _allPostsData.length),
           ),
         );
     }
   }
 
-  Widget _buildBlorikoMessageItem(Map<String, String> message, ThemeData theme) {
+  Widget _buildBlorikoMessageItem(
+    Map<String, String> message,
+    ThemeData theme,
+  ) {
     final isUser = message["role"] == "user";
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
@@ -585,24 +645,34 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
           const SizedBox(width: 12),
           Expanded(
             child: Column(
-              crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: isUser
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               children: [
                 Text(
                   isUser ? "Me".tl : "Bloriko".tl,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: isUser 
+                    color: isUser
                         ? theme.colorScheme.primary.withValues(alpha: 0.1)
-                        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                        : theme.colorScheme.surfaceContainerHighest.withValues(
+                            alpha: 0.3,
+                          ),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: GptMarkdown(
                     message["content"] ?? "...",
-                    style: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface),
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: theme.colorScheme.onSurface,
+                    ),
                   ),
                 ),
               ],
@@ -618,7 +688,9 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
   Widget _buildBlorikoAvatar(bool isUser) {
     return CircleAvatar(
       radius: 16,
-      backgroundColor: isUser ? Colors.blue.withValues(alpha: 0.2) : Colors.green.withValues(alpha: 0.2),
+      backgroundColor: isUser
+          ? Colors.blue.withValues(alpha: 0.2)
+          : Colors.green.withValues(alpha: 0.2),
       child: Icon(
         isUser ? Icons.person_outline : Icons.smart_toy_outlined,
         size: 18,
@@ -627,7 +699,14 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildLeaderboardItem(int index, dynamic item, Color textColor, Color secondaryColor, Color cardColor, Color borderColor) {
+  Widget _buildLeaderboardItem(
+    int index,
+    dynamic item,
+    Color textColor,
+    Color secondaryColor,
+    Color cardColor,
+    Color borderColor,
+  ) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -642,7 +721,8 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => BbbsDetailPage(post: BbbsPost.fromJson(item)),
+                builder: (context) =>
+                    BbbsDetailPage(post: BbbsPost.fromJson(item)),
               ),
             );
           }
@@ -695,10 +775,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                     const SizedBox(height: 4),
                     Text(
                       '${item['board'] ?? ''}${item['section'] != null ? ' / ${item['section']}' : ''}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: secondaryColor,
-                      ),
+                      style: TextStyle(fontSize: 12, color: secondaryColor),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -745,15 +822,14 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
     );
   }
 
-
   Widget _buildPostCard(
-      BbbsPost item,
-      Color textColor,
-      Color secondaryColor,
-      Color cardColor,
-      Color borderColor,
-      Color tagColor
-      ) {
+    BbbsPost item,
+    Color textColor,
+    Color secondaryColor,
+    Color cardColor,
+    Color borderColor,
+    Color tagColor,
+  ) {
     final author = item.authorNickname ?? item.author;
     final imageUrl = _getFirstImageUrl(item.content);
 
@@ -786,7 +862,8 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
                       alignment: Alignment.centerRight,
-                      errorWidget: (context, url, error) => const SizedBox.shrink(),
+                      errorWidget: (context, url, error) =>
+                          const SizedBox.shrink(),
                     ),
                   ),
                 ),
@@ -811,14 +888,22 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                       children: [
                         CircleAvatar(
                           radius: 16,
-                          backgroundImage: item.authorAvatar != null && item.authorAvatar!.isNotEmpty
+                          backgroundImage:
+                              item.authorAvatar != null &&
+                                  item.authorAvatar!.isNotEmpty
                               ? CachedNetworkImageProvider(item.authorAvatar!)
                               : null,
-                          child: (item.authorAvatar == null || item.authorAvatar!.isEmpty)
+                          child:
+                              (item.authorAvatar == null ||
+                                  item.authorAvatar!.isEmpty)
                               ? Text(
-                            author.isEmpty ? '?' : author.substring(0, 1).toUpperCase(),
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          )
+                                  author.isEmpty
+                                      ? '?'
+                                      : author.substring(0, 1).toUpperCase(),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                )
                               : null,
                         ),
                         const SizedBox(width: 10),
@@ -838,12 +923,19 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                               ),
                               Row(
                                 children: [
-                                  Icon(Icons.schedule, size: 12, color: secondaryColor),
+                                  Icon(
+                                    Icons.schedule,
+                                    size: 12,
+                                    color: secondaryColor,
+                                  ),
                                   const SizedBox(width: 4),
                                   Flexible(
                                     child: Text(
                                       _formatTime(item.time),
-                                      style: TextStyle(fontSize: 11, color: secondaryColor),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: secondaryColor,
+                                      ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -857,14 +949,20 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                         if (item.board.isNotEmpty)
                           Container(
                             margin: const EdgeInsets.only(left: 8),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
                               color: tagColor,
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
                               item.board,
-                              style: TextStyle(fontSize: 11, color: secondaryColor),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: secondaryColor,
+                              ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -881,17 +979,26 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                         color: textColor,
                       ),
                     ),
-                    if (item.recommendationReason != null && item.recommendationReason!.isNotEmpty)
+                    if (item.recommendationReason != null &&
+                        item.recommendationReason!.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: Row(
                           children: [
-                            const Icon(Icons.auto_awesome, size: 12, color: Colors.blue),
+                            const Icon(
+                              Icons.auto_awesome,
+                              size: 12,
+                              color: Colors.blue,
+                            ),
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
                                 item.recommendationReason!,
-                                style: const TextStyle(fontSize: 11, color: Colors.blue, fontStyle: FontStyle.italic),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.blue,
+                                  fontStyle: FontStyle.italic,
+                                ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -905,26 +1012,42 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
                         constraints: const BoxConstraints(maxHeight: 100),
                         child: ClipRect(
                           child: Builder(
-                              builder: (context) {
-                                final theme = Theme.of(context);
-                                String displayContent = item.content.trim();
-                                final lines = displayContent.split('\n');
+                            builder: (context) {
+                              final theme = Theme.of(context);
+                              String displayContent = item.content.trim();
+                              final lines = displayContent.split('\n');
 
-                                if (lines.isNotEmpty) {
-                                  final String firstLine = lines.first.trim();
-                                  final String cleanFirstLine = firstLine.replaceFirst(RegExp(r'^#+\s*'), '').trim();
+                              if (lines.isNotEmpty) {
+                                final String firstLine = lines.first.trim();
+                                final String cleanFirstLine = firstLine
+                                    .replaceFirst(RegExp(r'^#+\s*'), '')
+                                    .trim();
 
-                                  if (cleanFirstLine == item.title.trim()) {
-                                    displayContent = lines.skip(1).join('\n').trim();
-                                  } else if (displayContent.startsWith(item.title)) {
-                                    displayContent = displayContent.substring(item.title.length).trim();
-                                  }
+                                if (cleanFirstLine == item.title.trim()) {
+                                  displayContent = lines
+                                      .skip(1)
+                                      .join('\n')
+                                      .trim();
+                                } else if (displayContent.startsWith(
+                                  item.title,
+                                )) {
+                                  displayContent = displayContent
+                                      .substring(item.title.length)
+                                      .trim();
                                 }
-
-                                if (displayContent.isEmpty) return const SizedBox.shrink();
-
-                                return _buildParsedPreview(displayContent, secondaryColor.withValues(alpha: 0.8), theme, excludeImageUrl: imageUrl);
                               }
+
+                              if (displayContent.isEmpty) {
+                                return const SizedBox.shrink();
+                              }
+
+                              return _buildParsedPreview(
+                                displayContent,
+                                secondaryColor.withValues(alpha: 0.8),
+                                theme,
+                                excludeImageUrl: imageUrl,
+                              );
+                            },
                           ),
                         ),
                       ),
@@ -965,12 +1088,17 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildParsedPreview(String content, Color textColor, ThemeData theme, {String? excludeImageUrl}) {
+  Widget _buildParsedPreview(
+    String content,
+    Color textColor,
+    ThemeData theme, {
+    String? excludeImageUrl,
+  }) {
     final combinedRegex = RegExp(
       r'(<!DOCTYPE html>[\s\S]*?</html>|<iframe[\s\S]*?</iframe>)|```投票\s*\n([\s\S]*?)\n```|!\[.*?\]\((.*?)\)',
-      caseSensitive: false
+      caseSensitive: false,
     );
-    
+
     final List<Widget> widgets = [];
     int lastMatchEnd = 0;
     int itemsCount = 0;
@@ -982,20 +1110,22 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
       if (match.start > lastMatchEnd && itemsCount < maxItems) {
         final text = content.substring(lastMatchEnd, match.start).trim();
         if (text.isNotEmpty) {
-          widgets.add(Text(
-            text, 
-            style: TextStyle(fontSize: 13, color: textColor),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ));
+          widgets.add(
+            Text(
+              text,
+              style: TextStyle(fontSize: 13, color: textColor),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          );
           itemsCount++;
         }
       }
 
       bool isExcludedImage = false;
       if (match.group(3) != null) {
-        final url = match.group(3)!;
-        if (url.trim() == excludeImageUrl?.trim()) {
+        final url = match.group(3);
+        if (url != null && url.trim() == excludeImageUrl?.trim()) {
           isExcludedImage = true;
         }
       }
@@ -1003,7 +1133,8 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
       if (!isExcludedImage && itemsCount < maxItems) {
         if (match.group(1) != null) {
           final matchText = match.group(1)!;
-          if (matchText.toLowerCase().contains('<iframe') && matchText.contains('bilibili.com')) {
+          if (matchText.toLowerCase().contains('<iframe') &&
+              matchText.contains('bilibili.com')) {
             if (!addedBilibiliIndicator) {
               widgets.add(_buildBilibiliIndicator(theme));
               addedBilibiliIndicator = true;
@@ -1026,7 +1157,7 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
       }
 
       lastMatchEnd = match.end;
-      
+
       // Make sure we break only if we finished adding items or correctly processed the "eaten" tag
       if (itemsCount >= maxItems) {
         // Continue loop only if we need to "eat" remaining tags of the same type or already added type
@@ -1038,12 +1169,14 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
     if (lastMatchEnd < content.length && itemsCount < maxItems) {
       final text = content.substring(lastMatchEnd).trim();
       if (text.isNotEmpty) {
-        widgets.add(Text(
-          text, 
-          style: TextStyle(fontSize: 13, color: textColor),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ));
+        widgets.add(
+          Text(
+            text,
+            style: TextStyle(fontSize: 13, color: textColor),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
       }
     }
 
@@ -1061,12 +1194,18 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.5),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.collections_outlined, size: 14, color: theme.colorScheme.secondary),
+          Icon(
+            Icons.collections_outlined,
+            size: 14,
+            color: theme.colorScheme.secondary,
+          ),
           const SizedBox(width: 6),
           Text(
             "More Images".tl,
@@ -1114,12 +1253,20 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
       final text = document.body?.text.trim() ?? "";
       return Row(
         children: [
-          Icon(Icons.code, size: 12, color: theme.colorScheme.primary.withValues(alpha: 0.6)),
+          Icon(
+            Icons.code,
+            size: 12,
+            color: theme.colorScheme.primary.withValues(alpha: 0.6),
+          ),
           const SizedBox(width: 4),
           Expanded(
             child: Text(
               text.length > 100 ? "${text.substring(0, 100)}..." : text,
-              style: TextStyle(fontSize: 12, color: theme.colorScheme.primary.withValues(alpha: 0.7), fontStyle: FontStyle.italic),
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.primary.withValues(alpha: 0.7),
+                fontStyle: FontStyle.italic,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -1132,10 +1279,35 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
   }
 
   Widget _buildVotePreview(String voteContent, ThemeData theme) {
-    final lines = voteContent.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
-    if (lines.isEmpty) return const SizedBox.shrink();
-    
-    String question = lines[0].toLowerCase().startsWith('title:') ? lines[0].substring(6).trim() : lines[0];
+    String question = "";
+
+    try {
+      final trimmed = voteContent.trim();
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        final Map<String, dynamic> jsonMap = jsonDecode(trimmed);
+        question =
+            jsonMap['question']?.toString() ??
+            jsonMap['title']?.toString() ??
+            "";
+      }
+    } catch (e) {
+      logger.error("[BBBS] Failed to parse vote JSON preview: $e");
+    }
+
+    if (question.isEmpty) {
+      final lines = voteContent
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .toList();
+      if (lines.isNotEmpty) {
+        question = lines[0].toLowerCase().startsWith('title:')
+            ? lines[0].substring(6).trim()
+            : lines[0];
+      }
+    }
+
+    if (question.isEmpty) return const SizedBox.shrink();
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -1143,7 +1315,9 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         color: theme.colorScheme.primary.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.1)),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.1),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1153,7 +1327,11 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
           Flexible(
             child: Text(
               "${"Vote".tl}: $question",
-              style: TextStyle(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -1180,7 +1358,11 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
           children: [
             Text(
               _formatCount(count),
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: color,
+              ),
             ),
             Text(label, style: TextStyle(fontSize: 10, color: color)),
           ],
@@ -1205,11 +1387,15 @@ class _BbbsPageState extends State<BbbsPage> with TickerProviderStateMixin {
     try {
       DateTime dt;
       if (t is int) {
-        dt = DateTime.fromMillisecondsSinceEpoch(t > 10000000000 ? t : t * 1000);
+        dt = DateTime.fromMillisecondsSinceEpoch(
+          t > 10000000000 ? t : t * 1000,
+        );
       } else if (t is String) {
         final val = int.tryParse(t);
         if (val != null) {
-          dt = DateTime.fromMillisecondsSinceEpoch(val > 10000000000 ? val : val * 1000);
+          dt = DateTime.fromMillisecondsSinceEpoch(
+            val > 10000000000 ? val : val * 1000,
+          );
         } else {
           dt = DateTime.parse(t);
         }

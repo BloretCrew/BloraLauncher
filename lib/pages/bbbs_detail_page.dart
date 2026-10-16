@@ -1,19 +1,23 @@
 import 'dart:async';
+import 'dart:convert';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
+import 'package:html/dom.dart' as dom;
+import 'package:html/parser.dart' as html_parser;
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:html/parser.dart' as html_parser;
-import 'package:html/dom.dart' as dom;
+
+import '../core/grammer_candy.dart';
 import '../core/i18n.dart';
+import '../core/logger.dart';
+import '../main.dart';
 import '../models/bbbs_post.dart';
 import '../services/bbbs.dart';
 import '../services/config_service.dart';
 import '../widgets/button.dart';
-import '../main.dart';
-import '../core/logger.dart';
-import '../core/grammer_candy.dart';
 
 class BbbsDetailPage extends StatefulWidget {
   final BbbsPost post;
@@ -27,17 +31,17 @@ class BbbsDetailPage extends StatefulWidget {
 class _BbbsDetailPageState extends State<BbbsDetailPage> {
   late BbbsPost _currentPost;
   bool _isLoading = false;
-  
+
   final TextEditingController _commentController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
-  
+
   bool _isSubmitting = false;
   BbbsComment? _replyTo;
-  
+
   bool _isMdEnabled = false;
   bool _isPreviewMode = false;
-  
+
   String? _aiText;
   bool _isAiProcessing = false;
   String? _aiTargetId;
@@ -61,10 +65,10 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     setState(() => _isLoading = true);
     try {
       final data = await BbbsService.fetchPostsByBoard(
-        _currentPost.board, 
-        _currentPost.section ?? ""
+        _currentPost.board,
+        _currentPost.section ?? "",
       );
-      
+
       if (mounted) {
         setState(() {
           dynamic postJson;
@@ -81,7 +85,10 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
           _currentPost = BbbsPost.fromJson(Map<String, dynamic>.from(postJson));
           _isLoading = false;
         });
-        logger.info("[BBBS] Detail refreshed via Board API. Comments: ${_currentPost.comments.length}", LogSource.network);
+        logger.info(
+          "[BBBS] Detail refreshed via Board API. Comments: ${_currentPost.comments.length}",
+          LogSource.network,
+        );
       } else {
         _fetchSinglePost();
       }
@@ -96,9 +103,13 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       final data = await BbbsService.fetchPostDetail(_currentPost.filename);
       if (data != null && mounted) {
         setState(() {
-          final postJson = data is Map && data.containsKey('post') ? data['post'] : data;
+          final postJson = data is Map && data.containsKey('post')
+              ? data['post']
+              : data;
           if (postJson != null) {
-            _currentPost = BbbsPost.fromJson(Map<String, dynamic>.from(postJson));
+            _currentPost = BbbsPost.fromJson(
+              Map<String, dynamic>.from(postJson),
+            );
           }
           _isLoading = false;
         });
@@ -114,16 +125,22 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     final text = _commentController.text;
     final selection = _commentController.selection;
     final actualTagEnd = tagEnd ?? tagStart;
-    
+
     if (!selection.isValid) {
       final newText = text + tagStart + actualTagEnd;
       _commentController.value = TextEditingValue(
         text: newText,
-        selection: TextSelection.collapsed(offset: newText.length - actualTagEnd.length),
+        selection: TextSelection.collapsed(
+          offset: newText.length - actualTagEnd.length,
+        ),
       );
     } else {
       final selectedText = selection.textInside(text);
-      final newText = text.replaceRange(selection.start, selection.end, "$tagStart$selectedText$actualTagEnd");
+      final newText = text.replaceRange(
+        selection.start,
+        selection.end,
+        "$tagStart$selectedText$actualTagEnd",
+      );
       _commentController.value = TextEditingValue(
         text: newText,
         selection: TextSelection(
@@ -140,7 +157,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     if (content.isEmpty || _isSubmitting) return;
 
     setState(() => _isSubmitting = true);
-    
+
     final res = await BbbsService.addComment(
       filename: _currentPost.filename,
       content: content,
@@ -163,14 +180,24 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     }
   }
 
-  Future<void> _handleAiAction(String mode, String content, {String targetId = "post"}) async {
+  Future<void> _handleAiAction(
+    String mode,
+    String content, {
+    String targetId = "post",
+  }) async {
     setState(() {
       _aiText = "";
       _isAiProcessing = true;
       _aiTargetId = targetId;
     });
 
-    BbbsService.streamAiAction(mode: mode, content: content, targetLang: (ConfigService.get('language') ?? "zh_cn").toString().substring(0, 2)).listen(
+    BbbsService.streamAiAction(
+      mode: mode,
+      content: content,
+      targetLang: (ConfigService.get('language') ?? "zh_cn")
+          .toString()
+          .substring(0, 2),
+    ).listen(
       (chunk) {
         setState(() {
           _aiText = (_aiText ?? "") + chunk;
@@ -187,7 +214,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
   Future<void> _handleLike() async {
     final userName = ConfigService.get('Bloret_PassPort_UserName') ?? "";
     bool isLiked = _currentPost.likes.contains(userName);
-    
+
     setState(() {
       if (isLiked) {
         _currentPost.likes.remove(userName);
@@ -211,13 +238,14 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
   }
 
   Future<void> _handleShare() async {
-    final String shareUrl = "https://bbs.bloret.net/post/${_currentPost.filename}";
+    final String shareUrl =
+        "https://bbs.bloret.net/post/${_currentPost.filename}";
     final String shareText = "${_currentPost.title}\n$shareUrl";
 
     try {
       setState(() => _isLoading = true);
       await Share.share(shareText, subject: _currentPost.title);
-      
+
       await BbbsService.sharePost(
         board: _currentPost.board,
         section: _currentPost.section ?? "",
@@ -270,7 +298,16 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
           foregroundColor: textColor,
           actions: [
             if (_isLoading)
-              const Center(child: Padding(padding: EdgeInsets.only(right: 16), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))),
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.only(right: 16),
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
           ],
         ),
         body: Column(
@@ -281,15 +318,29 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                 child: SingleChildScrollView(
                   controller: _scrollController,
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(_currentPost.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                      Text(
+                        _currentPost.title,
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       const SizedBox(height: 16),
                       _buildAuthorInfo(secondaryColor),
                       const SizedBox(height: 24),
-                      _buildContentSection(textColor, secondaryColor, cardColor, borderColor),
+                      _buildContentSection(
+                        textColor,
+                        secondaryColor,
+                        cardColor,
+                        borderColor,
+                      ),
                       const SizedBox(height: 32),
                       const Divider(),
                       const SizedBox(height: 16),
@@ -297,7 +348,12 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                       const SizedBox(height: 32),
                       _buildCommentsHeader(secondaryColor),
                       const SizedBox(height: 16),
-                      _buildCommentsList(textColor, secondaryColor, cardColor, borderColor),
+                      _buildCommentsList(
+                        textColor,
+                        secondaryColor,
+                        cardColor,
+                        borderColor,
+                      ),
                       const SizedBox(height: 48),
                     ],
                   ),
@@ -311,40 +367,72 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     );
   }
 
-
   Widget _buildAuthorInfo(Color secondaryColor) {
     return Row(
       children: [
         CircleAvatar(
           radius: 20,
-          backgroundImage: _currentPost.authorAvatar != null && _currentPost.authorAvatar!.isNotEmpty
-              ? CachedNetworkImageProvider(_currentPost.authorAvatar!) : null,
-          child: _currentPost.authorAvatar == null || _currentPost.authorAvatar!.isEmpty
-              ? Text(_currentPost.authorNickname?[0].toUpperCase() ?? _currentPost.author[0].toUpperCase()) : null,
+          backgroundImage:
+              _currentPost.authorAvatar != null &&
+                  _currentPost.authorAvatar!.isNotEmpty
+              ? CachedNetworkImageProvider(_currentPost.authorAvatar!)
+              : null,
+          child:
+              _currentPost.authorAvatar == null ||
+                  _currentPost.authorAvatar!.isEmpty
+              ? Text(
+                  _currentPost.authorNickname?[0].toUpperCase() ??
+                      _currentPost.author[0].toUpperCase(),
+                )
+              : null,
         ),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(_currentPost.authorNickname ?? _currentPost.author, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              Text(_currentPost.authorTitle ?? "User".tl, style: TextStyle(fontSize: 12, color: secondaryColor)),
+              Text(
+                _currentPost.authorNickname ?? _currentPost.author,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              Text(
+                _currentPost.authorTitle ?? "User".tl,
+                style: TextStyle(fontSize: 12, color: secondaryColor),
+              ),
             ],
           ),
         ),
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(_formatTime(_currentPost.time), style: TextStyle(fontSize: 12, color: secondaryColor)),
-            if (_currentPost.ipLocation != null && _currentPost.ipLocation!.isNotEmpty)
-              Text("IP: ${_currentPost.ipLocation}", style: TextStyle(fontSize: 10, color: secondaryColor.withValues(alpha: 0.7))),
+            Text(
+              _formatTime(_currentPost.time),
+              style: TextStyle(fontSize: 12, color: secondaryColor),
+            ),
+            if (_currentPost.ipLocation != null &&
+                _currentPost.ipLocation!.isNotEmpty)
+              Text(
+                "IP: ${_currentPost.ipLocation}",
+                style: TextStyle(
+                  fontSize: 10,
+                  color: secondaryColor.withValues(alpha: 0.7),
+                ),
+              ),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildContentSection(Color textColor, Color secondaryColor, Color cardColor, Color borderColor) {
+  Widget _buildContentSection(
+    Color textColor,
+    Color secondaryColor,
+    Color cardColor,
+    Color borderColor,
+  ) {
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -356,7 +444,8 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
             BloretButton(
               text: "Translate".tl,
               icon: Icons.translate,
-              onPressed: () => _handleAiAction("translate", _currentPost.content),
+              onPressed: () =>
+                  _handleAiAction("translate", _currentPost.content),
               height: 48,
             ),
             const SizedBox(width: 12),
@@ -373,12 +462,16 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
           transitionBuilder: (child, animation) {
             return FadeTransition(
               opacity: animation,
-              child: SizeTransition(sizeFactor: animation, alignment: Alignment.topCenter, child: child),
+              child: SizeTransition(
+                sizeFactor: animation,
+                alignment: Alignment.topCenter,
+                child: child,
+              ),
             );
           },
           child: (_aiTargetId == "post" && _aiText != null)
-            ? _buildAiResultBox("post", cardColor, borderColor, textColor)
-            : const SizedBox.shrink(),
+              ? _buildAiResultBox("post", cardColor, borderColor, textColor)
+              : const SizedBox.shrink(),
         ),
       ],
     );
@@ -386,8 +479,8 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
 
   Widget _buildParsedContent(String content, Color textColor, ThemeData theme) {
     final combinedRegex = RegExp(
-      r'(<!DOCTYPE html>[\s\S]*?</html>|<iframe[\s\S]*?</iframe>)|```投票\s*\n([\s\S]*?)\n```', 
-      caseSensitive: false
+      r'(<!DOCTYPE html>[\s\S]*?</html>|<iframe[\s\S]*?</iframe>)|```投票\s*\n([\s\S]*?)\n```|\$\$([\s\S]*?)\$\$|```math\s*\n([\s\S]*?)\n```',
+      caseSensitive: false,
     );
     final List<Widget> widgets = [];
     int lastMatchEnd = 0;
@@ -396,15 +489,26 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       if (match.start > lastMatchEnd) {
         final text = content.substring(lastMatchEnd, match.start).trim();
         if (text.isNotEmpty) {
-          widgets.add(GptMarkdown(text, style: TextStyle(fontSize: 16, color: textColor, height: 1.6)));
+          widgets.add(
+            _buildParagraphWithInlineMath(
+              text,
+              TextStyle(fontSize: 16, color: textColor, height: 1.6),
+              theme,
+            ),
+          );
         }
       }
 
       final matchText = match.group(0)!;
-      if (matchText.toLowerCase().contains('<!doctype html>') || matchText.toLowerCase().contains('<iframe')) {
+      if (matchText.toLowerCase().contains('<!doctype html>') ||
+          matchText.toLowerCase().contains('<iframe')) {
         widgets.add(_buildHtmlCard(matchText, theme));
       } else if (match.group(2) != null) {
         widgets.add(_buildVoteCard(match.group(2)!, theme));
+      } else if (match.group(3) != null) {
+        widgets.add(_buildMathCard(match.group(3)!, theme));
+      } else if (match.group(4) != null) {
+        widgets.add(_buildMathCard(match.group(4)!, theme));
       }
 
       lastMatchEnd = match.end;
@@ -413,13 +517,72 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     if (lastMatchEnd < content.length) {
       final text = content.substring(lastMatchEnd).trim();
       if (text.isNotEmpty) {
-        widgets.add(GptMarkdown(text, style: TextStyle(fontSize: 16, color: textColor, height: 1.6)));
+        widgets.add(
+          _buildParagraphWithInlineMath(
+            text,
+            TextStyle(fontSize: 16, color: textColor, height: 1.6),
+            theme,
+          ),
+        );
       }
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: widgets,
+    );
+  }
+
+  Widget _buildParagraphWithInlineMath(
+    String text,
+    TextStyle textStyle,
+    ThemeData theme,
+  ) {
+    final inlineMathRegex = RegExp(r'\$([^$\n]+?)\$');
+    final List<Widget> children = [];
+    int lastMatchEnd = 0;
+
+    for (final match in inlineMathRegex.allMatches(text)) {
+      if (match.start > lastMatchEnd) {
+        final plainText = text.substring(lastMatchEnd, match.start);
+        if (plainText.isNotEmpty) {
+          children.add(GptMarkdown(plainText, style: textStyle));
+        }
+      }
+
+      final mathExpr = match.group(1)!;
+      children.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: Math.tex(
+            mathExpr,
+            mathStyle: MathStyle.text,
+            textStyle: textStyle,
+          ),
+        ),
+      );
+
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < text.length) {
+      final plainText = text.substring(lastMatchEnd);
+      if (plainText.isNotEmpty) {
+        children.add(GptMarkdown(plainText, style: textStyle));
+      }
+    }
+
+    if (children.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    if (children.length == 1) {
+      return children.first;
+    }
+
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: children,
     );
   }
 
@@ -448,7 +611,10 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
         ),
       );
     } catch (e) {
-      return Text("HTML Render Error: $e", style: const TextStyle(color: Colors.red));
+      return Text(
+        "HTML Render Error: $e",
+        style: const TextStyle(color: Colors.red),
+      );
     }
   }
 
@@ -460,10 +626,15 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       } else if (node is dom.Text) {
         final text = node.text.trim();
         if (text.isNotEmpty) {
-          widgets.add(Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Text(text, style: TextStyle(color: theme.colorScheme.onSurface)),
-          ));
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(
+                text,
+                style: TextStyle(color: theme.colorScheme.onSurface),
+              ),
+            ),
+          );
         }
       }
     }
@@ -472,7 +643,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
 
   Widget _buildElementWidget(dom.Element element, ThemeData theme) {
     final tag = element.localName?.toLowerCase();
-    
+
     switch (tag) {
       case 'h1':
       case 'h2':
@@ -488,15 +659,30 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
         } else if (tag == 'h3') {
           fontSize = 18;
         }
-        
+
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Text.rich(_parseToTextSpan(element, theme, baseStyle: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold))),
+          child: Text.rich(
+            _parseToTextSpan(
+              element,
+              theme,
+              baseStyle: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
         );
       case 'p':
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Text.rich(_parseToTextSpan(element, theme, baseStyle: const TextStyle(fontSize: 15, height: 1.5))),
+          child: Text.rich(
+            _parseToTextSpan(
+              element,
+              theme,
+              baseStyle: const TextStyle(fontSize: 15, height: 1.5),
+            ),
+          ),
         );
       case 'div':
         return Column(
@@ -514,8 +700,13 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                 constraints: const BoxConstraints(maxHeight: 400),
                 child: CachedNetworkImage(
                   imageUrl: src,
-                  placeholder: (context, url) => Container(color: theme.dividerColor.withValues(alpha: 0.1), height: 100, width: double.infinity),
-                  errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                  placeholder: (context, url) => Container(
+                    color: theme.dividerColor.withValues(alpha: 0.1),
+                    height: 100,
+                    width: double.infinity,
+                  ),
+                  errorWidget: (context, url, error) =>
+                      const Icon(Icons.broken_image),
                   fit: BoxFit.contain,
                 ),
               ),
@@ -527,16 +718,26 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       case 'ol':
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: element.children.where((e) => e.localName == 'li').map((li) => Padding(
-            padding: const EdgeInsets.only(left: 8, top: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(tag == 'ul' ? "• " : "${element.children.indexOf(li) + 1}. ", style: const TextStyle(fontWeight: FontWeight.bold)),
-                Expanded(child: Text.rich(_parseToTextSpan(li, theme))),
-              ],
-            ),
-          )).toList(),
+          children: element.children
+              .where((e) => e.localName == 'li')
+              .map(
+                (li) => Padding(
+                  padding: const EdgeInsets.only(left: 8, top: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tag == 'ul'
+                            ? "• "
+                            : "${element.children.indexOf(li) + 1}. ",
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Expanded(child: Text.rich(_parseToTextSpan(li, theme))),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
         );
       case 'br':
         return const SizedBox(height: 8);
@@ -560,15 +761,20 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     }
   }
 
-  InlineSpan _parseToTextSpan(dom.Node node, ThemeData theme, {TextStyle? baseStyle}) {
+  InlineSpan _parseToTextSpan(
+    dom.Node node,
+    ThemeData theme, {
+    TextStyle? baseStyle,
+  }) {
     if (node is dom.Text) {
       return TextSpan(text: node.text, style: baseStyle);
     }
-    
+
     if (node is dom.Element) {
       final tag = node.localName?.toLowerCase();
-      TextStyle style = baseStyle ?? TextStyle(color: theme.colorScheme.onSurface);
-      
+      TextStyle style =
+          baseStyle ?? TextStyle(color: theme.colorScheme.onSurface);
+
       if (tag == 'b' || tag == 'strong') {
         style = style.copyWith(fontWeight: FontWeight.bold);
       } else if (tag == 'i' || tag == 'em') {
@@ -576,17 +782,25 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       } else if (tag == 'u') {
         style = style.copyWith(decoration: TextDecoration.underline);
       } else if (tag == 'a') {
-        style = style.copyWith(color: theme.colorScheme.primary, decoration: TextDecoration.underline);
+        style = style.copyWith(
+          color: theme.colorScheme.primary,
+          decoration: TextDecoration.underline,
+        );
       } else if (tag == 'code') {
-        style = style.copyWith(backgroundColor: theme.dividerColor.withValues(alpha: 0.1), fontFamily: 'monospace');
+        style = style.copyWith(
+          backgroundColor: theme.dividerColor.withValues(alpha: 0.1),
+          fontFamily: 'monospace',
+        );
       }
 
       return TextSpan(
         style: style,
-        children: node.nodes.map((child) => _parseToTextSpan(child, theme, baseStyle: style)).toList(),
+        children: node.nodes
+            .map((child) => _parseToTextSpan(child, theme, baseStyle: style))
+            .toList(),
       );
     }
-    
+
     return const TextSpan(text: "");
   }
 
@@ -612,7 +826,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
           onTap: () async {
             final uri = Uri.parse(finalUrl);
             try {
-              await launchUrl(uri,);
+              await launchUrl(uri);
             } catch (e) {
               logger.error("[BBBS] Failed to launch video URL: $e");
             }
@@ -625,17 +839,25 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                 Icon(
                   Icons.live_tv_outlined,
                   size: 64,
-                  color: isBilibili ? Colors.pinkAccent.withValues(alpha: 0.8) : theme.colorScheme.primary.withValues(alpha: 0.2),
+                  color: isBilibili
+                      ? Colors.pinkAccent.withValues(alpha: 0.8)
+                      : theme.colorScheme.primary.withValues(alpha: 0.2),
                 ),
                 const SizedBox(height: 16),
                 Text(
                   isBilibili ? "Bilibili Video".tl : "External Video".tl,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   "Click to play in browser".tl,
-                  style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -645,28 +867,75 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     );
   }
 
-  Widget _buildVoteCard(String voteContent, ThemeData theme) {
-    final lines = voteContent.split('\n')
-        .map((l) => l.trim())
-        .where((l) => l.isNotEmpty)
-        .toList();
-        
-    if (lines.isEmpty) return const SizedBox.shrink();
+  Widget _buildMathCard(String mathContent, ThemeData theme) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.all(16),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Math.tex(
+          mathContent.trim(),
+          textStyle: TextStyle(
+            fontSize: 16,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
 
+  Widget _buildVoteCard(String voteContent, ThemeData theme) {
     String question = "";
     List<String> options = [];
 
-    if (lines[0].toLowerCase().startsWith('title:')) {
-      question = lines[0].substring(6).trim();
-      options = lines.skip(1).toList();
-    } else {
-      question = lines[0];
-      options = lines.skip(1).toList();
+    try {
+      final trimmed = voteContent.trim();
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        final Map<String, dynamic> jsonMap = jsonDecode(trimmed);
+        question =
+            jsonMap['question']?.toString() ??
+            jsonMap['title']?.toString() ??
+            "";
+        if (jsonMap['options'] is List) {
+          options = (jsonMap['options'] as List)
+              .map((e) => e.toString())
+              .toList();
+        }
+      }
+    } catch (e) {
+      logger.error("[BBBS] Failed to parse vote JSON: $e");
     }
+
+    if (question.isEmpty || options.isEmpty) {
+      final lines = voteContent
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .toList();
+
+      if (lines.isEmpty) return const SizedBox.shrink();
+
+      if (lines[0].toLowerCase().startsWith('title:')) {
+        question = lines[0].substring(6).trim();
+        options = lines.skip(1).toList();
+      } else {
+        question = lines[0];
+        options = lines.skip(1).toList();
+      }
+    }
+
+    if (question.isEmpty && options.isEmpty) return const SizedBox.shrink();
 
     final votes = _currentPost.votes ?? {};
     final hasVoted = _currentPost.userHasVoted ?? false;
-    
+
     int totalVotes = 0;
     votes.forEach((key, value) {
       if (value is List) totalVotes += value.length;
@@ -691,29 +960,64 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                   color: theme.colorScheme.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.poll_rounded, color: theme.colorScheme.primary, size: 18),
+                child: Icon(
+                  Icons.poll_rounded,
+                  color: theme.colorScheme.primary,
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text("Vote".tl, style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, fontSize: 13), overflow: TextOverflow.ellipsis),
+                child: Text(
+                  "Vote".tl,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.primary,
+                    fontSize: 13,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               const SizedBox(width: 8),
               AnimatedOpacity(
                 duration: const Duration(milliseconds: 500),
                 opacity: hasVoted ? 1.0 : 0.0,
-                child: Text("${"Total".tl}: $totalVotes", style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+                child: Text(
+                  "${"Total".tl}: $totalVotes",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          Text(question, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Text(
+            question,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 20),
           ...options.map((opt) {
             final optionKey = opt.trim();
-            final voteList = votes[optionKey] is List ? List<String>.from(votes[optionKey]) : [];
+            final voteList = votes[optionKey] is List
+                ? List<String>.from(votes[optionKey])
+                : [];
             final count = voteList.length;
             final percent = totalVotes > 0 ? count / totalVotes : 0.0;
-            final optionText = optionKey.replaceFirst('- ', '').trim();
+
+            String rawOptionText = optionKey.replaceFirst('- ', '').trim();
+            String optionText = rawOptionText;
+            String? optionImageUrl;
+            if (rawOptionText.contains('| img=')) {
+              final parts = rawOptionText.split('| img=');
+              optionText = parts[0].trim();
+              optionImageUrl = parts[1].trim();
+            } else if (rawOptionText.contains('|img=')) {
+              final parts = rawOptionText.split('|img=');
+              optionText = parts[0].trim();
+              optionImageUrl = parts[1].trim();
+            }
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
@@ -724,67 +1028,128 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
                       width: double.infinity,
-                      height: 48,
+                      constraints: BoxConstraints(
+                        minHeight:
+                            optionImageUrl != null && optionImageUrl.isNotEmpty
+                            ? 60
+                            : 48,
+                      ),
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: hasVoted 
-                            ? theme.dividerColor.withValues(alpha: 0.1) 
-                            : theme.colorScheme.primary.withValues(alpha: 0.4)
+                          color: hasVoted
+                              ? theme.dividerColor.withValues(alpha: 0.1)
+                              : theme.colorScheme.primary.withValues(
+                                  alpha: 0.4,
+                                ),
                         ),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(10),
                         child: Stack(
+                          alignment: Alignment.center,
                           children: [
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 800),
-                              curve: Curves.easeOutCubic,
-                              width: hasVoted ? constraints.maxWidth * percent : 0,
-                              height: double.infinity,
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                            Positioned.fill(
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 800),
+                                  curve: Curves.easeOutCubic,
+                                  width: hasVoted
+                                      ? constraints.maxWidth * percent
+                                      : 0,
+                                  height: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primary.withValues(
+                                      alpha: 0.15,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                            Align(
-                              alignment: Alignment.center,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        optionText, 
-                                        style: TextStyle(
-                                          color: hasVoted ? theme.colorScheme.onSurface : theme.colorScheme.primary,
-                                          fontWeight: hasVoted ? FontWeight.normal : FontWeight.w500,
-                                          fontSize: 15,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      )
-                                    ),
-                                    if (hasVoted)
-                                      AnimatedOpacity(
-                                        duration: const Duration(milliseconds: 600),
-                                        opacity: 1.0,
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              "${(percent * 100).toStringAsFixed(0)}%", 
-                                              style: TextStyle(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.bold)
+                            Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical:
+                                    optionImageUrl != null &&
+                                        optionImageUrl.isNotEmpty
+                                    ? 12
+                                    : 8,
+                              ),
+                              child: Row(
+                                children: [
+                                  if (optionImageUrl != null &&
+                                      optionImageUrl.isNotEmpty) ...[
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: CachedNetworkImage(
+                                        imageUrl: optionImageUrl,
+                                        width: 32,
+                                        height: 32,
+                                        fit: BoxFit.cover,
+                                        placeholder: (context, url) =>
+                                            Container(
+                                              width: 32,
+                                              height: 32,
+                                              color: theme.dividerColor
+                                                  .withValues(alpha: 0.1),
                                             ),
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              "$count", 
-                                              style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)
+                                        errorWidget: (context, url, error) =>
+                                            const Icon(
+                                              Icons.broken_image,
+                                              size: 20,
                                             ),
-                                          ],
-                                        ),
                                       ),
+                                    ),
+                                    const SizedBox(width: 10),
                                   ],
-                                ),
+                                  Expanded(
+                                    child: Text(
+                                      optionText,
+                                      style: TextStyle(
+                                        color: hasVoted
+                                            ? theme.colorScheme.onSurface
+                                            : theme.colorScheme.primary,
+                                        fontWeight: hasVoted
+                                            ? FontWeight.normal
+                                            : FontWeight.w500,
+                                        fontSize: 15,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  if (hasVoted)
+                                    AnimatedOpacity(
+                                      duration: const Duration(
+                                        milliseconds: 600,
+                                      ),
+                                      opacity: 1.0,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            "${(percent * 100).toStringAsFixed(0)}%",
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: theme.colorScheme.primary,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            "$count",
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
                           ],
@@ -792,7 +1157,7 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                       ),
                     ),
                   );
-                }
+                },
               ),
             );
           }),
@@ -803,23 +1168,22 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
 
   Future<void> _handleVote(String optionKey) async {
     final userName = ConfigService.get('Bloret_PassPort_UserName') ?? "Guest";
-    
+
     setState(() {
       final newVotes = Map<String, dynamic>.from(_currentPost.votes ?? {});
-      final list = newVotes[optionKey] is List ? List<String>.from(newVotes[optionKey]) : [];
+      final list = newVotes[optionKey] is List
+          ? List<String>.from(newVotes[optionKey])
+          : [];
       if (!list.contains(userName)) {
         list.add(userName);
       }
       newVotes[optionKey] = list;
-      
-      _currentPost = _currentPost.copyWith(
-        votes: newVotes,
-        userHasVoted: true,
-      );
+
+      _currentPost = _currentPost.copyWith(votes: newVotes, userHasVoted: true);
     });
-    
+
     showSuccess("Vote recorded".tl);
-    
+
     // In actual implementation, call BbbsService to persist
     try {
       // await BbbsService.votePost(filename: _currentPost.filename, option: optionKey);
@@ -828,8 +1192,12 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     }
   }
 
-
-  Widget _buildAiResultBox(String key, Color cardColor, Color borderColor, Color textColor) {
+  Widget _buildAiResultBox(
+    String key,
+    Color cardColor,
+    Color borderColor,
+    Color textColor,
+  ) {
     return AnimatedSize(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
@@ -851,26 +1219,55 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
               children: [
                 Container(
                   padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
-                  child: const Icon(Icons.psychology, size: 14, color: Colors.blue),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(
+                    Icons.psychology,
+                    size: 14,
+                    color: Colors.blue,
+                  ),
                 ),
                 const SizedBox(width: 8),
-                Text("AI Assistant".tl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue)),
+                Text(
+                  "AI Assistant".tl,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
                 const Spacer(),
                 if (_isAiProcessing)
-                  const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue)),
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.blue,
+                    ),
+                  ),
                 const SizedBox(width: 8),
                 GestureDetector(
                   onTap: () => setState(() => _aiText = null),
-                  child: const Icon(Icons.close_rounded, size: 16, color: Colors.blue),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 16,
+                    color: Colors.blue,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 10),
             GptMarkdown(
-              _aiText!, 
+              _aiText!,
               key: ValueKey("ai_text_$key"),
-              style: TextStyle(fontSize: 14, color: textColor.withValues(alpha: 0.9), height: 1.5)
+              style: TextStyle(
+                fontSize: 14,
+                color: textColor.withValues(alpha: 0.9),
+                height: 1.5,
+              ),
             ),
           ],
         ),
@@ -879,28 +1276,34 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
   }
 
   Widget _buildInteractionRow(Color secondaryColor) {
-    final userName = ConfigService.get('Bloret_PassPort_NickName') ?? ConfigService.get('Bloret_PassPort_UserName') ?? "";
+    final userName =
+        ConfigService.get('Bloret_PassPort_NickName') ??
+        ConfigService.get('Bloret_PassPort_UserName') ??
+        "";
     final isLiked = _currentPost.likes.contains(userName);
 
     return Row(
       children: [
         BloretButton(
-          icon: isLiked ? Icons.favorite : Icons.favorite_outline, 
-          text: _currentPost.likes.length.toString(), 
+          icon: isLiked ? Icons.favorite : Icons.favorite_outline,
+          text: _currentPost.likes.length.toString(),
           color: isLiked ? Colors.red : Colors.redAccent,
           onPressed: _handleLike,
           height: 38,
         ),
         const SizedBox(width: 16),
         BloretButton(
-          icon: Icons.share_outlined, 
-          text: _currentPost.shares.toString(), 
+          icon: Icons.share_outlined,
+          text: _currentPost.shares.toString(),
           color: Colors.blue,
           onPressed: _handleShare,
           height: 38,
         ),
         const Spacer(),
-        Text("${_currentPost.views} ${"Views".tl}", style: TextStyle(fontSize: 13, color: secondaryColor)),
+        Text(
+          "${_currentPost.views} ${"Views".tl}",
+          style: TextStyle(fontSize: 13, color: secondaryColor),
+        ),
       ],
     );
   }
@@ -908,25 +1311,43 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
   Widget _buildCommentsHeader(Color secondaryColor) {
     return Row(
       children: [
-        Text("Comments".tl, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        Text(
+          "Comments".tl,
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(width: 8),
-        Text("(${_currentPost.comments.length})", style: TextStyle(color: secondaryColor)),
+        Text(
+          "(${_currentPost.comments.length})",
+          style: TextStyle(color: secondaryColor),
+        ),
       ],
     );
   }
 
-  Widget _buildCommentsList(Color textColor, Color secondaryColor, Color cardColor, Color borderColor) {
+  Widget _buildCommentsList(
+    Color textColor,
+    Color secondaryColor,
+    Color cardColor,
+    Color borderColor,
+  ) {
     if (_currentPost.comments.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 40),
         child: Center(
           child: Column(
             children: [
-              Icon(Icons.chat_bubble_outline, size: 40, color: secondaryColor.withValues(alpha: 0.3)),
+              Icon(
+                Icons.chat_bubble_outline,
+                size: 40,
+                color: secondaryColor.withValues(alpha: 0.3),
+              ),
               const SizedBox(height: 12),
-              Text("No comments yet".tl, style: TextStyle(color: secondaryColor)),
+              Text(
+                "No comments yet".tl,
+                style: TextStyle(color: secondaryColor),
+              ),
             ],
-          )
+          ),
         ),
       );
     }
@@ -934,7 +1355,8 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _currentPost.comments.length,
-      separatorBuilder: (context, index) => Divider(height: 32, color: borderColor.withValues(alpha: 0.05)),
+      separatorBuilder: (context, index) =>
+          Divider(height: 32, color: borderColor.withValues(alpha: 0.05)),
       itemBuilder: (context, index) {
         final comment = _currentPost.comments[index];
         return TweenAnimationBuilder<double>(
@@ -951,15 +1373,31 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
               ),
             );
           },
-          child: _buildCommentItem(comment, textColor, secondaryColor, cardColor, borderColor),
+          child: _buildCommentItem(
+            comment,
+            textColor,
+            secondaryColor,
+            cardColor,
+            borderColor,
+          ),
         );
       },
     );
   }
 
-  Widget _buildCommentItem(BbbsComment comment, Color textColor, Color secondaryColor, Color cardColor, Color borderColor) {
+  Widget _buildCommentItem(
+    BbbsComment comment,
+    Color textColor,
+    Color secondaryColor,
+    Color cardColor,
+    Color borderColor,
+  ) {
     final String cId = comment.id.toString();
-    if (comment.content.isEmpty && (comment.authorNickname?.isEmpty ?? true) && comment.author.isEmpty) return const SizedBox.shrink();
+    if (comment.content.isEmpty &&
+        (comment.authorNickname?.isEmpty ?? true) &&
+        comment.author.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -971,10 +1409,22 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
             children: [
               CircleAvatar(
                 radius: 18,
-                backgroundImage: comment.authorAvatar != null && comment.authorAvatar!.isNotEmpty
-                    ? CachedNetworkImageProvider(comment.authorAvatar!) : null,
-                child: comment.authorAvatar == null || comment.authorAvatar!.isEmpty
-                    ? comment.authorNickname?.isNotEmpty == true ? Text(comment.authorNickname![0].toUpperCase()) : Text(comment.author.isNotEmpty ? comment.author[0].toUpperCase() : "?") : null,
+                backgroundImage:
+                    comment.authorAvatar != null &&
+                        comment.authorAvatar!.isNotEmpty
+                    ? CachedNetworkImageProvider(comment.authorAvatar!)
+                    : null,
+                child:
+                    comment.authorAvatar == null ||
+                        comment.authorAvatar!.isEmpty
+                    ? comment.authorNickname?.isNotEmpty == true
+                          ? Text(comment.authorNickname![0].toUpperCase())
+                          : Text(
+                              comment.author.isNotEmpty
+                                  ? comment.author[0].toUpperCase()
+                                  : "?",
+                            )
+                    : null,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -983,17 +1433,29 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                   children: [
                     Row(
                       children: [
-                        Text(comment.authorNickname ?? comment.author, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        Text(
+                          comment.authorNickname ?? comment.author,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
                         if (comment.replyToId != null) ...[
                           const SizedBox(width: 6),
-                          Icon(Icons.play_arrow_rounded, size: 12, color: secondaryColor.withValues(alpha: 0.5)),
+                          Icon(
+                            Icons.play_arrow_rounded,
+                            size: 12,
+                            color: secondaryColor.withValues(alpha: 0.5),
+                          ),
                           const SizedBox(width: 4),
                           Text(
                             "@${_getReplyAuthor(comment.replyToId) ?? "User".tl}",
                             style: TextStyle(
-                              fontSize: 13, 
-                              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.8),
-                              fontWeight: FontWeight.w500
+                              fontSize: 13,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.8),
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ],
@@ -1001,9 +1463,22 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(_formatTime(comment.time), style: TextStyle(fontSize: 11, color: secondaryColor)),
-                            if (comment.ipLocation != null && comment.ipLocation!.isNotEmpty)
-                              Text("IP: ${comment.ipLocation}", style: TextStyle(fontSize: 9, color: secondaryColor.withValues(alpha: 0.7))),
+                            Text(
+                              _formatTime(comment.time),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: secondaryColor,
+                              ),
+                            ),
+                            if (comment.ipLocation != null &&
+                                comment.ipLocation!.isNotEmpty)
+                              Text(
+                                "IP: ${comment.ipLocation}",
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: secondaryColor.withValues(alpha: 0.7),
+                                ),
+                              ),
                           ],
                         ),
                       ],
@@ -1011,27 +1486,58 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
 
                     const SizedBox(height: 6),
                     GptMarkdown(
-                      comment.content, 
-                      style: TextStyle(fontSize: 14, color: textColor, height: 1.4)
+                      comment.content,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: textColor,
+                        height: 1.4,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Icon(Icons.favorite_outline, size: 14, color: secondaryColor),
+                        Icon(
+                          Icons.favorite_outline,
+                          size: 14,
+                          color: secondaryColor,
+                        ),
                         const SizedBox(width: 4),
-                        Text(comment.likes.length.toString(), style: TextStyle(fontSize: 12, color: secondaryColor)),
+                        Text(
+                          comment.likes.length.toString(),
+                          style: TextStyle(fontSize: 12, color: secondaryColor),
+                        ),
                         const SizedBox(width: 16),
                         InkWell(
                           onTap: () {
                             setState(() => _replyTo = comment);
                             _focusNode.requestFocus();
                           },
-                          child: Text("Reply".tl, style: TextStyle(fontSize: 12, color: secondaryColor)),
+                          child: Text(
+                            "Reply".tl,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: secondaryColor,
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 16),
-                        _mdBtn(Icons.translate, () => _handleAiAction("translate", comment.content, targetId: cId)),
+                        _mdBtn(
+                          Icons.translate,
+                          () => _handleAiAction(
+                            "translate",
+                            comment.content,
+                            targetId: cId,
+                          ),
+                        ),
                         const SizedBox(width: 8),
-                        _mdBtn(Icons.auto_awesome, () => _handleAiAction("explain", comment.content, targetId: cId)),
+                        _mdBtn(
+                          Icons.auto_awesome,
+                          () => _handleAiAction(
+                            "explain",
+                            comment.content,
+                            targetId: cId,
+                          ),
+                        ),
                       ],
                     ),
                     AnimatedSwitcher(
@@ -1039,12 +1545,21 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                       transitionBuilder: (child, animation) {
                         return FadeTransition(
                           opacity: animation,
-                          child: SizeTransition(sizeFactor: animation, alignment: Alignment.topCenter, child: child),
+                          child: SizeTransition(
+                            sizeFactor: animation,
+                            alignment: Alignment.topCenter,
+                            child: child,
+                          ),
                         );
                       },
                       child: (_aiTargetId == cId && _aiText != null)
-                        ? _buildAiResultBox(cId, cardColor, borderColor, textColor)
-                        : const SizedBox.shrink(),
+                          ? _buildAiResultBox(
+                              cId,
+                              cardColor,
+                              borderColor,
+                              textColor,
+                            )
+                          : const SizedBox.shrink(),
                     ),
                   ],
                 ),
@@ -1056,7 +1571,11 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     );
   }
 
-  Widget _buildBottomInput(Color cardColor, Color borderColor, Color secondaryColor) {
+  Widget _buildBottomInput(
+    Color cardColor,
+    Color borderColor,
+    Color secondaryColor,
+  ) {
     final theme = Theme.of(context);
     final altColor = theme.colorScheme.surfaceContainerHighest;
 
@@ -1072,23 +1591,46 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
           children: [
             if (_replyTo != null)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 color: theme.colorScheme.primary.withValues(alpha: 0.05),
                 child: Row(
                   children: [
-                    Icon(Icons.reply_rounded, size: 16, color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.reply_rounded,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
                     const SizedBox(width: 8),
-                    Text("${"Reply".tl} @${_replyTo!.author}", style: TextStyle(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
+                    Text(
+                      "${"Reply".tl} @${_replyTo!.author}",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const Spacer(),
                     GestureDetector(
                       onTap: () => setState(() => _replyTo = null),
-                      child: Icon(Icons.close_rounded, size: 16, color: theme.colorScheme.primary),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
                   ],
                 ),
               ),
             Padding(
-              padding: EdgeInsets.fromLTRB(12, 12, 12, MediaQuery.of(context).viewInsets.bottom + 20),
+              padding: EdgeInsets.fromLTRB(
+                12,
+                12,
+                12,
+                MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -1100,12 +1642,17 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                         }
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: altColor,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: _focusNode.hasFocus ? theme.colorScheme.primary : borderColor,
+                            color: _focusNode.hasFocus
+                                ? theme.colorScheme.primary
+                                : borderColor,
                             width: _focusNode.hasFocus ? 2.0 : 1.0,
                           ),
                         ),
@@ -1115,35 +1662,52 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                           children: [
                             if (_isPreviewMode)
                               Container(
-                                constraints: const BoxConstraints(minHeight: 40, maxHeight: 200),
+                                constraints: const BoxConstraints(
+                                  minHeight: 40,
+                                  maxHeight: 200,
+                                ),
                                 width: double.infinity,
-                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
                                 child: SingleChildScrollView(
                                   child: GptMarkdown(
-                                    _commentController.text.isEmpty ? "*${"Preview Content".tl}*" : _commentController.text,
-                                    style: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface),
+                                    _commentController.text.isEmpty
+                                        ? "*${"Preview Content".tl}*"
+                                        : _commentController.text,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      color: theme.colorScheme.onSurface,
+                                    ),
                                   ),
                                 ),
                               )
                             else
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 150),
-                              child: TextField(
-                                controller: _commentController,
-                                focusNode: _focusNode,
-                                maxLines: null,
-                                minLines: 1,
-                                onChanged: (v) => setState(() {}),
-                                keyboardType: TextInputType.multiline,
-                                decoration: InputDecoration(
-                                  hintText: "Write your comment...".tl,
-                                  border: InputBorder.none,
-                                  isDense: true,
-                                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxHeight: 150,
                                 ),
-                                style: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface),
+                                child: TextField(
+                                  controller: _commentController,
+                                  focusNode: _focusNode,
+                                  maxLines: null,
+                                  minLines: 1,
+                                  onChanged: (v) => setState(() {}),
+                                  keyboardType: TextInputType.multiline,
+                                  decoration: InputDecoration(
+                                    hintText: "Write your comment...".tl,
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
+                                  ),
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    color: theme.colorScheme.onSurface,
+                                  ),
+                                ),
                               ),
-                            ),
 
                             AnimatedSize(
                               duration: const Duration(milliseconds: 300),
@@ -1157,23 +1721,47 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                                           child: SingleChildScrollView(
                                             scrollDirection: Axis.horizontal,
                                             child: Row(
-                                              mainAxisAlignment: MainAxisAlignment.start,
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.start,
                                               children: [
-                                                _mdBtn(Icons.format_bold, () => _insertMd("**")),
+                                                _mdBtn(
+                                                  Icons.format_bold,
+                                                  () => _insertMd("**"),
+                                                ),
                                                 const SizedBox(width: 8),
-                                                _mdBtn(Icons.format_italic, () => _insertMd("*")),
+                                                _mdBtn(
+                                                  Icons.format_italic,
+                                                  () => _insertMd("*"),
+                                                ),
                                                 const SizedBox(width: 8),
-                                                _mdBtn(Icons.link, () => _insertMd("[", "](url)")),
+                                                _mdBtn(
+                                                  Icons.link,
+                                                  () =>
+                                                      _insertMd("[", "](url)"),
+                                                ),
                                                 const SizedBox(width: 8),
-                                                _mdBtn(Icons.code, () => _insertMd("`")),
+                                                _mdBtn(
+                                                  Icons.code,
+                                                  () => _insertMd("`"),
+                                                ),
                                                 const SizedBox(width: 8),
-                                                _mdBtn(Icons.format_quote, () => _insertMd("> ")),
+                                                _mdBtn(
+                                                  Icons.format_quote,
+                                                  () => _insertMd("> "),
+                                                ),
                                                 const SizedBox(width: 8),
-                                                _mdBtn(Icons.format_list_bulleted, () => _insertMd("- ")),
+                                                _mdBtn(
+                                                  Icons.format_list_bulleted,
+                                                  () => _insertMd("- "),
+                                                ),
                                                 const SizedBox(width: 12),
                                                 Text(
                                                   "${_commentController.text.length} ${"chars".tl}",
-                                                  style: TextStyle(fontSize: 11, color: secondaryColor.withValues(alpha: 0.6)),
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: secondaryColor
+                                                        .withValues(alpha: 0.6),
+                                                  ),
                                                 ),
                                               ],
                                             ),
@@ -1191,33 +1779,58 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
                   AnimatedSize(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeOut,
-                    child: (_focusNode.hasFocus || _commentController.text.isNotEmpty)
+                    child:
+                        (_focusNode.hasFocus ||
+                            _commentController.text.isNotEmpty)
                         ? Padding(
                             padding: const EdgeInsets.only(left: 8),
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
                                 BloretIconButton(
-                                  icon: _isMdEnabled ? Icons.edit : Icons.edit_note,
-                                  color: _isMdEnabled ? theme.colorScheme.primary : secondaryColor,
-                                  onPressed: () => setState(() => _isMdEnabled = !_isMdEnabled),
+                                  icon: _isMdEnabled
+                                      ? Icons.edit
+                                      : Icons.edit_note,
+                                  color: _isMdEnabled
+                                      ? theme.colorScheme.primary
+                                      : secondaryColor,
+                                  onPressed: () => setState(
+                                    () => _isMdEnabled = !_isMdEnabled,
+                                  ),
                                   tooltip: "Markdown Tools".tl,
                                 ),
                                 const SizedBox(height: 4),
                                 BloretIconButton(
-                                  icon: _isPreviewMode ? Icons.visibility : Icons.visibility_off,
-                                  color: _isPreviewMode ? theme.colorScheme.primary : secondaryColor,
-                                  onPressed: () => setState(() => _isPreviewMode = !_isPreviewMode),
+                                  icon: _isPreviewMode
+                                      ? Icons.visibility
+                                      : Icons.visibility_off,
+                                  color: _isPreviewMode
+                                      ? theme.colorScheme.primary
+                                      : secondaryColor,
+                                  onPressed: () => setState(
+                                    () => _isPreviewMode = !_isPreviewMode,
+                                  ),
                                   tooltip: "Preview".tl,
                                 ),
                                 const SizedBox(height: 4),
                                 _isSubmitting
                                     ? const Padding(
                                         padding: EdgeInsets.all(10.0),
-                                        child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
+                                        child: SizedBox(
+                                          width: 24,
+                                          height: 24,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
                                       )
                                     : BloretIconButton(
-                                        onPressed: _commentController.text.trim().isEmpty ? null : _submitComment,
+                                        onPressed:
+                                            _commentController.text
+                                                .trim()
+                                                .isEmpty
+                                            ? null
+                                            : _submitComment,
                                         icon: Icons.send,
                                         tooltip: "Send".tl,
                                       ),
@@ -1235,15 +1848,8 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     );
   }
 
-
-
-
   Widget _mdBtn(IconData icon, VoidCallback onTap) {
-    return BloretIconButton(
-      icon: icon,
-      onPressed: onTap,
-      tooltip: "",
-    );
+    return BloretIconButton(icon: icon, onPressed: onTap, tooltip: "");
   }
 
   String _formatTime(dynamic t) {
@@ -1251,11 +1857,15 @@ class _BbbsDetailPageState extends State<BbbsDetailPage> {
     try {
       DateTime dt;
       if (t is int) {
-        dt = DateTime.fromMillisecondsSinceEpoch(t > 10000000000 ? t : t * 1000);
+        dt = DateTime.fromMillisecondsSinceEpoch(
+          t > 10000000000 ? t : t * 1000,
+        );
       } else if (t is String) {
         final val = int.tryParse(t);
         if (val != null) {
-          dt = DateTime.fromMillisecondsSinceEpoch(val > 10000000000 ? val : val * 1000);
+          dt = DateTime.fromMillisecondsSinceEpoch(
+            val > 10000000000 ? val : val * 1000,
+          );
         } else {
           dt = DateTime.parse(t);
         }

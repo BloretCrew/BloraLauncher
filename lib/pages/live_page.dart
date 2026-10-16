@@ -926,17 +926,21 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
             icon: const Icon(Icons.exit_to_app, shadows: shadows),
             label: Text("Leave".tl),
             onPressed: () async {
-              LiveService.sendSignal(_currentSpace['id'], {
-                "type": "leave",
-                "payload": {}
-              });
+              if (_currentSpace['id'] != null) {
+                LiveService.sendSignal(_currentSpace['id'], {
+                  "type": "leave",
+                  "payload": {}
+                });
+              }
 
               _eventSub?.cancel();
               _eventSub = null;
               _heartbeatTimer?.cancel();
               _heartbeatTimer = null;
+
               _rtcManager?.dispose();
               _rtcManager = null;
+
               _localRenderer.srcObject = null;
 
               setState(() {
@@ -945,10 +949,17 @@ class _LivePageState extends State<LivePage> with TickerProviderStateMixin {
                 _chatMessages = [];
                 _onlineUsers = [];
                 _easytierState = {};
+
                 _remoteRenderers.forEach((_, r) => r.dispose());
                 _remoteRenderers.clear();
                 _peerStates.clear();
+
+                _audioEnabled = false;
+                _videoEnabled = false;
+                _screenEnabled = false;
               });
+
+              logger.info("[Live] Successfully left space and disposed all resources.", LogSource.system);
             },
           )
         ],

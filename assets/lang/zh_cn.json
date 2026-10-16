@@ -1062,5 +1062,12 @@
   "Offset X": "水平偏移",
   "Offset Y": "垂直偏移",
   "None": "无",
-  "Crash Analysis: ": "崩溃分析: "
+  "Crash Analysis: ": "崩溃分析: ",
+  "Checking Dependencies...": "正在检查依赖项...",
+  "Verifying libwebrtc.dll in application directory...": "正在验证应用程序目录中的 libwebrtc.dll...",
+  "Missing Dependency": "缺少依赖项",
+  "libwebrtc.dll was not found in the executable directory. This file is required for Live features.": "在可执行文件目录中未找到 libwebrtc.dll。Live 功能需要此文件。",
+  "Re-check": "重新检查",
+  "Download DLL": "下载 DLL",
+  "RikoLand": "络的世界"
 }

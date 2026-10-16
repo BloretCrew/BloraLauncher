@@ -1,5 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/global.dart';
 import '../main.dart';
@@ -10,6 +13,75 @@ class PassportService {
   static const String appId = 'bp_300950b2630e250c';
   static const String appSecret = 'bs_6f6dfdf0fa563b10bb1d51389eab92a5d485cfd3d29f904c';
   static final Dio dio = Dio();
+
+  static HttpServer? _authServer;
+  static int _actualPort = 25254;
+
+  static Future<void> cancelLogin() async {
+    await _authServer?.close(force: true);
+    _authServer = null;
+  }
+
+  static Future<void> startLoginFlow({
+    required Function(Map<String, dynamic> userInfo) onLoginSuccess,
+    required VoidCallback onLoginFail,
+    required VoidCallback onStartWaiting,
+    required String successHtml,
+  }) async {
+    await cancelLogin();
+    
+    try {
+      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25254);
+      _actualPort = 25254;
+    } catch (_) {
+      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      _actualPort = _authServer!.port;
+    }
+
+    final url = Uri.parse('https://passport.bloret.net/app/oauth?app_id=$appId&redirect_uri=http://localhost:$_actualPort/login/Bloret-PassPort');
+    
+    if (await canLaunchUrl(url)) {
+      await launchUrl(
+          url,
+          mode: Platform.isAndroid ? LaunchMode.inAppBrowserView : LaunchMode.externalApplication
+      );
+      onStartWaiting();
+    }
+
+    _authServer!.listen((HttpRequest request) async {
+      if (request.uri.path == '/login/Bloret-PassPort') {
+        final params = request.uri.queryParameters;
+        final code = params['code'];
+
+        if (code != null) {
+          final userInfo = await verifyCode(code);
+          if (userInfo != null) {
+            await ConfigService.set('Bloret_PassPort_Login', true);
+            await ConfigService.set('Bloret_PassPort_UserName', userInfo['username']);
+            await ConfigService.set('Bloret_PassPort_NickName', userInfo['nickname']);
+            await ConfigService.set('Bloret_PassPort_Avatar', userInfo['avatar']);
+            await ConfigService.set('Bloret_PassPort_Email', userInfo['email']);
+            await ConfigService.set('Bloret_PassPort_Token', userInfo['apptoken']);
+            await ConfigService.set('Bloret_PassPort_BBBS_Session', userInfo['bbbs_session']);
+            await ConfigService.set('Bloret_PassPort_BBBS_Session.sig', userInfo['bbbs_session.sig']);
+
+            await syncMinecraftAccounts();
+            onLoginSuccess(userInfo);
+          } else {
+            onLoginFail();
+          }
+
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType.html
+            ..write(successHtml)
+            ..close();
+
+          await cancelLogin();
+        }
+      }
+    });
+  }
 
   static Future<Map<String, dynamic>?> verifyCode(String code) async {
     try {

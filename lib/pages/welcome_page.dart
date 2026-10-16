@@ -8,7 +8,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../core/ffi_proxy.dart';
 import '../core/grammer_candy.dart';
@@ -22,6 +21,7 @@ import '../services/passport_service.dart';
 import '../shell/main_shell.dart';
 import '../widgets/google_widgets.dart';
 import '../widgets/windows_widgets.dart';
+import 'watch/welcome_page_watch.dart';
 
 class WelcomeSetupScreen extends StatefulWidget {
   const WelcomeSetupScreen({super.key});
@@ -53,12 +53,11 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
     'ru_ru': 'Русский',
   };
   List<String> _minecraftDirs = [];
-  final GlobalKey<AnimatedListState> _dirListKey = GlobalKey<AnimatedListState>();
+  final GlobalKey<AnimatedListState> _dirListKey =
+      GlobalKey<AnimatedListState>();
 
   bool _isWaitingForLogin = false;
   bool _loginSkipped = false;
-  HttpServer? _authServer;
-  int _actualPort = 25254;
   Timer? _statusChecker;
 
   final ValueNotifier<bool> _isTokenValidNotifier = ValueNotifier<bool>(false);
@@ -567,7 +566,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _authServer?.close(force: true);
+    PassportService.cancelLogin();
     _statusChecker?.cancel();
     _isTokenValidNotifier.dispose();
     super.dispose();
@@ -600,71 +599,24 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
     }
   }
 
-  Future<void> _startAuthServer() async {
-    await _authServer?.close(force: true);
-    try {
-      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25254);
-      _actualPort = 25254;
-    } catch (_) {
-      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      _actualPort = _authServer!.port;
-    }
-
-    _authServer!.listen((HttpRequest request) async {
-      if (request.uri.path == '/login/Bloret-PassPort') {
-        final params = request.uri.queryParameters;
-        final code = params['code'];
-
-        if (code != null) {
-          setState(() => _isVerifyingCode = true);
-          final userInfo = await PassportService.verifyCode(code);
-          if (userInfo != null) {
-            await ConfigService.set('Bloret_PassPort_Login', true);
-            await ConfigService.set(
-              'Bloret_PassPort_UserName',
-              userInfo['username'],
-            );
-            await ConfigService.set(
-              'Bloret_PassPort_NickName',
-              userInfo['nickname'],
-            );
-            await ConfigService.set(
-              'Bloret_PassPort_Avatar',
-              userInfo['avatar'],
-            );
-            await ConfigService.set('Bloret_PassPort_Email', userInfo['email']);
-            await ConfigService.set(
-              'Bloret_PassPort_Token',
-              userInfo['apptoken'],
-            );
-            await ConfigService.set(
-              'Bloret_PassPort_BBBS_Session',
-              userInfo['bbbs_session'],
-            );
-            await ConfigService.set(
-              'Bloret_PassPort_BBBS_Session.sig',
-              userInfo['bbbs_session.sig'],
-            );
-
-            final syncResult = await PassportService.syncMinecraftAccounts();
-            _isTokenValidNotifier.value = syncResult;
-            _loginSkipped = false;
-            _syncStateToUi();
-            showSuccess("Logged in successfully".tl);
-            logger.info(
-              "Passport login success: ${userInfo['username']}",
-              .network,
-            );
-          } else {
-            _isTokenValidNotifier.value = false;
-            showError("Authentication failed".tl);
-          }
-          setState(() => _isVerifyingCode = false);
-
-          request.response
-            ..statusCode = HttpStatus.ok
-            ..headers.contentType = ContentType.html
-            ..write('''
+  Future<void> _loginBloretPassPort() async {
+    await PassportService.startLoginFlow(
+      onLoginSuccess: (userInfo) {
+        _isTokenValidNotifier.value = true;
+        _loginSkipped = false;
+        _syncStateToUi();
+        setState(() => _isVerifyingCode = false);
+      },
+      onLoginFail: () {
+        _isTokenValidNotifier.value = false;
+        showError("Authentication failed".tl);
+        setState(() => _isVerifyingCode = false);
+      },
+      onStartWaiting: () {
+        setState(() => _isWaitingForLogin = true);
+      },
+      successHtml:
+          '''
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -777,14 +729,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
     </div>
 </body>
 </html>
-''')
-            ..close();
-
-          await _authServer?.close();
-          _authServer = null;
-        }
-      }
-    });
+''',
+    );
   }
 
   void _syncStateToUi() {
@@ -801,27 +747,47 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
     }
   }
 
-  Future<void> _loginBloretPassPort() async {
-    await _startAuthServer();
-    final url = Uri.parse(
-      'https://passport.bloret.net/app/oauth?app_id=${PassportService.appId}&redirect_uri=http://localhost:$_actualPort/login/Bloret-PassPort',
-    );
-    if (await canLaunchUrl(url)) {
-      await launchUrl(
-        url,
-        mode: Platform.isAndroid
-            ? LaunchMode.inAppBrowserView
-            : LaunchMode.externalApplication,
-      );
-      setState(() => _isWaitingForLogin = true);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isPortrait =
-        MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final size = MediaQuery.of(context).size;
+    final isPortrait = size.height > size.width;
+
+    // Watch detection
+    final bool isWatch =
+        (size.width < 300 || size.height < 300) && Platform.isAndroid;
+    final bool isRound = isWatch && (size.width == size.height);
+
+    if (isWatch) {
+      return WelcomeSetupScreenWatch(
+        isRound: isRound,
+        currentStep: _currentStep,
+        loginSkipped: _loginSkipped,
+        onStepChanged: (step) => setState(() => _currentStep = step),
+        selectedLanguage: _selectedLanguage,
+        onLanguageChanged: (val) {
+          setState(() => _selectedLanguage = val);
+          ConfigService.setLanguage(val);
+        },
+        availableLanguages: _availableLanguages,
+        isWaitingForLogin: _isWaitingForLogin,
+        onLoginPressed: _loginBloretPassPort,
+        onBack: () => setState(() => _currentStep--),
+        onFinish: () async {
+          await ConfigService.setLanguage(_selectedLanguage);
+          await ConfigService.set('minecraft_dirs', _minecraftDirs);
+          await ConfigService.setFirstRunCompleted();
+          if (context.mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const MainShell()),
+            );
+          }
+        },
+        nextDisabled:
+            (_currentStep == 3 && _minecraftDirs.isEmpty) ||
+            (_currentStep == 4 && !_javaInstalled && !Platform.isAndroid),
+      );
+    }
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
@@ -931,11 +897,11 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                       borderRadius: BorderRadius.circular(5),
                       color: isCompleted
                           ? (index == 2 && _loginSkipped
-                              ? Colors.orange
-                              : Colors.green)
+                                ? Colors.orange
+                                : Colors.green)
                           : (isCurrent
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outlineVariant),
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.outlineVariant),
                     ),
                   ),
                   if (!isPortrait) const SizedBox(height: 14),
@@ -950,7 +916,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: isCompleted
-                                ? (index == 2 && _loginSkipped) ? Colors.orange : Colors.green
+                                ? (index == 2 && _loginSkipped)
+                                      ? Colors.orange
+                                      : Colors.green
                                 : (isCurrent
                                       ? theme.colorScheme.primary
                                       : theme.colorScheme.onSurfaceVariant),
@@ -1235,7 +1203,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  "Tip: You must log in to Bloret PassPort to get full service.".tl,
+                  "Tip: You must log in to Bloret PassPort to get full service."
+                      .tl,
                   textAlign: TextAlign.center,
                   style: hintStyle,
                 ),
@@ -1297,7 +1266,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 40),
                     child: Text(
-                      "Please add an offline account or sync from Bloret PassPort.".tl,
+                      "Please add an offline account or sync from Bloret PassPort."
+                          .tl,
                       textAlign: TextAlign.center,
                       style: hintStyle,
                     ),
@@ -1412,11 +1382,16 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                                               milliseconds: 500,
                                             ),
                                             curve: Curves.easeOut,
-                                            child:
-                                                Padding(
-                                                  padding: const EdgeInsetsGeometry.all(5),
-                                                  child: const CircularProgressIndicator(strokeWidth: 2,),
-                                                ),
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsetsGeometry.all(
+                                                    5,
+                                                  ),
+                                              child:
+                                                  const CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                  ),
+                                            ),
                                           );
                                         },
                                         errorWidget:
@@ -1447,18 +1422,37 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                                   Row(
                                     children: [
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 1,
+                                        ),
                                         decoration: BoxDecoration(
-                                          color: (account['type'] == 'Offline' ? Colors.orange : Colors.blue).withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(4),
-                                          border: Border.all(color: (account['type'] == 'Offline' ? Colors.orange : Colors.blue).withValues(alpha: 0.2)),
+                                          color:
+                                              (account['type'] == 'Offline'
+                                                      ? Colors.orange
+                                                      : Colors.blue)
+                                                  .withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                          border: Border.all(
+                                            color:
+                                                (account['type'] == 'Offline'
+                                                        ? Colors.orange
+                                                        : Colors.blue)
+                                                    .withValues(alpha: 0.2),
+                                          ),
                                         ),
                                         child: Text(
-                                          (account['type'] == 'Offline' ? "Local".tl : "Cloud".tl),
+                                          (account['type'] == 'Offline'
+                                              ? "Local".tl
+                                              : "Cloud".tl),
                                           style: TextStyle(
                                             fontSize: 9,
                                             fontWeight: FontWeight.bold,
-                                            color: account['type'] == 'Offline' ? Colors.orange : Colors.blue,
+                                            color: account['type'] == 'Offline'
+                                                ? Colors.orange
+                                                : Colors.blue,
                                           ),
                                         ),
                                       ),
@@ -1489,8 +1483,15 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
                             ),
                             if (account['type'] == 'Offline')
                               IconButton(
-                                onPressed: () => _deleteOfflineAccount(index, account['username'] ?? ""),
-                                icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                                onPressed: () => _deleteOfflineAccount(
+                                  index,
+                                  account['username'] ?? "",
+                                ),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 20,
+                                  color: Colors.redAccent,
+                                ),
                                 visualDensity: VisualDensity.compact,
                               ),
                             if (isSelected)
@@ -1868,8 +1869,8 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 onPressed: () async {
-                  String? selectedDirectory =
-                      await FilePicker.platform.getDirectoryPath();
+                  String? selectedDirectory = await FilePicker.platform
+                      .getDirectoryPath();
                   if (selectedDirectory != null) {
                     _addMinecraftDir(selectedDirectory);
                   }
@@ -2198,9 +2199,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
           setState(() => _loginSkipped = false);
         }
       } else {
-        showError(
-          "Sync failed. Please check your network or login status.".tl,
-        );
+        showError("Sync failed. Please check your network or login status.".tl);
       }
     } catch (e) {
       showError("Sync failed".tl);
@@ -2214,7 +2213,9 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
       context: context,
       builder: (context) => AlertDialog(
         title: Text("Delete Account".tl),
-        content: Text("${"Are you sure you want to delete account".tl} '$username'?"),
+        content: Text(
+          "${"Are you sure you want to delete account".tl} '$username'?",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -2222,7 +2223,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text("Delete".tl, style: const TextStyle(color: Colors.redAccent)),
+            child: Text(
+              "Delete".tl,
+              style: const TextStyle(color: Colors.redAccent),
+            ),
           ),
         ],
       ),
@@ -2240,7 +2244,10 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
       );
 
       if (chosenIdx == index) {
-        await ConfigService.set('MinecraftAccount_Chosen', currentAccounts.isEmpty ? -1 : 0);
+        await ConfigService.set(
+          'MinecraftAccount_Chosen',
+          currentAccounts.isEmpty ? -1 : 0,
+        );
       } else if (chosenIdx > index) {
         await ConfigService.set('MinecraftAccount_Chosen', chosenIdx - 1);
       }
@@ -2258,9 +2265,7 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
         title: Text("Add Offline Account".tl),
         content: TextField(
           controller: controller,
-          decoration: InputDecoration(
-            hintText: "Enter username".tl,
-          ),
+          decoration: InputDecoration(hintText: "Enter username".tl),
           autofocus: true,
           onSubmitted: (val) => _performAddOffline(controller.text, context),
         ),
@@ -2295,11 +2300,12 @@ class _WelcomeSetupScreenState extends State<WelcomeSetupScreen>
         currentAccounts.map((e) => jsonEncode(e)).toList(),
       );
 
-      final int currentChosen = ConfigService.get('MinecraftAccount_Chosen') ?? 0;
+      final int currentChosen =
+          ConfigService.get('MinecraftAccount_Chosen') ?? 0;
       if (currentAccounts.length == 1) {
         await ConfigService.set('MinecraftAccount_Chosen', 0);
       }
-      
+
       // Keep legacy blob in sync
       final newAccountData = {
         "logined": currentAccounts.any((e) => e['locate'] != 'Local'),

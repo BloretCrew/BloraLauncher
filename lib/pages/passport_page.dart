@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:bloret_launcher/services/config_service.dart';
 import 'package:bloret_launcher/services/passport_service.dart';
 import 'package:bloret_launcher/widgets/button.dart';
@@ -9,7 +8,6 @@ import 'package:bloret_launcher/core/grammer_candy.dart';
 import 'package:bloret_launcher/core/uuid_utils.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 class PassPortPage extends StatefulWidget {
@@ -23,8 +21,6 @@ class _PassPortPageState extends State<PassPortPage> {
   bool _isSyncing = false;
   bool _displayUuid = true;
   bool _isWaitingForLogin = false;
-  HttpServer? _authServer;
-  int _actualPort = 25254;
   final ValueNotifier<bool> _isTokenValidNotifier = ValueNotifier<bool>(false);
 
   void _syncStateToUi() {
@@ -39,59 +35,20 @@ class _PassPortPageState extends State<PassPortPage> {
   }
 
   Future<void> _loginBloretPassPort() async {
-    await _startAuthServer();
-    final url = Uri.parse('https://passport.bloret.net/app/oauth?app_id=${PassportService.appId}&redirect_uri=http://localhost:$_actualPort/login/Bloret-PassPort');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(
-          url,
-          mode: Platform.isAndroid ? LaunchMode.inAppBrowserView : LaunchMode.externalApplication
-      );
-      setState(() => _isWaitingForLogin = true);
-    }
-  }
-
-  Future<void> _startAuthServer() async {
-    await _authServer?.close(force: true);
-    try {
-      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 25254);
-      _actualPort = 25254;
-    } catch (_) {
-      _authServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      _actualPort = _authServer!.port;
-    }
-
-    _authServer!.listen((HttpRequest request) async {
-      if (request.uri.path == '/login/Bloret-PassPort') {
-        final params = request.uri.queryParameters;
-        final code = params['code'];
-
-        if (code != null) {
-          final userInfo = await PassportService.verifyCode(code);
-          if (userInfo != null) {
-            await ConfigService.set('Bloret_PassPort_Login', true);
-            await ConfigService.set('Bloret_PassPort_UserName', userInfo['username']);
-            await ConfigService.set('Bloret_PassPort_NickName', userInfo['nickname']);
-            await ConfigService.set('Bloret_PassPort_Avatar', userInfo['avatar']);
-            await ConfigService.set('Bloret_PassPort_Email', userInfo['email']);
-            await ConfigService.set('Bloret_PassPort_Token', userInfo['apptoken']);
-            await ConfigService.set('Bloret_PassPort_BBBS_Session', userInfo['bbbs_session']);
-            await ConfigService.set('Bloret_PassPort_BBBS_Session.sig', userInfo['bbbs_session.sig']);
-
-            final syncResult = await PassportService.syncMinecraftAccounts();
-            _isTokenValidNotifier.value = syncResult;
-            _syncStateToUi();
-            showSuccess("Logged in successfully".tl);
-            logger.info("Passport login success: ${userInfo['username']}", .network);
-          } else {
-            _isTokenValidNotifier.value = false;
-            showError("Authentication failed".tl);
-          }
-          setState(() {});
-
-          request.response
-            ..statusCode = HttpStatus.ok
-            ..headers.contentType = ContentType.html
-            ..write('''
+    await PassportService.startLoginFlow(
+      onLoginSuccess: (userInfo) {
+        _syncStateToUi();
+        setState(() {});
+      },
+      onLoginFail: () {
+        _isTokenValidNotifier.value = false;
+        showError("Authentication failed".tl);
+        setState(() {});
+      },
+      onStartWaiting: () {
+        setState(() => _isWaitingForLogin = true);
+      },
+      successHtml: '''
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -204,14 +161,8 @@ class _PassPortPageState extends State<PassPortPage> {
     </div>
 </body>
 </html>
-''')
-            ..close();
-
-          await _authServer?.close();
-          _authServer = null;
-        }
-      }
-    });
+''',
+    );
   }
 
   void _addOfflineAccount() {
@@ -488,8 +439,7 @@ class _PassPortPageState extends State<PassPortPage> {
                   BloretButton(
                     onPressed: () async {
                       if (_isWaitingForLogin) {
-                        await _authServer?.close();
-                        _authServer = null;
+                        await PassportService.cancelLogin();
                       }
                       await _loginBloretPassPort();
                     },

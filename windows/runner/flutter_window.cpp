@@ -12,6 +12,7 @@
 #include <dwmapi.h>
 #include <psapi.h>
 #include <tlhelp32.h>
+#include <filesystem>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -413,6 +414,45 @@ extern "C" __declspec(dllexport) bool IsProcessAlive(uint32_t pid) {
 }
 
 extern "C" __declspec(dllexport) void DestroyApp() { c_terminate_process(); }
+
+static uint64_t GetDirectorySize(const std::filesystem::path& directory) {
+    uint64_t size = 0;
+    try {
+        if (std::filesystem::exists(directory) && std::filesystem::is_directory(directory)) {
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(directory)) {
+                if (std::filesystem::is_regular_file(entry.status())) {
+                    size += std::filesystem::file_size(entry);
+                }
+            }
+        }
+    } catch (...) {}
+    return size;
+}
+
+extern "C" __declspec(dllexport)
+void SyncAppInfoToRegistry(const wchar_t* version) {
+    if (!version) return;
+
+    // 1. 获取应用路径并计算大小
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::filesystem::path appDir = std::filesystem::path(exePath).parent_path();
+    DWORD sizeInKB = static_cast<DWORD>(GetDirectorySize(appDir) / 1024);
+
+    // 2. 尝试写入注册表
+    HKEY hKey;
+    LPCWSTR subKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\BloraLauncher";
+
+    // 尝试以写权限打开 (通常 HKLM 需要管理员权限)
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, subKey, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
+        // 写入版本号
+        RegSetValueExW(hKey, L"DisplayVersion", 0, REG_SZ, reinterpret_cast<const BYTE*>(version), static_cast<DWORD>((wcslen(version) + 1) * sizeof(wchar_t)));
+        // 写入预估大小 (DWORD 类型)
+        RegSetValueExW(hKey, L"EstimatedSize", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&sizeInKB), sizeof(DWORD));
+
+        RegCloseKey(hKey);
+    }
+}
 
 extern "C" __declspec(dllexport)
 HANDLE LaunchNativeProcess(const wchar_t* exePath, const wchar_t* args, const wchar_t* workingDir, bool runAsAdmin, DWORD priority, DWORD* outPid) {

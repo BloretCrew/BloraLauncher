@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:bloret_launcher/core/ffi_proxy.dart';
@@ -6,10 +7,10 @@ import 'package:bloret_launcher/core/ffi_reg_op.dart';
 import 'package:bloret_launcher/core/window_bridge.dart';
 import 'package:bloret_launcher/pages/about_page.dart';
 import 'package:bloret_launcher/pages/bbbs_page.dart';
+import 'package:bloret_launcher/pages/blank_live_page.dart';
 import 'package:bloret_launcher/pages/blora_chat_page.dart';
 import 'package:bloret_launcher/pages/cores_page.dart';
 import 'package:bloret_launcher/pages/download_page.dart';
-import 'package:bloret_launcher/pages/live_page.dart';
 import 'package:bloret_launcher/pages/mods_page.dart';
 import 'package:bloret_launcher/pages/stat_page.dart';
 import 'package:bloret_launcher/pages/tools_page.dart';
@@ -19,6 +20,7 @@ import 'package:bloret_launcher/services/download_service.dart';
 import 'package:bloret_launcher/services/plugin_install_server.dart';
 import 'package:bloret_launcher/tools/server_info.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,7 +31,9 @@ import '../core/i18n.dart';
 import '../main.dart';
 import '../pages/home_page.dart';
 import '../pages/passport_page.dart';
+import '../pages/riko_land_page.dart';
 import '../pages/settings_page.dart';
+import '../services/update_manager.dart';
 
 enum ShellPage {
   home,
@@ -42,10 +46,11 @@ enum ShellPage {
   mods,
   bbbs,
   live,
+  rikoLand,
   divider2,
   passport,
   settings,
-  about
+  about,
 }
 
 class MainShell extends StatefulWidget {
@@ -61,6 +66,24 @@ class MainShell extends StatefulWidget {
 
 class MainShellState extends State<MainShell> with WidgetsBindingObserver {
   static MainShellState? instance;
+
+  void _syncAppInfoToRegistry() {
+    if (!Platform.isWindows) return;
+    try {
+      final dylib = DynamicLibrary.executable();
+      final syncFn = dylib
+          .lookupFunction<
+            Void Function(Pointer<Utf16>),
+            void Function(Pointer<Utf16>)
+          >('SyncAppInfoToRegistry');
+
+      final versionPtr = currentVersion.toNativeUtf16();
+      syncFn(versionPtr);
+      malloc.free(versionPtr);
+    } catch (e) {
+      if (kDebugMode) print('Registry sync failed: $e');
+    }
+  }
 
   int selectedIndex = ShellPage.home.index;
   bool _isExtended = true;
@@ -84,7 +107,11 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     WindowBridge.init(context);
     PluginInstallServer.start();
 
-    if (!kDebugMode && Platform.isWindows && !WindowsRegedit.isBloraProtocolAvailable()) {
+    _syncAppInfoToRegistry();
+
+    if (!kDebugMode &&
+        Platform.isWindows &&
+        !WindowsRegedit.isBloraProtocolAvailable()) {
       final exePath = Platform.resolvedExecutable;
       WindowsRegedit.registerProtocol(exePath);
     }
@@ -244,7 +271,16 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
         Icons.live_tv,
         keepAlive: true,
       ),
-      () => const LivePage(),
+      () => const BlankLivePage(),
+    ),
+    (
+      _NavDestination(
+        "RikoLand".tl,
+        Icons.auto_awesome_outlined,
+        Icons.auto_awesome,
+        keepAlive: true,
+      ),
+      () => const RikoLandPage(),
     ),
 
     "divider",
@@ -298,7 +334,20 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     height: Bloriko.type == "bloriko" ? 34 : 28,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                  Bloriko.type == "bloriko" ? Container(width: 32, height: 32, clipBehavior: .antiAlias, decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer, shape: BoxShape.circle), child: Image.asset("assets/bloriko.png"),) : Icon(Icons.smart_toy_outlined, size: 16),
+                  Bloriko.type == "bloriko"
+                      ? Container(
+                          width: 32,
+                          height: 32,
+                          clipBehavior: .antiAlias,
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primaryContainer,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Image.asset("assets/bloriko.png"),
+                        )
+                      : Icon(Icons.smart_toy_outlined, size: 16),
                 ],
               ),
               const SizedBox(width: 12),
@@ -424,7 +473,12 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final allTasks = DownloadService.instance.getTasks().where((t) {
       return t.isDownloading ||
           (t.progress > 0 && t.progress < 1.0) ||
-          t.status.contains("失败") || t.status.contains("错误") || t.status.contains("超时") || t.status.contains("Failed") || t.status.contains("Error") || t.status.contains("Timeout");
+          t.status.contains("失败") ||
+          t.status.contains("错误") ||
+          t.status.contains("超时") ||
+          t.status.contains("Failed") ||
+          t.status.contains("Error") ||
+          t.status.contains("Timeout");
     }).toList();
 
     final Map<String?, List<DownloadTask>> groupedTasks = {};
@@ -517,7 +571,9 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                 );
                               },
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 4,
+                                ),
                                 child: Row(
                                   children: [
                                     Expanded(
@@ -526,20 +582,28 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.w900,
-                                          color: theme.colorScheme.primary.withValues(alpha: 0.7),
+                                          color: theme.colorScheme.primary
+                                              .withValues(alpha: 0.7),
                                           letterSpacing: 0.5,
                                         ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
                                     InkWell(
-                                      onTap: () => DownloadService.instance.cancelGroup(groupId),
+                                      onTap: () => DownloadService.instance
+                                          .cancelGroup(groupId),
                                       borderRadius: BorderRadius.circular(4),
                                       child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 2,
+                                        ),
                                         child: Text(
                                           "Cancel Group".tl,
-                                          style: const TextStyle(fontSize: 9, color: Colors.redAccent),
+                                          style: const TextStyle(
+                                            fontSize: 9,
+                                            color: Colors.redAccent,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -550,7 +614,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                           ...tasks.map((task) {
                             return ListenableBuilder(
                               listenable: task,
-                              key: ValueKey(task.id), // 重要：保持动画状态
+                              key: ValueKey(task.id),
                               builder: (context, child) {
                                 return TweenAnimationBuilder<double>(
                                   tween: Tween(begin: 0.0, end: 1.0),
@@ -559,18 +623,24 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                   builder: (context, value, child) {
                                     return Transform.translate(
                                       offset: Offset(0, 10 * (1 - value)),
-                                      child: Opacity(opacity: value, child: child),
+                                      child: Opacity(
+                                        opacity: value,
+                                        child: child,
+                                      ),
                                     );
                                   },
                                   child: Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 2,
+                                    ),
                                     child: InkWell(
                                       onTap: () {},
                                       borderRadius: BorderRadius.circular(4),
                                       child: Padding(
                                         padding: const EdgeInsets.all(4.0),
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Row(
                                               children: [
@@ -579,16 +649,19 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                                     task.id,
                                                     style: const TextStyle(
                                                       fontSize: 11,
-                                                      fontWeight: FontWeight.bold,
+                                                      fontWeight:
+                                                          FontWeight.bold,
                                                     ),
-                                                    overflow: TextOverflow.ellipsis,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
                                                   ),
                                                 ),
                                                 if (task.isDownloading) ...[
                                                   Text(
-                                                    DownloadService.instance.formatSpeed(
-                                                      task.speed,
-                                                    ),
+                                                    DownloadService.instance
+                                                        .formatSpeed(
+                                                          task.speed,
+                                                        ),
                                                     style: const TextStyle(
                                                       fontSize: 9,
                                                       color: Colors.blueAccent,
@@ -601,23 +674,27 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                                       size: 14,
                                                       color: Colors.redAccent,
                                                     ),
-                                                    onPressed: () => DownloadService.instance
-                                                        .cancelTask(task.id),
+                                                    onPressed: () =>
+                                                        DownloadService.instance
+                                                            .cancelTask(
+                                                              task.id,
+                                                            ),
                                                     padding: EdgeInsets.zero,
-                                                    constraints: const BoxConstraints(),
+                                                    constraints:
+                                                        const BoxConstraints(),
                                                   ),
                                                 ],
                                               ],
                                             ),
                                             const SizedBox(height: 2),
                                             ClipRRect(
-                                              borderRadius: BorderRadius.circular(2),
+                                              borderRadius:
+                                                  BorderRadius.circular(2),
                                               child: LinearProgressIndicator(
                                                 value: task.progress,
                                                 minHeight: 3,
-                                                backgroundColor: Colors.grey.withValues(
-                                                  alpha: 0.1,
-                                                ),
+                                                backgroundColor: Colors.grey
+                                                    .withValues(alpha: 0.1),
                                               ),
                                             ),
                                             if (task.isDownloading)
@@ -698,7 +775,8 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
         MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
 
     final userName =
-        ConfigService.get('Bloret_PassPort_NickName') ?? (ConfigService.get('Bloret_PassPort_UserName') ?? "Guest".tl);
+        ConfigService.get('Bloret_PassPort_NickName') ??
+        (ConfigService.get('Bloret_PassPort_UserName') ?? "Guest".tl);
     final avatar = ConfigService.get('Bloret_PassPort_Avatar') ?? "";
 
     return Scaffold(
@@ -742,7 +820,7 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                   Expanded(
                                     child: ListView.builder(
                                       padding: EdgeInsets.zero,
-                                      itemCount: 10,
+                                      itemCount: ShellPage.divider2.index,
                                       itemBuilder: (context, index) {
                                         final item = _pages[index];
                                         if (item is String) {
@@ -775,24 +853,45 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                                         ),
                                         _AccountTile(
                                           isExtended: _isExtended,
-                                          isSelected: selectedIndex == ShellPage.passport.index,
+                                          isSelected:
+                                              selectedIndex ==
+                                              ShellPage.passport.index,
                                           userName: userName,
                                           avatar: avatar,
-                                          onTap: () => _onPageChanged(ShellPage.passport.index),
+                                          onTap: () => _onPageChanged(
+                                            ShellPage.passport.index,
+                                          ),
                                         ),
                                         _NavTile(
-                                          icon: _pages[ShellPage.settings.index].$1.icon,
-                                          title: _pages[ShellPage.settings.index].$1.title,
+                                          icon: _pages[ShellPage.settings.index]
+                                              .$1
+                                              .icon,
+                                          title:
+                                              _pages[ShellPage.settings.index]
+                                                  .$1
+                                                  .title,
                                           isExtended: _isExtended,
-                                          isSelected: selectedIndex == ShellPage.settings.index,
-                                          onTap: () => _onPageChanged(ShellPage.settings.index),
+                                          isSelected:
+                                              selectedIndex ==
+                                              ShellPage.settings.index,
+                                          onTap: () => _onPageChanged(
+                                            ShellPage.settings.index,
+                                          ),
                                         ),
                                         _NavTile(
-                                          icon: _pages[ShellPage.about.index].$1.icon,
-                                          title: _pages[ShellPage.about.index].$1.title,
+                                          icon: _pages[ShellPage.about.index]
+                                              .$1
+                                              .icon,
+                                          title: _pages[ShellPage.about.index]
+                                              .$1
+                                              .title,
                                           isExtended: _isExtended,
-                                          isSelected: selectedIndex == ShellPage.about.index,
-                                          onTap: () => _onPageChanged(ShellPage.about.index),
+                                          isSelected:
+                                              selectedIndex ==
+                                              ShellPage.about.index,
+                                          onTap: () => _onPageChanged(
+                                            ShellPage.about.index,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -836,13 +935,17 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
                           return AnimatedOpacity(
                             key: ValueKey(index),
-                            duration: isSelected ? const Duration(milliseconds: 400) : Duration.zero,
+                            duration: isSelected
+                                ? const Duration(milliseconds: 400)
+                                : Duration.zero,
                             curve: Curves.easeOutCubic,
                             opacity: isSelected ? 1.0 : 0.0,
                             child: IgnorePointer(
                               ignoring: !isSelected,
                               child: AnimatedSlide(
-                                duration: isSelected ? const Duration(milliseconds: 400) : Duration.zero,
+                                duration: isSelected
+                                    ? const Duration(milliseconds: 400)
+                                    : Duration.zero,
                                 curve: Curves.easeOutCubic,
                                 offset: isSelected
                                     ? Offset.zero
@@ -872,7 +975,9 @@ class MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 builder: (context, child) {
                   final showDownload =
                       DownloadService.instance.activeTasks.isNotEmpty;
-                  final showAgent = Bloriko.instance.busy && selectedIndex != ShellPage.agent.index;
+                  final showAgent =
+                      Bloriko.instance.busy &&
+                      selectedIndex != ShellPage.agent.index;
 
                   return Row(
                     mainAxisSize: MainAxisSize.min,

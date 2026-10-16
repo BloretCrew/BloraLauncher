@@ -39,31 +39,34 @@ void main() async {
   await ConfigService.init();
   await I18n.init();
   HttpOverrides.global = BloraHttpOverrides();
+
+  runApp(const BloraLauncherApp());
+  _initBackgroundServices();
+}
+
+Future<void> _initBackgroundServices() async {
   logger = await AppLogger.getInstance();
-  ErrorWidget.builder = (FlutterErrorDetails details) {
-    return const SizedBox.shrink();
-  };
   Bloriko.getInstance();
   await MemoryStore.instance.loadOnInit();
   await PluginService.instance.init();
   updateManager = await UpdateManager.instance.init();
+
   Timer.periodic(const Duration(seconds: 30), (timer) async {
     try {
       final res = await Dio().get(
         "https://raw.gitcode.com/Bloret/Bloret-Launcher/raw/Windows/IP.json",
       );
       if (res.statusCode == 200) {
-        if (jsonDecode(res.data)["PCFS"] != null &&
-            jsonDecode(res.data)["PCFS"] != serverIP) {
-          serverIP = res.data["PCFS"];
+        final data = jsonDecode(res.data);
+        if (data["PCFS"] != null && data["PCFS"] != serverIP) {
+          serverIP = data["PCFS"];
           timer.cancel();
         }
       }
     } catch (e) {
-      logger.error("Fetch Server IP Error: $e");
+      debugPrint("Fetch Server IP Error: $e");
     }
   });
-  runApp(const BloraLauncherApp());
 }
 
 class BloraLauncherApp extends StatelessWidget {
